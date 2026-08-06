@@ -72,11 +72,16 @@ def start_run(output_root: Path, started_at: datetime | None = None) -> RunConte
 def run_logging(log_path: Path, *, verbose: bool = False) -> Iterator[logging.Logger]:
     """실행 로그를 콘솔과 `run.log`에 동시에 남긴다.
 
+    **`run.log`는 항상 DEBUG까지 남기고, `verbose`는 콘솔에만 영향을 준다.** run.log는
+    사후 검수·재현용 기록이므로(PRD 2장, 13장) 사용자가 그때 `--verbose`를 붙였는지에
+    따라 내용이 달라지면 안 된다. 해석된 설정 전체처럼 양이 많아 콘솔에는 부담스럽지만
+    기록으로는 반드시 필요한 항목이 여기 해당한다.
+
     핸들러를 종료 시 반드시 떼어낸다. 한 프로세스에서 여러 run을 돌리면(테스트, 이후의
     앱 백엔드) 핸들러가 누적되어 로그가 이전 run의 파일로도 새어 나간다.
     """
     logger = logging.getLogger(PACKAGE_LOGGER)
-    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
     formatter = logging.Formatter(
@@ -85,8 +90,10 @@ def run_logging(log_path: Path, *, verbose: bool = False) -> Iterator[logging.Lo
     )
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
 
     handlers: list[logging.Handler] = [file_handler, console_handler]
     for handler in handlers:
