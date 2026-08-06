@@ -16,7 +16,7 @@ llm:
     runs: 2                       # 문제당 블라인드 재답변 횟수
     confidence_threshold: 0.8     # 미만이면 flagged 처리. 잠정값 — #10에서 확정한다
   timeout_sec: 600                # LLM 호출 1회 타임아웃(초)
-  max_retries: 2                  # 호출 실패 시 재시도 횟수
+  max_retries: 2                  # 재시도 횟수. 타임아웃·바이너리 부재는 재시도하지 않는다
   providers:
     claude_cli:
       binary: claude              # 실행할 claude CLI 바이너리 이름 또는 절대 경로
