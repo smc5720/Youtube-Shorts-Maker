@@ -244,9 +244,11 @@ outputs/run-{timestamp}/
 - **합성 트랙**: `voice.mp3`는 확정된 전체 길이를 가지며, 각 세그먼트를
   `scene_start + lead_in` 위치에 배치하고 나머지 구간은 무음으로 채운다. 효과음과 배경음악은
   섞지 않는다 — 렌더 단계에서 별도 트랙으로 믹싱한다.
-- **`scenes.json`에 기록하는 필드**: 각 낭독 장면에 세그먼트 파일 경로, 실측 오디오 길이,
-  합성 트랙 내 낭독 시작 오프셋을 남긴다. 자막(7.6)은 이 오프셋을 기준으로 타임코드를 만든다.
-  필드명은 스키마 정의에서 확정한다.
+- **`scenes.json`에 기록하는 필드**: 각 낭독 장면에 세그먼트 파일 경로(`audio`), 실측 오디오
+  길이(`audio_duration`), 합성 트랙 내 낭독 시작 오프셋(`narration_offset`)을 남긴다. 자막(7.6)은
+  이 오프셋을 기준으로 타임코드를 만든다. **이 세 이름으로 확정됐다** — 스키마 정의는
+  `src/shorts_maker/schemas/scenes.py`이고, 세 필드는 `narrate: true` 장면에만 존재한다.
+  파일명은 같은 모듈의 `segment_path(scene_index)`가 만든다.
 - **재실행**: 세그먼트가 이미 있고 원문 텍스트가 바뀌지 않았으면 재합성을 건너뛸 수 있다.
   이때도 `duration`은 기존 파일을 다시 측정해 확정한다.
 
@@ -287,6 +289,34 @@ outputs/run-{timestamp}/
 - 편집 가능한 상태는 `project.json`으로 저장한다.
 - `project.json`은 장면, 자막, 텍스트 오버레이, 배경 소스, 오디오 소스, 렌더링 설정을 포함한다.
 - 앱은 `project.json`을 기준으로 미리보기와 최종 렌더링을 수행한다.
+
+**생성 직후의 초기 상태**는 아래로 확정됐다. 스키마 정의는
+`src/shorts_maker/schemas/project.py`에 있다.
+
+```json
+{
+  "schema_version": 1,
+  "type": "quiz",
+  "language": "ko",
+  "scenes": "scenes.json",
+  "background": { "kind": "preset", "value": "gradient_default" },
+  "audio": { "voice": "voice.mp3", "music": null },
+  "render": { "width": 1080, "height": 1920, "fps": 30, "output": "final_short.mp4" }
+}
+```
+
+| 필드 | 내용 |
+| --- | --- |
+| `scenes` | `scenes.json` 경로. **장면 배열을 복사하지 않는다** — 같은 장면이 두 곳에 있으면 어느 쪽이 원본인지 모호해진다 (7.4.1) |
+| `background.kind` | `preset` \| `color` \| `image` \| `video`. `preset`은 번들 프리셋 이름, `color`는 색상 값, 나머지는 사용자 파일 경로 (14.1의 배경 소스 결정) |
+| `audio.voice` | 합성 트랙 경로. 낭독 장면이 없으면 `voice.mp3`가 생성되지 않으므로 `null`이 될 수 있다 (6.2) |
+| `audio.music` | 사용자가 라이선스를 확인한 파일만. 기본은 `null` (8장) |
+| `render` | 6.3의 영상 규격과 출력 파일명 |
+
+- 경로 값은 모두 **run 디렉터리 기준 상대 경로**다. 디렉터리를 옮겨도 프로젝트가 열려야 한다.
+- **편집 상태 필드는 아직 없다.** 텍스트 오버레이 편집 이력, 자막 스타일 선택, 트랙별 볼륨은
+  앱 프레임워크가 정해진 뒤 추가한다 — 지금 정하면 프레임워크 결정에 따라 다시 쓴다. 초기
+  상태만 먼저 정하는 이유는 `project.json`이 6.2에서 항상 생성되는 산출물이기 때문이다.
 
 ## 8. 안전장치 및 정책 고려
 
@@ -365,6 +395,7 @@ Youtube-Shorts-Maker/
       metadata_generator.py
       project.py
       api.py
+      schemas/            # 산출물 JSON 계약 — quiz/scenes/project 스키마와 검증기
       types/
         quiz/             # 타입 전용 생성기와 장면 템플릿 (퀴즈 스펙 4장)
   tests/
@@ -576,6 +607,27 @@ timestamp 개선에 Whisper 전사가 필요하지 않을 수 있다. 전사는 
 영향 — config `tts.provider` / `tts.voice` 키(#6), TTS 인터페이스(#14), 세그먼트 배치(#15),
 duration 보정(#16), 자막 타임코드(#17), 10장 기술 스택. 상세 실측치와 provider 인터페이스
 요구사항은 `docs/spikes/2-tts-provider.md`.
+
+#### 산출물 스키마: 코드가 단일 진실 공급원, `scenes.json`은 단일 스키마 + 확정 검증
+
+`quiz.json` / `scenes.json` / `project.json`의 필드명과 열거값은 `src/shorts_maker/schemas/`가
+확정한다. 문서(7.5.2, 7.10, 퀴즈 스펙 3장)는 그 이름을 설명하는 쪽이다. 세 파일 모두
+`schema_version`을 가지며 모르는 버전은 오류다. `scenes.json`은 **스키마 하나에 오디오 필드를
+optional로 두고**, TTS 이후 상태를 요구하는 확정 검증(`validate_scenes_final`)을 별도 함수로
+분리한다. 확정 검증은 `narrate: true` 장면에만 오디오 필드를 요구한다.
+
+근거 — 장면 템플릿이 만드는 것은 초안이고 오디오 필드는 TTS가 채운다(7.5.1, 7.5.2). 초안을
+"필수 필드 누락"으로 떨어뜨리면 장면 템플릿이 자기 산출물을 검증할 수 없고, 반대로 초안용과
+확정용 스키마를 따로 두면 공통 필드가 두 곳에서 갈라진다. 요구가 갈리는 축은 파일이 아니라
+`narrate` 플래그이므로, 스키마는 하나로 두고 검증 함수를 나누는 것이 실제 구조와 맞는다.
+
+`jsonschema`를 쓰지 않는다 — 이 계약의 핵심 규칙(`narrate` 조건부 필수, 세그먼트 파일명
+인덱스와 장면 배열 위치의 일치)이 JSON Schema로 표현되지 않아 어차피 코드로 써야 하고,
+조건부 규칙을 `allOf`/`if`로 우회하면 오류 경로가 `allOf[1].then.required`처럼 나와
+"어느 필드가 틀렸는지"를 잃는다.
+
+영향 — 산출물 검증(#8, #24), `quiz.json` 생성(#9)과 `verify` 필드(#10, #11), `scenes.json`
+초안(#12), 오디오 필드 확정(#15, #16), 자막 오프셋 소비(#17), `project.json` 편집 상태 확장(#26).
 
 ### 14.2 남은 미해결 항목
 

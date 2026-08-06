@@ -90,6 +90,7 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
 
 ```json
 {
+  "schema_version": 1,
   "type": "quiz",
   "category": "general_knowledge",
   "language": "ko",
@@ -113,8 +114,11 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
 }
 ```
 
+- `schema_version`: 현재 `1`. 모르는 버전은 오류로 처리한다 (`src/shorts_maker/schemas/`).
 - `difficulty`: `easy` | `medium` | `hard`. 장면 배치는 이 순서를 따른다.
 - `verify.status`: `verified` | `unverified` | `flagged`. `verified`가 아니면 앱에서 빨간 플래그로 표시하고 사람이 확인해야 한다.
+- `verify`는 **`quiz_generator`가 만든 직후에는 없다.** `quiz_verifier`가 채우므로 검증기는
+  이 필드를 필수로 요구하지 않는다. `source`는 근거를 대지 못하는 검증도 있으므로 선택이다.
 
 ### 3.2 `scenes.json` (파생)
 
@@ -125,6 +129,7 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
 
 ```json
 {
+  "schema_version": 1,
   "type": "quiz",
   "scenes": [
     { "role": "hook", "text": "이 상식 4개, 다 맞히면 상위 1%", "duration": 3.0 },
@@ -148,11 +153,25 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
 - `narration_offset`: `voice.mp3` 안에서 이 세그먼트가 시작하는 시각. 자막 타임코드의 기준이다.
 - `audio` / `audio_duration` / `narration_offset`은 TTS 단계가 채운다. 장면 템플릿은 비워 둔다.
 
-> 필드명은 스키마 정의(#7)에서 확정한다. 위 이름은 현재 합의된 초안이다.
+> **필드명은 위 이름으로 확정됐다.** 스키마 정의는 `src/shorts_maker/schemas/scenes.py`에
+> 있고, 이 문서가 아니라 그 코드가 단일 진실 공급원이다. 검증은 두 단계다 —
+> `validate_scenes()`는 초안과 확정 상태를 모두 받고, `validate_scenes_final()`은 모든 장면의
+> `duration`과 낭독 장면의 오디오 필드를 요구한다. 낭독이 아닌 장면에는 확정 검증도 오디오
+> 필드를 요구하지 않는다. 세그먼트 파일명은 `segment_path(scene_index)`가 만든다.
+>
+> 스키마가 추가로 요구하는 것 두 가지가 있다. `narrate: true` 장면에는 `text`와
+> `target_duration`이 있어야 하고(합성할 문장과 경고 기준이 없으면 TTS 단계가 판단할 근거가
+> 없다), `role: "countdown"` 장면에는 `seconds`가 있어야 한다(렌더러가 셀 숫자다). 선언하지
+> 않은 필드는 오류다 — `narate`처럼 오타 난 플래그가 "낭독 아님"으로 조용히 통과하면 음성
+> 없는 영상이 나온다.
 
 ### 3.3 `project.json` 연동
 
 편집 가능한 상태 저장. 퀴즈 타입일 때 `type: "quiz"`와 함께 위 콘텐츠/장면 구조를 참조한다. 앱은 이 파일 기준으로 프리뷰/최종 렌더링을 수행한다 (PRD 7.10).
+
+장면 배열을 `project.json`에 복사하지 않고 `scenes.json` 경로만 참조한다. 초기 상태의 필드
+목록과 예시는 [PRD 7.10](../PRD.md#710-프로젝트-파일)에 있고, 편집 상태 필드는 앱
+프레임워크가 정해진 뒤 추가된다.
 
 ## 4. 파이프라인
 
