@@ -330,6 +330,7 @@ outputs/run-{timestamp}/
 ```text
 Youtube-Shorts-Maker/
   pyproject.toml          # 의존성 선언 + shorts-maker 콘솔 스크립트
+  config.example.yaml     # 설정 키 전체와 기본값 (복사해 config.yaml로 쓴다)
   docs/
     PRD.md
   app/
