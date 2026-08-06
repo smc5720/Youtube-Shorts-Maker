@@ -24,23 +24,63 @@
   - **장면 템플릿**: 콘텐츠 → `scenes.json` (타입별 장면 레이아웃/타임라인 규칙)
 - **렌더러(FFmpeg)** 와 **TTS/자막**은 공통 파이프라인을 공유하되, 타입 전용 렌더 요소(퀴즈의 카운트다운 오버레이, 정답 강조 등)를 추가한다.
 
+### 1.1 경계 규칙: 공통 파이프라인은 `scenes.json`만 본다
+
+플러그인 경계를 지키는 규칙은 하나다. **TTS·자막·렌더러·메타데이터 생성기는 `scenes.json`만
+읽고 `quiz.json`을 열지 않는다.**
+
+| 모듈 | 읽는 것 | 읽지 않는 것 |
+| --- | --- | --- |
+| `quiz_generator` / `quiz_verifier` | 입력 주제 | — |
+| 장면 템플릿 (`scene_template.py`) | `quiz.json` | — |
+| `tts` / `captions` / `video_renderer` / `metadata_generator` | `scenes.json` | **`quiz.json`** |
+
+- 렌더에 필요한 타입 전용 정보는 장면 템플릿이 `scenes.json` 필드로 옮겨 담는다.
+  예: `countdown_sec`은 `countdown` 장면의 `seconds`·`duration`으로, `explanation`은
+  `answer` 장면의 `caption`으로 옮긴다. 렌더러가 `quiz.json`의 `explanation`을 직접 읽으면 안 된다.
+- 타입 전용 렌더 요소도 `role` 값으로만 구분한다. 렌더러는 `role: "countdown"`을 보고
+  카운트다운 오버레이를 그리지만, 그 장면이 퀴즈에서 나왔다는 사실은 모른다. 다른 타입이
+  같은 `role`을 쓰면 같은 오버레이를 그대로 얻는다.
+- 세그먼트 오디오 파일명도 장면 인덱스로만 매긴다 (`audio/seg-003.mp3`). `q2_answer.mp3` 같은
+  이름은 TTS 모듈에 퀴즈 어휘를 들여오므로 쓰지 않는다.
+
+이 경계가 깨지면 두 번째 타입(스토리·랭킹 등)을 추가할 때 공통 파이프라인 전체를 고쳐야 한다.
+PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
+
 ## 2. 포맷 / 타임라인
 
 문제당 약 10초, 기본 4문제 기준 약 48초.
 
+> **아래 초 단위 값은 전부 목표치이며 최종 길이가 아니다.** 질문·정답 장면은 낭독이 있으므로
+> 실제 `duration`은 합성된 오디오를 실측한 길이 + 앞뒤 패딩으로 확정한다
+> ([PRD 7.5.1](../PRD.md#751-타이밍-확정-규칙--duration은-실측-오디오-길이로-정한다)).
+> "질문 3초"를 고정값으로 구현하면 자막·정답 강조·효과음이 음성과 어긋난다. 목표치는 확정값이
+> 크게 벗어났을 때 경고를 내는 기준으로만 쓴다.
+
 ```text
 [0~3초]     후킹        강한 첫 문장 (예: "이 상식 4개, 다 맞히면 상위 1%")
 ── 문제 블록 (문제 수만큼 반복) ──
-  [질문 3초]    질문 텍스트 크게 표시 + TTS 질문 낭독
-  [카운트 4초]  3 → 2 → 1 타이머 오버레이 + 비프음 (생각할 시간)
-  [정답 3초]    정답 강조 등장 + 한 줄 해설(자막) + 정답 효과음 + TTS 정답 낭독
+  [질문 ~3초]   질문 텍스트 크게 표시 + TTS 질문 낭독      ← 실측 확정
+  [카운트 4초]  3 → 2 → 1 타이머 오버레이 + 비프음 (생각할 시간)  ← 고정
+  [정답 ~3초]   정답 강조 등장 + 한 줄 해설(자막) + 정답 효과음 + TTS 정답 낭독  ← 실측 확정
 ── 반복 끝 ──
 [마지막 3~5초] CTA        "몇 개 맞혔나요? 댓글 + 구독"
 ```
 
-- 길이 가이드: 3문제 ≈ 38초 / 4문제 ≈ 48초 / 5문제 ≈ 58초.
+| 장면 | 길이 결정 | 근거 |
+| --- | --- | --- |
+| `hook` | 고정 3.0초 | 현재 TTS 범위가 질문·정답뿐이라 낭독이 없다 |
+| `question` | 실측 오디오 + 패딩 | 질문 문장 길이가 문제마다 다르다 |
+| `countdown` | 고정 `countdown_sec` (기본 4초) | 낭독이 없고, 숫자 전환이 정수 초에 맞아야 한다 |
+| `answer` | 실측 오디오 + 패딩 | 정답 낭독 길이가 "나일강"과 "카를 벤츠의 페이턴트 모터바겐"만큼 차이난다 |
+| `cta` | 고정 4.0초 | 낭독이 없다 |
+
+- 길이 가이드: 3문제 ≈ 38초 / 4문제 ≈ 48초 / 5문제 ≈ 58초. 이것도 목표 범위이며, 확정 합계가
+  PRD 6.3의 45~60초를 벗어나면 경고만 남기고 렌더는 진행한다.
 - **난이도 오름차순 배치**(easy → hard)로 이탈을 방지한다. 후킹의 "상위 1%"는 마지막 고난도 문제로 정당화한다.
 - 문제당 카운트다운 길이는 난이도에 따라 조정 가능 (`countdown_sec`).
+- `hook`·`cta`에 낭독을 추가하기로 결정하면 두 장면은 `narrate: true`가 되고 자동으로 실측
+  규칙을 따른다. 고정 길이 목록을 코드에 하드코딩하지 않는다.
 
 ## 3. 데이터 스키마
 
@@ -80,18 +120,35 @@
 
 `quiz.json`에서 자동 생성한다. 문제 1개 → 서브 장면 3개(질문/카운트다운/정답). 후킹·CTA는 별도 장면.
 
+장면 템플릿이 만드는 것은 **초안**이다. `narrate: true` 장면의 `duration`은 TTS 단계가
+실측값으로 덮어쓴다 (PRD 7.5.1). 아래 예시는 TTS 단계까지 지난 확정 상태다.
+
 ```json
 {
   "type": "quiz",
   "scenes": [
     { "role": "hook", "text": "이 상식 4개, 다 맞히면 상위 1%", "duration": 3.0 },
-    { "role": "question", "question_id": 1, "text": "세계에서 가장 긴 강은?", "duration": 3.0, "narrate": true },
+    { "role": "question", "question_id": 1, "text": "세계에서 가장 긴 강은?",
+      "narrate": true, "target_duration": 3.0, "duration": 2.94,
+      "audio": "audio/seg-001.mp3", "audio_duration": 2.14, "narration_offset": 3.3 },
     { "role": "countdown", "question_id": 1, "seconds": 4, "duration": 4.0, "sfx": "beep" },
-    { "role": "answer", "question_id": 1, "text": "나일강", "caption": "약 6,650km로 세계 최장", "duration": 3.0, "narrate": true, "sfx": "correct" },
+    { "role": "answer", "question_id": 1, "text": "나일강", "caption": "약 6,650km로 세계 최장",
+      "narrate": true, "target_duration": 3.0, "duration": 1.72,
+      "audio": "audio/seg-003.mp3", "audio_duration": 0.92, "narration_offset": 10.24,
+      "sfx": "correct" },
     { "role": "cta", "text": "몇 개 맞혔나요? 댓글로 알려주세요!", "duration": 4.0 }
   ]
 }
 ```
+
+- `target_duration`: 템플릿이 넣은 목표치. 확정값과 크게 벌어졌는지 검증할 때만 쓴다.
+- `duration`: 확정 길이. 낭독 장면은 `lead_in + audio_duration + tail`, 최소 `min_duration`.
+- `audio`: 세그먼트 파일 경로. 인덱스는 `scenes` 배열 위치(0-based)를 따르므로 낭독이 아닌
+  장면 번호는 비어 있다 (위 예시에서 `seg-000`·`seg-002`·`seg-004`가 없다).
+- `narration_offset`: `voice.mp3` 안에서 이 세그먼트가 시작하는 시각. 자막 타임코드의 기준이다.
+- `audio` / `audio_duration` / `narration_offset`은 TTS 단계가 채운다. 장면 템플릿은 비워 둔다.
+
+> 필드명은 스키마 정의(#7)에서 확정한다. 위 이름은 현재 합의된 초안이다.
 
 ### 3.3 `project.json` 연동
 
@@ -105,12 +162,19 @@
 입력(주제)
   → quiz_generator   : LLM으로 Q&A 세트 생성 → quiz.json 초안
   → quiz_verifier    : 2차 LLM으로 각 문제 검증 (정답 정확성, 근거, 신뢰도) → verify 필드 채움
-  → scene_planner    : 퀴즈 템플릿으로 scenes.json 생성 (질문/카운트다운/정답 3단 + 후킹/CTA)
-  → tts              : 질문 + 정답 낭독 오디오 생성
-  → captions         : 자막(SRT/ASS) 생성 — 질문/정답/해설 포함
+  → scene_planner    : 퀴즈 템플릿으로 scenes.json 초안 생성 (질문/카운트다운/정답 3단 + 후킹/CTA)
+  → tts              : narrate 장면별 세그먼트 오디오 생성 → 실측 길이로 duration 확정
+                       → 타임라인에 배치한 voice.mp3 합성
+  → captions         : 자막(SRT/ASS) 생성 — 질문/정답/해설 포함, 확정 duration·오프셋 기준
   → video_renderer   : FFmpeg 합성 + 퀴즈 전용 오버레이(카운트다운/정답 강조) + 효과음 믹싱
   → metadata_generator
 ```
+
+`tts` 이후 단계는 모두 확정된 `scenes.json`을 입력으로 받는다. `scene_planner` 초안의 목표치를
+기준으로 계산하는 단계가 있으면 안 된다.
+
+퀴즈 타입은 `script.txt`·`summary.json`을 생성하지 않는다. 낭독 대상은 `quiz.json`의 질문·정답
+필드이고 요약할 원문이 없다. `--topic` 입력이므로 `source.json`도 없다 (PRD 6.2 표).
 
 신설 모듈: `src/types/quiz/quiz_generator.py`, `src/types/quiz/quiz_verifier.py`, `src/types/quiz/scene_template.py` (구조는 구현 시 확정).
 
