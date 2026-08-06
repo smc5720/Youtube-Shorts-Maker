@@ -1,0 +1,876 @@
+{
+  "started_at": "2026-08-06T13:15:31",
+  "finished_at": "2026-08-06T13:23:17",
+  "harness": "claude CLI headless (-p), 프로젝트 컨텍스트 격리",
+  "verify_runs_per_question": 2,
+  "gen_runs": 3,
+  "candidates": [
+    {
+      "model": "opus",
+      "gen_calls": [
+        {
+          "model": "opus",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.0414015,
+          "api_ms": 26005,
+          "wall_ms": 32053,
+          "output": {
+            "hook": "4문제 중 3개 맞히면 상식 상위 10%! 마지막 문제까지 버틸 수 있나요?",
+            "cta": "몇 개 맞혔나요? 댓글에 점수 남기고, 다음 퀴즈도 놓치지 않게 구독 눌러주세요!",
+            "questions": [
+              {
+                "id": 1,
+                "question": "훈민정음을 창제한 조선의 왕은 누구일까요?",
+                "answer": "세종대왕",
+                "explanation": "조선 제4대 왕 세종은 1443년 훈민정음을 창제해 1446년에 반포했습니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "한라산이 있는 우리나라의 섬은 어디일까요?",
+                "answer": "제주도",
+                "explanation": "한라산은 제주도 중앙에 솟은 해발 1,947m의 산으로 남한에서 가장 높습니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "대하소설 '토지'를 쓴 작가는 누구일까요?",
+                "answer": "박경리",
+                "explanation": "박경리는 1969년부터 25년간 집필해 전 5부 16권의 대하소설 '토지'를 완성했습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "사람 몸에서 가장 긴 뼈의 이름은 무엇일까요?",
+                "answer": "대퇴골",
+                "explanation": "허벅지에 있는 대퇴골(넙다리뼈)은 성인 키의 약 4분의 1을 차지하는 가장 긴 뼈입니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        },
+        {
+          "model": "opus",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.032101500000000005,
+          "api_ms": 19128,
+          "wall_ms": 25558,
+          "output": {
+            "hook": "4문제 중 몇 개 맞힐 수 있을까? 마지막 문제는 정답률 10%!",
+            "cta": "정답 개수를 댓글에 남기고, 다음 퀴즈도 놓치지 않게 구독 눌러주세요!",
+            "questions": [
+              {
+                "id": 1,
+                "question": "우리나라에서 면적이 가장 넓은 섬은?",
+                "answer": "제주도",
+                "explanation": "제주도는 약 1,833㎢로 우리나라에서 가장 큰 섬이며, 두 번째는 거제도입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "1기압에서 물이 끓는 온도는 섭씨 몇 도?",
+                "answer": "100도",
+                "explanation": "1기압(약 1013hPa)에서 물의 끓는점은 섭씨 100도, 어는점은 0도입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "조선의 법전 경국대전을 완성해 반포한 왕은?",
+                "answer": "성종",
+                "explanation": "세조 때 편찬을 시작한 경국대전은 성종 때 완성되어 1485년부터 시행되었습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "노벨상 6개 부문 중 가장 늦게 만들어진 상은?",
+                "answer": "경제학상",
+                "explanation": "노벨상은 1901년 5개 부문으로 시작했고, 경제학상은 1968년 제정되어 1969년부터 수여됐습니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        },
+        {
+          "model": "opus",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.0383265,
+          "api_ms": 25971,
+          "wall_ms": 31988,
+          "output": {
+            "cta": "4문제 다 맞혔다면 댓글에 '상식왕' 남겨주세요! 구독하면 매일 새 퀴즈가 올라옵니다.",
+            "hook": "3초 안에 못 맞히면 상식 초보! 당신은 몇 개나 맞힐까요?",
+            "questions": [
+              {
+                "id": 1,
+                "question": "태극기 한가운데 있는 빨강·파랑 문양의 이름은?",
+                "answer": "태극",
+                "explanation": "태극기 중앙의 빨강(양)과 파랑(음)이 어우러진 원 문양을 '태극'이라고 하며, 우주의 조화를 상징합니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "훈민정음, 즉 한글을 창제한 조선의 왕은?",
+                "answer": "세종대왕",
+                "explanation": "조선 제4대 왕 세종대왕이 1443년 훈민정음을 창제하고 1446년에 반포했습니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "24절기 중 일 년에서 낮이 가장 긴 날은?",
+                "answer": "하지",
+                "explanation": "하지(6월 21일경)는 북반구에서 태양의 고도가 가장 높아 낮의 길이가 일 년 중 가장 깁니다. 반대로 밤이 가장 긴 날은 동지입니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "1885년 세워진 우리나라 최초의 근대식 병원은?",
+                "answer": "광혜원",
+                "explanation": "1885년 선교사 알렌의 건의로 설립된 광혜원은 우리나라 최초의 근대식 국립 병원으로, 곧 제중원으로 이름이 바뀌었습니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        }
+      ],
+      "questions": [
+        {
+          "id": 1,
+          "question": "훈민정음을 창제한 조선의 왕은 누구일까요?",
+          "answer": "세종대왕",
+          "explanation": "조선 제4대 왕 세종은 1443년 훈민정음을 창제해 1446년에 반포했습니다.",
+          "difficulty": "easy"
+        },
+        {
+          "id": 2,
+          "question": "한라산이 있는 우리나라의 섬은 어디일까요?",
+          "answer": "제주도",
+          "explanation": "한라산은 제주도 중앙에 솟은 해발 1,947m의 산으로 남한에서 가장 높습니다.",
+          "difficulty": "easy"
+        },
+        {
+          "id": 3,
+          "question": "대하소설 '토지'를 쓴 작가는 누구일까요?",
+          "answer": "박경리",
+          "explanation": "박경리는 1969년부터 25년간 집필해 전 5부 16권의 대하소설 '토지'를 완성했습니다.",
+          "difficulty": "medium"
+        },
+        {
+          "id": 4,
+          "question": "사람 몸에서 가장 긴 뼈의 이름은 무엇일까요?",
+          "answer": "대퇴골",
+          "explanation": "허벅지에 있는 대퇴골(넙다리뼈)은 성인 키의 약 4분의 1을 차지하는 가장 긴 뼈입니다.",
+          "difficulty": "hard"
+        }
+      ],
+      "verify": [
+        {
+          "id": 1,
+          "question": "훈민정음을 창제한 조선의 왕은 누구일까요?",
+          "generated_answer": "세종대왕",
+          "runs": [
+            {
+              "answer": "세종대왕(조선 제4대 왕 세종)",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.010706000000000002,
+              "api_ms": 3582,
+              "wall_ms": 9939,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "세종대왕(조선 제4대 왕 세종)",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.0040595,
+              "api_ms": 2756,
+              "wall_ms": 9817,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 2,
+          "question": "한라산이 있는 우리나라의 섬은 어디일까요?",
+          "generated_answer": "제주도",
+          "runs": [
+            {
+              "answer": "제주도",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.009245,
+              "api_ms": 2198,
+              "wall_ms": 8663,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "제주도",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.003288,
+              "api_ms": 2699,
+              "wall_ms": 8934,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 3,
+          "question": "대하소설 '토지'를 쓴 작가는 누구일까요?",
+          "generated_answer": "박경리",
+          "runs": [
+            {
+              "answer": "박경리",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.009901000000000002,
+              "api_ms": 4743,
+              "wall_ms": 11087,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "박경리",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.0032895,
+              "api_ms": 3576,
+              "wall_ms": 9940,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 4,
+          "question": "사람 몸에서 가장 긴 뼈의 이름은 무엇일까요?",
+          "generated_answer": "대퇴골",
+          "runs": [
+            {
+              "answer": "대퇴골(넙다리뼈)",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.010296,
+              "api_ms": 2545,
+              "wall_ms": 8925,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "대퇴골(넙다리뼈)",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.003637,
+              "api_ms": 3747,
+              "wall_ms": 10243,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        }
+      ]
+    },
+    {
+      "model": "sonnet",
+      "gen_calls": [
+        {
+          "model": "sonnet",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.025033,
+          "api_ms": 14990,
+          "wall_ms": 20868,
+          "output": {
+            "hook": "이 4문제, 다 맞히면 상식왕! 🔥",
+            "cta": "정답 몇 개 맞혔는지 댓글로 남겨주세요! 좋아요와 팔로우도 부탁해요 😊",
+            "questions": [
+              {
+                "id": 1,
+                "question": "대한민국의 수도는?",
+                "answer": "서울",
+                "explanation": "대한민국의 수도는 서울특별시입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "물의 화학식은?",
+                "answer": "H2O",
+                "explanation": "물은 수소 2개와 산소 1개로 이루어진 H2O입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "세종대왕이 창제한 문자는?",
+                "answer": "한글",
+                "explanation": "세종대왕은 1443년 훈민정음, 즉 한글을 창제했습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "노벨문학상을 받은 최초의 한국인은?",
+                "answer": "한강",
+                "explanation": "소설가 한강은 2024년 한국인 최초로 노벨문학상을 수상했습니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        },
+        {
+          "model": "sonnet",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.0376795,
+          "api_ms": 18498,
+          "wall_ms": 24480,
+          "output": {
+            "hook": "상식 퀴즈 4문제! 다 맞히면 인정",
+            "cta": "정답을 댓글로 남기고 친구를 태그해보세요!",
+            "questions": [
+              {
+                "id": 1,
+                "question": "대한민국의 수도는 어디일까요?",
+                "answer": "서울",
+                "explanation": "대한민국의 수도는 서울특별시입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "물의 화학식은 무엇일까요?",
+                "answer": "H2O",
+                "explanation": "물은 수소 2개와 산소 1개로 이루어진 H2O입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "세종대왕이 창제한 문자는 무엇일까요?",
+                "answer": "훈민정음",
+                "explanation": "세종대왕은 1443년 훈민정음을 창제했습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "인체에서 가장 큰 장기는 무엇일까요?",
+                "answer": "피부",
+                "explanation": "피부는 표면적과 무게 면에서 인체 최대 장기입니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        },
+        {
+          "model": "sonnet",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.0092554,
+          "api_ms": 6646,
+          "wall_ms": 12741,
+          "output": {
+            "cta": "정답 맞힌 사람 댓글에 남겨주세요! 몇 개 맞혔는지도 알려주세요 👇",
+            "hook": "4문제 중 3개 이상 맞히면 상식왕! 도전해보세요 🔥",
+            "questions": [
+              {
+                "id": 1,
+                "question": "우리나라에서 가장 높은 산은?",
+                "answer": "한라산",
+                "explanation": "한라산은 해발 1,947m로 대한민국에서 가장 높은 산입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "물의 화학식은?",
+                "answer": "H2O",
+                "explanation": "물은 수소 원자 2개와 산소 원자 1개로 이루어진 화합물입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "세종대왕이 창제한 우리나라 글자는?",
+                "answer": "한글",
+                "explanation": "세종대왕은 1443년 훈민정음을 창제하여 백성들이 쉽게 쓸 수 있는 글자를 만들었습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "태양계에서 가장 큰 행성은?",
+                "answer": "목성",
+                "explanation": "목성은 태양계에서 부피와 질량이 가장 큰 행성으로, 지구 부피의 약 1,300배에 달합니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        }
+      ],
+      "questions": [
+        {
+          "id": 1,
+          "question": "대한민국의 수도는?",
+          "answer": "서울",
+          "explanation": "대한민국의 수도는 서울특별시입니다.",
+          "difficulty": "easy"
+        },
+        {
+          "id": 2,
+          "question": "물의 화학식은?",
+          "answer": "H2O",
+          "explanation": "물은 수소 2개와 산소 1개로 이루어진 H2O입니다.",
+          "difficulty": "easy"
+        },
+        {
+          "id": 3,
+          "question": "세종대왕이 창제한 문자는?",
+          "answer": "한글",
+          "explanation": "세종대왕은 1443년 훈민정음, 즉 한글을 창제했습니다.",
+          "difficulty": "medium"
+        },
+        {
+          "id": 4,
+          "question": "노벨문학상을 받은 최초의 한국인은?",
+          "answer": "한강",
+          "explanation": "소설가 한강은 2024년 한국인 최초로 노벨문학상을 수상했습니다.",
+          "difficulty": "hard"
+        }
+      ],
+      "verify": [
+        {
+          "id": 1,
+          "question": "대한민국의 수도는?",
+          "generated_answer": "서울",
+          "runs": [
+            {
+              "answer": "서울",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.004017,
+              "api_ms": 2391,
+              "wall_ms": 8710,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "서울",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.004482,
+              "api_ms": 2122,
+              "wall_ms": 8594,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 2,
+          "question": "물의 화학식은?",
+          "generated_answer": "H2O",
+          "runs": [
+            {
+              "answer": "H2O",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.003405,
+              "api_ms": 2566,
+              "wall_ms": 9012,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "H2O",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.0034950000000000003,
+              "api_ms": 2033,
+              "wall_ms": 8332,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 3,
+          "question": "세종대왕이 창제한 문자는?",
+          "generated_answer": "한글",
+          "runs": [
+            {
+              "answer": "훈민정음(한글)",
+              "confidence": 0.98,
+              "agrees": true,
+              "cost_usd": 0.004197,
+              "api_ms": 2464,
+              "wall_ms": 8809,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "훈민정음(한글)",
+              "confidence": 0.95,
+              "agrees": true,
+              "cost_usd": 0.004187,
+              "api_ms": 3164,
+              "wall_ms": 9679,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 4,
+          "question": "노벨문학상을 받은 최초의 한국인은?",
+          "generated_answer": "한강",
+          "runs": [
+            {
+              "answer": "한강",
+              "confidence": 0.97,
+              "agrees": true,
+              "cost_usd": 0.004612,
+              "api_ms": 2845,
+              "wall_ms": 9774,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "한강",
+              "confidence": 0.9,
+              "agrees": true,
+              "cost_usd": 0.005297,
+              "api_ms": 4539,
+              "wall_ms": 10776,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        }
+      ]
+    },
+    {
+      "model": "haiku",
+      "gen_calls": [
+        {
+          "model": "haiku",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.024468000000000004,
+          "api_ms": 28520,
+          "wall_ms": 34452,
+          "output": {
+            "hook": "한국인이라면 맞아야 하는 상식 문제 4개! 당신은 몇 개 맞힐까? 🧠",
+            "cta": "댓글로 정답을 남기고 상식 IQ를 자랑해보세요! 👇",
+            "questions": [
+              {
+                "id": 1,
+                "question": "한국의 수도는 어디인가요?",
+                "answer": "서울",
+                "explanation": "대한민국의 정부 중심지이자 가장 큰 도시입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "1년은 총 몇 개의 계절로 나뉘나요?",
+                "answer": "4개",
+                "explanation": "봄, 여름, 가을, 겨울 총 4개의 계절이 있습니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "한글을 만든 왕의 이름은?",
+                "answer": "세종",
+                "explanation": "세종대왕이 15세기에 한글을 창제했습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "한국 최초의 노벨상 수상자는?",
+                "answer": "김대중",
+                "explanation": "김대중 전 대통령이 2000년 노벨평화상을 수상했습니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        },
+        {
+          "model": "haiku",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.017568,
+          "api_ms": 18830,
+          "wall_ms": 24885,
+          "output": {
+            "hook": "한국 상식 퀴즈! 당신은 몇 개를 맞힐 수 있을까요?",
+            "cta": "댓글로 정답을 맞춰보세요!",
+            "questions": [
+              {
+                "id": 1,
+                "question": "대한민국의 국기 이름은?",
+                "answer": "태극기",
+                "explanation": "파란색과 빨간색 태극 문양으로 이루어진 대한민국의 공식 국기입니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "한국의 명절 중 음력 1월 1일을 뭐라 하나?",
+                "answer": "설날",
+                "explanation": "설날은 한국에서 가장 중요한 명절로 온 가족이 함께합니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "2002년 월드컵을 한국과 함께 개최한 국가는?",
+                "answer": "일본",
+                "explanation": "한국과 일본이 처음으로 공동으로 개최한 역사적인 월드컵입니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "신라가 삼국통일을 이룬 시기는 언제인가?",
+                "answer": "676년",
+                "explanation": "신라 문무왕 시대에 삼국통일이 완성되어 한반도 통일의 기초가 마련되었습니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        },
+        {
+          "model": "haiku",
+          "kind": "generate",
+          "ok": true,
+          "schema_ok": true,
+          "cost_usd": 0.019913,
+          "api_ms": 23306,
+          "wall_ms": 29457,
+          "output": {
+            "hook": "한국인이라면 반드시 알아야 할 상식 4문제! 당신은 몇 개를 맞힐 수 있을까?",
+            "cta": "정답을 댓글로 입력하고 당신의 점수를 공유해보세요!",
+            "questions": [
+              {
+                "id": 1,
+                "question": "한국의 공식 화폐 단위는?",
+                "answer": "원",
+                "explanation": "한국의 공식 화폐 단위는 원(KRW)이며, 한국은행이 발행 관리합니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 2,
+                "question": "1945년 한국이 일제로부터 해방된 날은?",
+                "answer": "8월 15일",
+                "explanation": "1945년 8월 15일 일본의 항복으로 한국은 35년 6개월의 일제강점기에서 해방되었습니다.",
+                "difficulty": "easy"
+              },
+              {
+                "id": 3,
+                "question": "서울시는 현재 몇 개의 자치구로 이루어져 있는가?",
+                "answer": "25개",
+                "explanation": "서울시는 강남구, 강북구, 관악구 등 총 25개의 자치구로 구성되어 있습니다.",
+                "difficulty": "medium"
+              },
+              {
+                "id": 4,
+                "question": "한국 최초의 금속활자본 인쇄물은?",
+                "answer": "직지심체요절",
+                "explanation": "1377년 청주에서 간행된 '직지심체요절'은 한국 역사상 최초의 금속활자본으로, 유럽의 구텐베르크 인쇄술보다 약 78년 앞선 것입니다.",
+                "difficulty": "hard"
+              }
+            ]
+          },
+          "error": ""
+        }
+      ],
+      "questions": [
+        {
+          "id": 1,
+          "question": "한국의 수도는 어디인가요?",
+          "answer": "서울",
+          "explanation": "대한민국의 정부 중심지이자 가장 큰 도시입니다.",
+          "difficulty": "easy"
+        },
+        {
+          "id": 2,
+          "question": "1년은 총 몇 개의 계절로 나뉘나요?",
+          "answer": "4개",
+          "explanation": "봄, 여름, 가을, 겨울 총 4개의 계절이 있습니다.",
+          "difficulty": "easy"
+        },
+        {
+          "id": 3,
+          "question": "한글을 만든 왕의 이름은?",
+          "answer": "세종",
+          "explanation": "세종대왕이 15세기에 한글을 창제했습니다.",
+          "difficulty": "medium"
+        },
+        {
+          "id": 4,
+          "question": "한국 최초의 노벨상 수상자는?",
+          "answer": "김대중",
+          "explanation": "김대중 전 대통령이 2000년 노벨평화상을 수상했습니다.",
+          "difficulty": "hard"
+        }
+      ],
+      "verify": [
+        {
+          "id": 1,
+          "question": "한국의 수도는 어디인가요?",
+          "generated_answer": "서울",
+          "runs": [
+            {
+              "answer": "서울",
+              "confidence": 100,
+              "agrees": true,
+              "cost_usd": 0.002932,
+              "api_ms": 2267,
+              "wall_ms": 8661,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "서울",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.0030770000000000003,
+              "api_ms": 3051,
+              "wall_ms": 9741,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 2,
+          "question": "1년은 총 몇 개의 계절로 나뉘나요?",
+          "generated_answer": "4개",
+          "runs": [
+            {
+              "answer": "4개",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.003185,
+              "api_ms": 3164,
+              "wall_ms": 9708,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "4개",
+              "confidence": 1,
+              "agrees": true,
+              "cost_usd": 0.0036100000000000004,
+              "api_ms": 3373,
+              "wall_ms": 10054,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 3,
+          "question": "한글을 만든 왕의 이름은?",
+          "generated_answer": "세종",
+          "runs": [
+            {
+              "answer": "세종",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.0034739999999999997,
+              "api_ms": 3725,
+              "wall_ms": 10171,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "세종대왕",
+              "confidence": 0.99,
+              "agrees": true,
+              "cost_usd": 0.002939,
+              "api_ms": 2593,
+              "wall_ms": 9197,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        },
+        {
+          "id": 4,
+          "question": "한국 최초의 노벨상 수상자는?",
+          "generated_answer": "김대중",
+          "runs": [
+            {
+              "answer": "김대중",
+              "confidence": 0.95,
+              "agrees": true,
+              "cost_usd": 0.004573000000000001,
+              "api_ms": 5193,
+              "wall_ms": 11723,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            },
+            {
+              "answer": "김대중 (2000년 노벨평화상)",
+              "confidence": 0.95,
+              "agrees": true,
+              "cost_usd": 0.0028480000000000003,
+              "api_ms": 2181,
+              "wall_ms": 9070,
+              "ok": true,
+              "schema_ok": true,
+              "error": ""
+            }
+          ],
+          "agree_count": 2
+        }
+      ]
+    }
+  ]
+}
