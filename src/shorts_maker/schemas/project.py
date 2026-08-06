@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..shorts_types import SUPPORTED_TYPES
-from .core import Object, Schema, integer, section, text
+from ..shorts_types import available_types
+from .core import Object, Schema, choices_from, integer, section, text
 
 SCHEMA_VERSION = 1
 KNOWN_VERSIONS = (1,)
@@ -49,7 +49,7 @@ _RENDER_FIELDS = {
 _ROOT = Object(
     {
         "schema_version": integer(minimum=1),
-        "type": text(choices=SUPPORTED_TYPES),
+        "type": choices_from(available_types, label="등록된 타입"),
         "language": text(),
         # `scenes.json` 참조. 장면 배열을 여기 복사하지 않는다 — 두 곳에 같은 장면이
         # 있으면 어느 쪽이 원본인지 모호해진다 (PRD 7.4.1).

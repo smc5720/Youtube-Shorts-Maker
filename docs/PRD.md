@@ -629,6 +629,30 @@ optional로 두고**, TTS 이후 상태를 요구하는 확정 검증(`validate_
 영향 — 산출물 검증(#8, #24), `quiz.json` 생성(#9)과 `verify` 필드(#10, #11), `scenes.json`
 초안(#12), 오디오 필드 확정(#15, #16), 자막 오프셋 소비(#17), `project.json` 편집 상태 확장(#26).
 
+#### 타입 플러그인: 선언은 타입 패키지가 소유하고 레지스트리는 이름만 안다
+
+`src/shorts_maker/shorts_types.py`는 **타입 이름 → 선언 모듈 경로**만 가진다. 콘텐츠 생성기,
+장면 템플릿, 산출물 선언은 그 타입의 패키지가 `SHORTS_TYPE: ShortsType`으로 소유하고
+(`src/shorts_maker/types/quiz/__init__.py`), 레지스트리는 조회 시점에 import한다. 여기서
+따라오는 것 셋:
+
+- `--type`의 선택지와 `--help` 출력이 레지스트리에서 나온다. 미등록 타입은 CLI를 거치지 않는
+  호출 경로에서도 `UnknownShortsTypeError`로 막힌다.
+- `scenes.json` / `project.json`의 `type` 후보는 **검증 시점에** 레지스트리를 조회한다.
+- 6.2 표의 `script.txt` / `summary.json` 생성 여부는 `ShortsType.produces_script` /
+  `produces_summary`가 선언하고, 후속 단계는 파일 부재를 판정하기 전에 이 값을 본다.
+
+근거 — 레지스트리에 타입 어휘(`quiz.json`, 생성기 구현)가 올라오면 두 번째 타입 추가가 그
+파일부터 시작되고 7.4.1 경계에 구멍이 난다. `type` 후보를 import 시점에 상수로 고정하면
+나중에 등록된 타입이 만든 산출물을 스키마가 반려한다. 산출물 조건이 호출부마다 다시 쓰이면
+퀴즈 타입의 정상 동작이 "파일 없음" 오류가 된다(위 "산출물 생성 조건" 결정).
+
+7.4.1의 경계는 문서가 아니라 테스트가 강제한다 — `src/shorts_maker/types/` 밖의 모듈이 타입
+패키지를 import하거나 타입 전용 산출물을 직접 열면 `tests/test_type_boundary.py`가 깨진다.
+
+영향 — CLI `--type`(#5), 스키마의 `type` 필드(#7), 퀴즈 생성기·장면 템플릿 등록(#9, #12),
+산출물 검증(#24), 두 번째 타입 추가.
+
 ### 14.2 남은 미해결 항목
 
 - 앱 프레임워크를 Electron으로 할지 Tauri로 할지 결정해야 한다. (#25)
