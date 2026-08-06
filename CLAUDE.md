@@ -14,7 +14,8 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 ## 로드맵
 
-`src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마까지 있고 `app/`은 아직 없다.
+`src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리까지 있고(Phase 0 완료)
+`app/`은 아직 없다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다.
 
 | Phase | 이슈 | 내용 |
@@ -54,6 +55,13 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
   PRD 7.5.2·7.10)는 그 이름을 설명하는 쪽이므로 문서만 고치면 계약이 바뀌지 않는다.
   `scenes.json`은 스키마 하나 + 확정 검증(`validate_scenes_final`) 구조다 — 오디오 필드가
   없는 초안도 통과해야 하기 때문이다. (#7)
+- **타입 선언은 타입 패키지가 소유한다.** `shorts_types.py`는 이름 → 선언 모듈 경로만 알고,
+  생성기·장면 템플릿·산출물 조건은 `types/<name>/__init__.py`의 `SHORTS_TYPE`에 있다.
+  `scenes.json`·`project.json`의 `type` 후보도 검증 시점에 레지스트리를 조회하므로, 타입을
+  등록하면 스키마가 따라온다 — 스키마에 이름을 추가하지 말 것. (#8)
+- **퀴즈 스펙 1.1의 경계는 `tests/test_type_boundary.py`가 강제한다.** `types/` 밖에서 타입
+  패키지를 import하거나 `load_quiz`를 쓰거나 `quiz.json` 문자열을 들면 테스트가 깨진다.
+  타입 전용 정보가 렌더에 필요하면 장면 템플릿이 `scenes.json` 필드로 옮겨 담는다. (#8)
 - **산출물은 타입·입력 경로에 따라 다르다.** `script.txt`·`summary.json`·`source.json`은
   퀴즈 + `--topic` 경로에서 생성되지 않고, 없는 것이 실패가 아니다. → PRD 6.2 표
 

@@ -24,6 +24,11 @@
   - **장면 템플릿**: 콘텐츠 → `scenes.json` (타입별 장면 레이아웃/타임라인 규칙)
 - **렌더러(FFmpeg)** 와 **TTS/자막**은 공통 파이프라인을 공유하되, 타입 전용 렌더 요소(퀴즈의 카운트다운 오버레이, 정답 강조 등)를 추가한다.
 
+이 개념은 `src/shorts_maker/shorts_types.py`의 레지스트리로 구현됐다(#8). 퀴즈의 선언은
+`src/shorts_maker/types/quiz/__init__.py`의 `SHORTS_TYPE`이고 두 축(`generator`,
+`scene_template`)과 산출물 조건을 여기 모아 둔다 — 레지스트리는 타입 이름과 그 위치만 안다
+([PRD 14.1](../PRD.md#14-결정사항)).
+
 ### 1.1 경계 규칙: 공통 파이프라인은 `scenes.json`만 본다
 
 플러그인 경계를 지키는 규칙은 하나다. **TTS·자막·렌더러·메타데이터 생성기는 `scenes.json`만
@@ -46,6 +51,10 @@
 
 이 경계가 깨지면 두 번째 타입(스토리·랭킹 등)을 추가할 때 공통 파이프라인 전체를 고쳐야 한다.
 PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
+
+**이 표는 `tests/test_type_boundary.py`가 강제한다.** `src/shorts_maker/types/` 밖의 모듈이
+타입 패키지를 import하거나, `quiz.json` 스키마 이름(`load_quiz` 등)을 import하거나, 타입 전용
+산출물 파일명을 문자열로 들고 있으면 테스트가 깨진다.
 
 ## 2. 포맷 / 타임라인
 

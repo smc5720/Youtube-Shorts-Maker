@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -127,6 +127,33 @@ class Scalar(Rule):
 
 
 @dataclass(frozen=True)
+class Choices(Rule):
+    """후보 목록을 **검증 시점에** 조회하는 문자열 필드.
+
+    `Scalar(choices=...)`는 import 시점에 후보가 고정된다. 쇼츠 타입처럼 레지스트리가
+    런타임에 정하는 값에 그것을 쓰면, 이 모듈이 import된 순간의 목록으로 굳어 나중에
+    등록된 타입의 `scenes.json`이 "허용되지 않는 값"으로 반려된다.
+    """
+
+    options: Callable[[], Sequence[str]]
+    label: str
+    """오류 메시지에서 후보 목록 앞에 붙는 말 ("등록된 타입")."""
+
+    def check(self, value: Any, path: str, errors: list[str]) -> None:
+        if not isinstance(value, str):
+            errors.append(
+                f"{path}: {_TYPE_LABELS['str']} 값이 필요하다. 받은 값: {describe(value)}"
+            )
+            return
+
+        allowed = tuple(self.options())
+        if value not in allowed:
+            errors.append(
+                f"{path}: 허용되지 않는 값 {value!r}. {self.label}: {' | '.join(allowed)}"
+            )
+
+
+@dataclass(frozen=True)
 class Object(Rule):
     """정해진 필드만 가지는 매핑.
 
@@ -224,6 +251,15 @@ def number(
         ),
         required=required,
     )
+
+
+def choices_from(
+    options: Callable[[], Sequence[str]],
+    *,
+    label: str,
+    required: bool = True,
+) -> Field:
+    return Field(Choices(options, label), required=required)
 
 
 def flag(*, required: bool = True) -> Field:

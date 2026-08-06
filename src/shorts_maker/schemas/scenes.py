@@ -24,8 +24,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from ..shorts_types import SUPPORTED_TYPES
-from .core import Object, Schema, flag, integer, items, number, text
+from ..shorts_types import available_types
+from .core import Object, Schema, choices_from, flag, integer, items, number, text
 
 SCHEMA_VERSION = 1
 KNOWN_VERSIONS = (1,)
@@ -82,7 +82,8 @@ _SCENE = Object(
 _ROOT = Object(
     {
         "schema_version": integer(minimum=1),
-        "type": text(choices=SUPPORTED_TYPES),
+        # 후보는 레지스트리가 정한다. 등록된 타입이 만든 파일을 스키마가 반려하면 안 된다.
+        "type": choices_from(available_types, label="등록된 타입"),
         "scenes": items(_SCENE, min_items=1),
     }
 )

@@ -4,7 +4,8 @@
 생성 파이프라인은 아직 붙지 않았다.
 
 - `--url` / `--text-file` 입력은 #31에서 추가한다. 그때 `--topic`은 배타 그룹의 한 갈래가 된다.
-- `--type`은 값을 검증해 기록만 하고, 타입 플러그인 디스패치는 #8에서 붙는다.
+- `--type`은 레지스트리에서 타입 선언을 찾는 데까지만 쓴다. 생성기·장면 템플릿을 실제로
+  호출하는 것은 #9·#12가 스텁을 채운 뒤다.
 - 설정 키별 CLI 플래그(`--voice` 등)는 그 값을 실제로 쓰는 이슈가 추가한다. 여기서는
   `--config`와 우선순위 규칙만 제공한다.
 """
@@ -19,7 +20,13 @@ from pathlib import Path
 from . import __version__
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .run_context import RunContext, run_logging, start_run
-from .shorts_types import DEFAULT_TYPE, SUPPORTED_TYPES
+from .shorts_types import (
+    DEFAULT_TYPE,
+    ShortsType,
+    ShortsTypeError,
+    available_types,
+    get_type,
+)
 
 DEFAULT_OUTPUT_ROOT = Path("outputs")
 
@@ -64,7 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--type",
         dest="shorts_type",
-        choices=SUPPORTED_TYPES,
+        # 선택지도 --help 출력도 레지스트리에서 나온다. 타입을 등록하면 따라온다.
+        choices=available_types(),
         default=DEFAULT_TYPE,
         help="쇼츠 타입",
     )
@@ -96,15 +104,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(args: argparse.Namespace, config: Config) -> RunContext:
+def _callable_name(target: object) -> str:
+    """로그에 남길 이름. 어느 구현이 물렸는지가 run.log만 보고 드러나야 한다."""
+    qualname = getattr(target, "__qualname__", None) or type(target).__qualname__
+    module = getattr(target, "__module__", None)
+    return f"{module}.{qualname}" if module else qualname
+
+
+def run(args: argparse.Namespace, config: Config, shorts_type: ShortsType) -> RunContext:
     """run 디렉터리를 만들고 실행 정보를 로그에 남긴다."""
     context = start_run(args.output_root, datetime.now())
 
     with run_logging(context.log_path, verbose=args.verbose) as logger:
         logger.info("run 시작 %s", context.started_at.isoformat(timespec="seconds"))
         logger.info("run 디렉터리 %s", context.run_dir)
-        logger.info("타입 %s", args.shorts_type)
+        logger.info("타입 %s", shorts_type.name)
         logger.info("주제 %s", args.topic)
+        logger.debug("콘텐츠 생성기 %s", _callable_name(shorts_type.generator))
+        logger.debug("장면 템플릿 %s", _callable_name(shorts_type.scene_template))
+        # 타입 전용 산출물 목록을 남긴다. 나중에 "왜 script.txt가 없지"를 run.log로 답한다.
+        logger.debug("타입 전용 산출물 %s", ", ".join(shorts_type.artifacts()))
         if config.source is None:
             logger.info("설정 파일 없음 — 기본값 사용")
         else:
@@ -133,8 +152,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"설정 오류:\n{error}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
+    # 설정과 같은 이유로 run 디렉터리보다 먼저 검증한다. 등록되지 않은 타입이나 깨진
+    # 타입 선언은 산출물을 하나도 만들 수 없으므로 빈 run 디렉터리를 남기지 않는다.
     try:
-        run(args, config)
+        shorts_type = get_type(args.shorts_type)
+    except ShortsTypeError as error:
+        print(f"쇼츠 타입 오류:\n{error}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    try:
+        run(args, config, shorts_type)
     except OSError as error:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
         print(f"run 디렉터리를 만들 수 없다: {error}", file=sys.stderr)

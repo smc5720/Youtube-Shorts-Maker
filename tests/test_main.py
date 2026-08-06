@@ -10,7 +10,7 @@ import pytest
 
 from shorts_maker.main import EXIT_CONFIG_ERROR, main
 from shorts_maker.run_context import LOG_FILENAME
-from shorts_maker.shorts_types import DEFAULT_TYPE, SUPPORTED_TYPES
+from shorts_maker.shorts_types import DEFAULT_TYPE, available_types
 
 
 def run_dirs(output_root: Path) -> list[Path]:
@@ -107,7 +107,7 @@ def test_unsupported_type_exits_nonzero_and_lists_supported(
     assert exit_info.value.code != 0
     stderr = capsys.readouterr().err
     assert "storytime" in stderr
-    for supported in SUPPORTED_TYPES:
+    for supported in available_types():
         assert supported in stderr
     assert not tmp_path.exists() or run_dirs(tmp_path) == []
 
