@@ -1,0 +1,1878 @@
+{
+  "provider": "edge-tts",
+  "edge_tts_version": "7.2.8",
+  "python": "3.13.2",
+  "voices": [
+    "ko-KR-SunHiNeural",
+    "ko-KR-InJoonNeural",
+    "ko-KR-HyunsuMultilingualNeural"
+  ],
+  "repeat_count": 3,
+  "syntheses": [
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "q_plain",
+      "role": "question",
+      "text": "세계에서 가장 긴 강은?",
+      "probe": "기본 질문. 물음표 억양",
+      "target_sec": 3.0,
+      "sample": "samples/q_plain__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.416,
+      "byte_size": 15984,
+      "container_duration_sec": 2.664,
+      "decoded_duration_sec": 2.66,
+      "duration_gap_sec": 0.004,
+      "word_boundary_count": 4,
+      "last_boundary_end_sec": 1.8,
+      "spoken_tokens": [
+        "세계에서",
+        "가장",
+        "긴",
+        "강은"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.613,
+          "text": "세계에서"
+        },
+        {
+          "offset_sec": 0.725,
+          "duration_sec": 0.388,
+          "text": "가장"
+        },
+        {
+          "offset_sec": 1.125,
+          "duration_sec": 0.2,
+          "text": "긴"
+        },
+        {
+          "offset_sec": 1.337,
+          "duration_sec": 0.463,
+          "text": "강은"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_short",
+      "role": "answer",
+      "text": "나일강",
+      "probe": "가장 짧은 정답. min_duration 보정이 필요한 하한 사례",
+      "target_sec": 3.0,
+      "sample": "samples/a_short__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.346,
+      "byte_size": 10800,
+      "container_duration_sec": 1.8,
+      "decoded_duration_sec": 1.8,
+      "duration_gap_sec": 0.0,
+      "word_boundary_count": 1,
+      "last_boundary_end_sec": 0.95,
+      "spoken_tokens": [
+        "나일강"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.85,
+          "text": "나일강"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_number_unit",
+      "role": "explanation_probe",
+      "text": "약 6,650km로 세계에서 가장 긴 강입니다.",
+      "probe": "쉼표 포함 숫자 + 단위 약어(km)",
+      "target_sec": 3.0,
+      "sample": "samples/a_number_unit__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.414,
+      "byte_size": 30672,
+      "container_duration_sec": 5.112,
+      "decoded_duration_sec": 5.11,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 6,
+      "last_boundary_end_sec": 4.238,
+      "spoken_tokens": [
+        "약",
+        "6,650km로",
+        "세계에서",
+        "가장",
+        "긴",
+        "강입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.237,
+          "text": "약"
+        },
+        {
+          "offset_sec": 0.35,
+          "duration_sec": 1.725,
+          "text": "6,650km로"
+        },
+        {
+          "offset_sec": 2.087,
+          "duration_sec": 0.787,
+          "text": "세계에서"
+        },
+        {
+          "offset_sec": 2.888,
+          "duration_sec": 0.4,
+          "text": "가장"
+        },
+        {
+          "offset_sec": 3.3,
+          "duration_sec": 0.225,
+          "text": "긴"
+        },
+        {
+          "offset_sec": 3.538,
+          "duration_sec": 0.7,
+          "text": "강입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_date",
+      "role": "explanation_probe",
+      "text": "1969년 7월 20일, 아폴로 11호가 달에 착륙했습니다.",
+      "probe": "연월일 + 서수/호수 읽기",
+      "target_sec": 3.0,
+      "sample": "samples/a_date__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.506,
+      "byte_size": 35280,
+      "container_duration_sec": 5.88,
+      "decoded_duration_sec": 5.88,
+      "duration_gap_sec": 0.0,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 4.987,
+      "spoken_tokens": [
+        "1969년 7월 20일",
+        "아폴로",
+        "11호가",
+        "달에",
+        "착륙했습니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 2.188,
+          "text": "1969년 7월 20일"
+        },
+        {
+          "offset_sec": 2.462,
+          "duration_sec": 0.475,
+          "text": "아폴로"
+        },
+        {
+          "offset_sec": 2.95,
+          "duration_sec": 0.575,
+          "text": "11호가"
+        },
+        {
+          "offset_sec": 3.538,
+          "duration_sec": 0.35,
+          "text": "달에"
+        },
+        {
+          "offset_sec": 3.9,
+          "duration_sec": 1.087,
+          "text": "착륙했습니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_height_unit",
+      "role": "explanation_probe",
+      "text": "에베레스트산의 높이는 8,848m입니다.",
+      "probe": "고유명사 + 미터 약어(m). m을 '엠'으로 읽는지",
+      "target_sec": 3.0,
+      "sample": "samples/a_height_unit__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.383,
+      "byte_size": 28512,
+      "container_duration_sec": 4.752,
+      "decoded_duration_sec": 4.75,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 3,
+      "last_boundary_end_sec": 3.862,
+      "spoken_tokens": [
+        "에베레스트산의",
+        "높이는",
+        "8,848m입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.887,
+          "text": "에베레스트산의"
+        },
+        {
+          "offset_sec": 1.0,
+          "duration_sec": 0.537,
+          "text": "높이는"
+        },
+        {
+          "offset_sec": 1.55,
+          "duration_sec": 2.312,
+          "text": "8,848m입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_hanja_noun",
+      "role": "explanation_probe",
+      "text": "현존하는 대한민국 최초의 금속활자본은 직지심체요절입니다.",
+      "probe": "한자어 고유명사. 스파이크 #1이 모호 질문 사례로 남긴 문장",
+      "target_sec": 3.0,
+      "sample": "samples/a_hanja_noun__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.518,
+      "byte_size": 32976,
+      "container_duration_sec": 5.496,
+      "decoded_duration_sec": 5.49,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 4.625,
+      "spoken_tokens": [
+        "현존하는",
+        "대한민국",
+        "최초의",
+        "금속활자본은",
+        "직지심체요절입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.675,
+          "text": "현존하는"
+        },
+        {
+          "offset_sec": 0.787,
+          "duration_sec": 0.675,
+          "text": "대한민국"
+        },
+        {
+          "offset_sec": 1.475,
+          "duration_sec": 0.5,
+          "text": "최초의"
+        },
+        {
+          "offset_sec": 1.988,
+          "duration_sec": 1.075,
+          "text": "금속활자본은"
+        },
+        {
+          "offset_sec": 3.075,
+          "duration_sec": 1.55,
+          "text": "직지심체요절입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_formula",
+      "role": "explanation_probe",
+      "text": "물의 화학식은 H2O입니다.",
+      "probe": "라틴 문자 + 아래첨자 없는 화학식",
+      "target_sec": 3.0,
+      "sample": "samples/a_formula__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.446,
+      "byte_size": 20592,
+      "container_duration_sec": 3.432,
+      "decoded_duration_sec": 3.43,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 4,
+      "last_boundary_end_sec": 2.538,
+      "spoken_tokens": [
+        "물의",
+        "화학식은",
+        "H2",
+        "O입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.312,
+          "text": "물의"
+        },
+        {
+          "offset_sec": 0.425,
+          "duration_sec": 0.787,
+          "text": "화학식은"
+        },
+        {
+          "offset_sec": 1.225,
+          "duration_sec": 0.625,
+          "text": "H2"
+        },
+        {
+          "offset_sec": 1.863,
+          "duration_sec": 0.675,
+          "text": "O입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_foreign_noun",
+      "role": "answer",
+      "text": "페이턴트 모터바겐",
+      "probe": "외국어 고유명사 음역. 긴 편의 정답 낭독 사례",
+      "target_sec": 3.0,
+      "sample": "samples/a_foreign_noun__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.433,
+      "byte_size": 14976,
+      "container_duration_sec": 2.496,
+      "decoded_duration_sec": 2.49,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 2,
+      "last_boundary_end_sec": 1.613,
+      "spoken_tokens": [
+        "페이턴트",
+        "모터바겐"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.662,
+          "text": "페이턴트"
+        },
+        {
+          "offset_sec": 0.775,
+          "duration_sec": 0.838,
+          "text": "모터바겐"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_medium",
+      "role": "answer",
+      "text": "직지심체요절",
+      "probe": "한자어 고유명사 정답 낭독",
+      "target_sec": 3.0,
+      "sample": "samples/a_medium__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.46,
+      "byte_size": 13248,
+      "container_duration_sec": 2.208,
+      "decoded_duration_sec": 2.2,
+      "duration_gap_sec": 0.008,
+      "word_boundary_count": 1,
+      "last_boundary_end_sec": 1.338,
+      "spoken_tokens": [
+        "직지심체요절"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 1.238,
+          "text": "직지심체요절"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "hook",
+      "role": "hook",
+      "text": "이 상식 4개, 다 맞히면 상위 1%",
+      "probe": "후킹 문장. 현 스펙은 낭독하지 않지만 낭독 시 길이를 알아 둔다",
+      "target_sec": 3.0,
+      "sample": "samples/hook__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.528,
+      "byte_size": 26784,
+      "container_duration_sec": 4.464,
+      "decoded_duration_sec": 4.46,
+      "duration_gap_sec": 0.004,
+      "word_boundary_count": 7,
+      "last_boundary_end_sec": 3.576,
+      "spoken_tokens": [
+        "이",
+        "상식",
+        "4개",
+        "다",
+        "맞히면",
+        "상위",
+        "1%"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.163,
+          "text": "이"
+        },
+        {
+          "offset_sec": 0.275,
+          "duration_sec": 0.4,
+          "text": "상식"
+        },
+        {
+          "offset_sec": 0.688,
+          "duration_sec": 0.475,
+          "text": "4개"
+        },
+        {
+          "offset_sec": 1.462,
+          "duration_sec": 0.188,
+          "text": "다"
+        },
+        {
+          "offset_sec": 1.663,
+          "duration_sec": 0.588,
+          "text": "맞히면"
+        },
+        {
+          "offset_sec": 2.263,
+          "duration_sec": 0.362,
+          "text": "상위"
+        },
+        {
+          "offset_sec": 2.638,
+          "duration_sec": 0.938,
+          "text": "1%"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "cta",
+      "role": "cta",
+      "text": "몇 개 맞혔나요? 댓글로 알려주세요!",
+      "probe": "CTA 문장. 위와 같다",
+      "target_sec": 4.0,
+      "sample": "samples/cta__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.714,
+      "byte_size": 26208,
+      "container_duration_sec": 4.368,
+      "decoded_duration_sec": 4.36,
+      "duration_gap_sec": 0.008,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 3.501,
+      "spoken_tokens": [
+        "몇",
+        "개",
+        "맞혔나요",
+        "댓글로",
+        "알려주세요"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.225,
+          "text": "몇"
+        },
+        {
+          "offset_sec": 0.338,
+          "duration_sec": 0.125,
+          "text": "개"
+        },
+        {
+          "offset_sec": 0.475,
+          "duration_sec": 0.8,
+          "text": "맞혔나요"
+        },
+        {
+          "offset_sec": 2.138,
+          "duration_sec": 0.487,
+          "text": "댓글로"
+        },
+        {
+          "offset_sec": 2.638,
+          "duration_sec": 0.863,
+          "text": "알려주세요"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "q_percent",
+      "role": "question",
+      "text": "지구 표면의 약 71%를 덮고 있는 것은?",
+      "probe": "퍼센트 기호",
+      "target_sec": 3.0,
+      "sample": "samples/q_percent__ko-KR-SunHiNeural.mp3",
+      "synth_sec": 0.425,
+      "byte_size": 25920,
+      "container_duration_sec": 4.32,
+      "decoded_duration_sec": 4.32,
+      "duration_gap_sec": 0.0,
+      "word_boundary_count": 7,
+      "last_boundary_end_sec": 3.45,
+      "spoken_tokens": [
+        "지구",
+        "표면의",
+        "약",
+        "71%를",
+        "덮고",
+        "있는",
+        "것은"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.312,
+          "text": "지구"
+        },
+        {
+          "offset_sec": 0.425,
+          "duration_sec": 0.588,
+          "text": "표면의"
+        },
+        {
+          "offset_sec": 1.025,
+          "duration_sec": 0.2,
+          "text": "약"
+        },
+        {
+          "offset_sec": 1.238,
+          "duration_sec": 1.1,
+          "text": "71%를"
+        },
+        {
+          "offset_sec": 2.35,
+          "duration_sec": 0.35,
+          "text": "덮고"
+        },
+        {
+          "offset_sec": 2.712,
+          "duration_sec": 0.25,
+          "text": "있는"
+        },
+        {
+          "offset_sec": 2.975,
+          "duration_sec": 0.475,
+          "text": "것은"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "q_plain",
+      "role": "question",
+      "text": "세계에서 가장 긴 강은?",
+      "probe": "기본 질문. 물음표 억양",
+      "target_sec": 3.0,
+      "sample": "samples/q_plain__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.391,
+      "byte_size": 18144,
+      "container_duration_sec": 3.024,
+      "decoded_duration_sec": 3.02,
+      "duration_gap_sec": 0.004,
+      "word_boundary_count": 4,
+      "last_boundary_end_sec": 2.05,
+      "spoken_tokens": [
+        "세계에서",
+        "가장",
+        "긴",
+        "강은"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.75,
+          "text": "세계에서"
+        },
+        {
+          "offset_sec": 0.863,
+          "duration_sec": 0.35,
+          "text": "가장"
+        },
+        {
+          "offset_sec": 1.225,
+          "duration_sec": 0.225,
+          "text": "긴"
+        },
+        {
+          "offset_sec": 1.462,
+          "duration_sec": 0.588,
+          "text": "강은"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_short",
+      "role": "answer",
+      "text": "나일강",
+      "probe": "가장 짧은 정답. min_duration 보정이 필요한 하한 사례",
+      "target_sec": 3.0,
+      "sample": "samples/a_short__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.492,
+      "byte_size": 12816,
+      "container_duration_sec": 2.136,
+      "decoded_duration_sec": 2.13,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 1,
+      "last_boundary_end_sec": 1.15,
+      "spoken_tokens": [
+        "나일강"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 1.05,
+          "text": "나일강"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_number_unit",
+      "role": "explanation_probe",
+      "text": "약 6,650km로 세계에서 가장 긴 강입니다.",
+      "probe": "쉼표 포함 숫자 + 단위 약어(km)",
+      "target_sec": 3.0,
+      "sample": "samples/a_number_unit__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.359,
+      "byte_size": 33696,
+      "container_duration_sec": 5.616,
+      "decoded_duration_sec": 5.61,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 6,
+      "last_boundary_end_sec": 4.6,
+      "spoken_tokens": [
+        "약",
+        "6,650km로",
+        "세계에서",
+        "가장",
+        "긴",
+        "강입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.475,
+          "text": "약"
+        },
+        {
+          "offset_sec": 0.588,
+          "duration_sec": 1.875,
+          "text": "6,650km로"
+        },
+        {
+          "offset_sec": 2.475,
+          "duration_sec": 0.625,
+          "text": "세계에서"
+        },
+        {
+          "offset_sec": 3.112,
+          "duration_sec": 0.375,
+          "text": "가장"
+        },
+        {
+          "offset_sec": 3.5,
+          "duration_sec": 0.237,
+          "text": "긴"
+        },
+        {
+          "offset_sec": 3.75,
+          "duration_sec": 0.85,
+          "text": "강입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_date",
+      "role": "explanation_probe",
+      "text": "1969년 7월 20일, 아폴로 11호가 달에 착륙했습니다.",
+      "probe": "연월일 + 서수/호수 읽기",
+      "target_sec": 3.0,
+      "sample": "samples/a_date__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.55,
+      "byte_size": 37728,
+      "container_duration_sec": 6.288,
+      "decoded_duration_sec": 6.28,
+      "duration_gap_sec": 0.008,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 5.3,
+      "spoken_tokens": [
+        "1969년 7월 20일",
+        "아폴로",
+        "11호가",
+        "달에",
+        "착륙했습니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 2.487,
+          "text": "1969년 7월 20일"
+        },
+        {
+          "offset_sec": 2.675,
+          "duration_sec": 0.625,
+          "text": "아폴로"
+        },
+        {
+          "offset_sec": 3.312,
+          "duration_sec": 0.562,
+          "text": "11호가"
+        },
+        {
+          "offset_sec": 3.888,
+          "duration_sec": 0.3,
+          "text": "달에"
+        },
+        {
+          "offset_sec": 4.2,
+          "duration_sec": 1.1,
+          "text": "착륙했습니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_height_unit",
+      "role": "explanation_probe",
+      "text": "에베레스트산의 높이는 8,848m입니다.",
+      "probe": "고유명사 + 미터 약어(m). m을 '엠'으로 읽는지",
+      "target_sec": 3.0,
+      "sample": "samples/a_height_unit__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.381,
+      "byte_size": 29952,
+      "container_duration_sec": 4.992,
+      "decoded_duration_sec": 4.99,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 3,
+      "last_boundary_end_sec": 4.0,
+      "spoken_tokens": [
+        "에베레스트산의",
+        "높이는",
+        "8,848m입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 1.025,
+          "text": "에베레스트산의"
+        },
+        {
+          "offset_sec": 1.137,
+          "duration_sec": 0.637,
+          "text": "높이는"
+        },
+        {
+          "offset_sec": 1.788,
+          "duration_sec": 2.212,
+          "text": "8,848m입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_hanja_noun",
+      "role": "explanation_probe",
+      "text": "현존하는 대한민국 최초의 금속활자본은 직지심체요절입니다.",
+      "probe": "한자어 고유명사. 스파이크 #1이 모호 질문 사례로 남긴 문장",
+      "target_sec": 3.0,
+      "sample": "samples/a_hanja_noun__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.486,
+      "byte_size": 34992,
+      "container_duration_sec": 5.832,
+      "decoded_duration_sec": 5.83,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 4.862,
+      "spoken_tokens": [
+        "현존하는",
+        "대한민국",
+        "최초의",
+        "금속활자본은",
+        "직지심체요절입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.875,
+          "text": "현존하는"
+        },
+        {
+          "offset_sec": 0.988,
+          "duration_sec": 0.662,
+          "text": "대한민국"
+        },
+        {
+          "offset_sec": 1.663,
+          "duration_sec": 0.412,
+          "text": "최초의"
+        },
+        {
+          "offset_sec": 2.087,
+          "duration_sec": 1.125,
+          "text": "금속활자본은"
+        },
+        {
+          "offset_sec": 3.225,
+          "duration_sec": 1.637,
+          "text": "직지심체요절입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_formula",
+      "role": "explanation_probe",
+      "text": "물의 화학식은 H2O입니다.",
+      "probe": "라틴 문자 + 아래첨자 없는 화학식",
+      "target_sec": 3.0,
+      "sample": "samples/a_formula__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.395,
+      "byte_size": 22896,
+      "container_duration_sec": 3.816,
+      "decoded_duration_sec": 3.81,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 4,
+      "last_boundary_end_sec": 2.85,
+      "spoken_tokens": [
+        "물의",
+        "화학식은",
+        "H2",
+        "O입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.113,
+          "duration_sec": 0.45,
+          "text": "물의"
+        },
+        {
+          "offset_sec": 0.575,
+          "duration_sec": 0.725,
+          "text": "화학식은"
+        },
+        {
+          "offset_sec": 1.312,
+          "duration_sec": 0.613,
+          "text": "H2"
+        },
+        {
+          "offset_sec": 1.938,
+          "duration_sec": 0.912,
+          "text": "O입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_foreign_noun",
+      "role": "answer",
+      "text": "페이턴트 모터바겐",
+      "probe": "외국어 고유명사 음역. 긴 편의 정답 낭독 사례",
+      "target_sec": 3.0,
+      "sample": "samples/a_foreign_noun__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.508,
+      "byte_size": 16704,
+      "container_duration_sec": 2.784,
+      "decoded_duration_sec": 2.78,
+      "duration_gap_sec": 0.004,
+      "word_boundary_count": 2,
+      "last_boundary_end_sec": 1.787,
+      "spoken_tokens": [
+        "페이턴트",
+        "모터바겐"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.762,
+          "text": "페이턴트"
+        },
+        {
+          "offset_sec": 0.875,
+          "duration_sec": 0.912,
+          "text": "모터바겐"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_medium",
+      "role": "answer",
+      "text": "직지심체요절",
+      "probe": "한자어 고유명사 정답 낭독",
+      "target_sec": 3.0,
+      "sample": "samples/a_medium__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.539,
+      "byte_size": 14256,
+      "container_duration_sec": 2.376,
+      "decoded_duration_sec": 2.37,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 1,
+      "last_boundary_end_sec": 1.487,
+      "spoken_tokens": [
+        "직지심체요절"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 1.387,
+          "text": "직지심체요절"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "hook",
+      "role": "hook",
+      "text": "이 상식 4개, 다 맞히면 상위 1%",
+      "probe": "후킹 문장. 현 스펙은 낭독하지 않지만 낭독 시 길이를 알아 둔다",
+      "target_sec": 3.0,
+      "sample": "samples/hook__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.579,
+      "byte_size": 30672,
+      "container_duration_sec": 5.112,
+      "decoded_duration_sec": 5.11,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 7,
+      "last_boundary_end_sec": 4.162,
+      "spoken_tokens": [
+        "이",
+        "상식",
+        "4개",
+        "다",
+        "맞히면",
+        "상위",
+        "1%"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.388,
+          "text": "이"
+        },
+        {
+          "offset_sec": 0.5,
+          "duration_sec": 0.425,
+          "text": "상식"
+        },
+        {
+          "offset_sec": 0.938,
+          "duration_sec": 0.637,
+          "text": "4개"
+        },
+        {
+          "offset_sec": 1.688,
+          "duration_sec": 0.325,
+          "text": "다"
+        },
+        {
+          "offset_sec": 2.025,
+          "duration_sec": 0.6,
+          "text": "맞히면"
+        },
+        {
+          "offset_sec": 2.638,
+          "duration_sec": 0.412,
+          "text": "상위"
+        },
+        {
+          "offset_sec": 3.062,
+          "duration_sec": 1.1,
+          "text": "1%"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "cta",
+      "role": "cta",
+      "text": "몇 개 맞혔나요? 댓글로 알려주세요!",
+      "probe": "CTA 문장. 위와 같다",
+      "target_sec": 4.0,
+      "sample": "samples/cta__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.682,
+      "byte_size": 31824,
+      "container_duration_sec": 5.304,
+      "decoded_duration_sec": 5.3,
+      "duration_gap_sec": 0.004,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 4.338,
+      "spoken_tokens": [
+        "몇",
+        "개",
+        "맞혔나요",
+        "댓글로",
+        "알려주세요"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.113,
+          "duration_sec": 0.35,
+          "text": "몇"
+        },
+        {
+          "offset_sec": 0.475,
+          "duration_sec": 0.113,
+          "text": "개"
+        },
+        {
+          "offset_sec": 0.6,
+          "duration_sec": 1.125,
+          "text": "맞혔나요"
+        },
+        {
+          "offset_sec": 2.638,
+          "duration_sec": 0.637,
+          "text": "댓글로"
+        },
+        {
+          "offset_sec": 3.288,
+          "duration_sec": 1.05,
+          "text": "알려주세요"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "q_percent",
+      "role": "question",
+      "text": "지구 표면의 약 71%를 덮고 있는 것은?",
+      "probe": "퍼센트 기호",
+      "target_sec": 3.0,
+      "sample": "samples/q_percent__ko-KR-InJoonNeural.mp3",
+      "synth_sec": 0.403,
+      "byte_size": 26640,
+      "container_duration_sec": 4.44,
+      "decoded_duration_sec": 4.44,
+      "duration_gap_sec": 0.0,
+      "word_boundary_count": 7,
+      "last_boundary_end_sec": 3.501,
+      "spoken_tokens": [
+        "지구",
+        "표면의",
+        "약",
+        "71%를",
+        "덮고",
+        "있는",
+        "것은"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.1,
+          "duration_sec": 0.487,
+          "text": "지구"
+        },
+        {
+          "offset_sec": 0.6,
+          "duration_sec": 0.5,
+          "text": "표면의"
+        },
+        {
+          "offset_sec": 1.113,
+          "duration_sec": 0.163,
+          "text": "약"
+        },
+        {
+          "offset_sec": 1.288,
+          "duration_sec": 1.1,
+          "text": "71%를"
+        },
+        {
+          "offset_sec": 2.4,
+          "duration_sec": 0.287,
+          "text": "덮고"
+        },
+        {
+          "offset_sec": 2.7,
+          "duration_sec": 0.2,
+          "text": "있는"
+        },
+        {
+          "offset_sec": 2.913,
+          "duration_sec": 0.588,
+          "text": "것은"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "q_plain",
+      "role": "question",
+      "text": "세계에서 가장 긴 강은?",
+      "probe": "기본 질문. 물음표 억양",
+      "target_sec": 3.0,
+      "sample": "samples/q_plain__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.401,
+      "byte_size": 17136,
+      "container_duration_sec": 2.856,
+      "decoded_duration_sec": 2.85,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 4,
+      "last_boundary_end_sec": 2.513,
+      "spoken_tokens": [
+        "세계에서",
+        "가장",
+        "긴",
+        "강은"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.95,
+          "text": "세계에서"
+        },
+        {
+          "offset_sec": 1.0,
+          "duration_sec": 0.613,
+          "text": "가장"
+        },
+        {
+          "offset_sec": 1.613,
+          "duration_sec": 0.312,
+          "text": "긴"
+        },
+        {
+          "offset_sec": 1.925,
+          "duration_sec": 0.588,
+          "text": "강은"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_short",
+      "role": "answer",
+      "text": "나일강",
+      "probe": "가장 짧은 정답. min_duration 보정이 필요한 하한 사례",
+      "target_sec": 3.0,
+      "sample": "samples/a_short__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.305,
+      "byte_size": 10656,
+      "container_duration_sec": 1.776,
+      "decoded_duration_sec": 1.77,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 1,
+      "last_boundary_end_sec": 0.988,
+      "spoken_tokens": [
+        "나일강"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.938,
+          "text": "나일강"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_number_unit",
+      "role": "explanation_probe",
+      "text": "약 6,650km로 세계에서 가장 긴 강입니다.",
+      "probe": "쉼표 포함 숫자 + 단위 약어(km)",
+      "target_sec": 3.0,
+      "sample": "samples/a_number_unit__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.417,
+      "byte_size": 33840,
+      "container_duration_sec": 5.64,
+      "decoded_duration_sec": 5.64,
+      "duration_gap_sec": 0.0,
+      "word_boundary_count": 6,
+      "last_boundary_end_sec": 5.301,
+      "spoken_tokens": [
+        "약",
+        "6,650km로",
+        "세계에서",
+        "가장",
+        "긴",
+        "강입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.062,
+          "duration_sec": 0.6,
+          "text": "약"
+        },
+        {
+          "offset_sec": 0.662,
+          "duration_sec": 1.863,
+          "text": "6,650km로"
+        },
+        {
+          "offset_sec": 2.525,
+          "duration_sec": 1.113,
+          "text": "세계에서"
+        },
+        {
+          "offset_sec": 3.638,
+          "duration_sec": 0.463,
+          "text": "가장"
+        },
+        {
+          "offset_sec": 4.1,
+          "duration_sec": 0.237,
+          "text": "긴"
+        },
+        {
+          "offset_sec": 4.338,
+          "duration_sec": 0.963,
+          "text": "강입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_date",
+      "role": "explanation_probe",
+      "text": "1969년 7월 20일, 아폴로 11호가 달에 착륙했습니다.",
+      "probe": "연월일 + 서수/호수 읽기",
+      "target_sec": 3.0,
+      "sample": "samples/a_date__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.548,
+      "byte_size": 35568,
+      "container_duration_sec": 5.928,
+      "decoded_duration_sec": 5.92,
+      "duration_gap_sec": 0.008,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 5.576,
+      "spoken_tokens": [
+        "1969년 7월 20일",
+        "아폴로",
+        "11호가",
+        "달에",
+        "착륙했습니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 2.263,
+          "text": "1969년 7월 20일"
+        },
+        {
+          "offset_sec": 2.612,
+          "duration_sec": 0.525,
+          "text": "아폴로"
+        },
+        {
+          "offset_sec": 3.138,
+          "duration_sec": 0.662,
+          "text": "11호가"
+        },
+        {
+          "offset_sec": 3.8,
+          "duration_sec": 0.412,
+          "text": "달에"
+        },
+        {
+          "offset_sec": 4.213,
+          "duration_sec": 1.363,
+          "text": "착륙했습니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_height_unit",
+      "role": "explanation_probe",
+      "text": "에베레스트산의 높이는 8,848m입니다.",
+      "probe": "고유명사 + 미터 약어(m). m을 '엠'으로 읽는지",
+      "target_sec": 3.0,
+      "sample": "samples/a_height_unit__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.398,
+      "byte_size": 29088,
+      "container_duration_sec": 4.848,
+      "decoded_duration_sec": 4.84,
+      "duration_gap_sec": 0.008,
+      "word_boundary_count": 3,
+      "last_boundary_end_sec": 4.512,
+      "spoken_tokens": [
+        "에베레스트산의",
+        "높이는",
+        "8,848m입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 1.125,
+          "text": "에베레스트산의"
+        },
+        {
+          "offset_sec": 1.175,
+          "duration_sec": 0.6,
+          "text": "높이는"
+        },
+        {
+          "offset_sec": 1.775,
+          "duration_sec": 2.737,
+          "text": "8,848m입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_hanja_noun",
+      "role": "explanation_probe",
+      "text": "현존하는 대한민국 최초의 금속활자본은 직지심체요절입니다.",
+      "probe": "한자어 고유명사. 스파이크 #1이 모호 질문 사례로 남긴 문장",
+      "target_sec": 3.0,
+      "sample": "samples/a_hanja_noun__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.706,
+      "byte_size": 34992,
+      "container_duration_sec": 5.832,
+      "decoded_duration_sec": 5.83,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 5.487,
+      "spoken_tokens": [
+        "현존하는",
+        "대한민국",
+        "최초의",
+        "금속활자본은",
+        "직지심체요절입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.925,
+          "text": "현존하는"
+        },
+        {
+          "offset_sec": 0.975,
+          "duration_sec": 0.688,
+          "text": "대한민국"
+        },
+        {
+          "offset_sec": 1.663,
+          "duration_sec": 0.537,
+          "text": "최초의"
+        },
+        {
+          "offset_sec": 2.2,
+          "duration_sec": 1.163,
+          "text": "금속활자본은"
+        },
+        {
+          "offset_sec": 3.362,
+          "duration_sec": 2.125,
+          "text": "직지심체요절입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_formula",
+      "role": "explanation_probe",
+      "text": "물의 화학식은 H2O입니다.",
+      "probe": "라틴 문자 + 아래첨자 없는 화학식",
+      "target_sec": 3.0,
+      "sample": "samples/a_formula__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.407,
+      "byte_size": 20736,
+      "container_duration_sec": 3.456,
+      "decoded_duration_sec": 3.45,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 4,
+      "last_boundary_end_sec": 3.112,
+      "spoken_tokens": [
+        "물의",
+        "화학식은",
+        "H2",
+        "O입니다"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.45,
+          "text": "물의"
+        },
+        {
+          "offset_sec": 0.5,
+          "duration_sec": 0.825,
+          "text": "화학식은"
+        },
+        {
+          "offset_sec": 1.325,
+          "duration_sec": 0.787,
+          "text": "H2"
+        },
+        {
+          "offset_sec": 2.112,
+          "duration_sec": 1.0,
+          "text": "O입니다"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_foreign_noun",
+      "role": "answer",
+      "text": "페이턴트 모터바겐",
+      "probe": "외국어 고유명사 음역. 긴 편의 정답 낭독 사례",
+      "target_sec": 3.0,
+      "sample": "samples/a_foreign_noun__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 1.004,
+      "byte_size": 13968,
+      "container_duration_sec": 2.328,
+      "decoded_duration_sec": 2.32,
+      "duration_gap_sec": 0.008,
+      "word_boundary_count": 2,
+      "last_boundary_end_sec": 1.975,
+      "spoken_tokens": [
+        "페이턴트",
+        "모터바겐"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.875,
+          "text": "페이턴트"
+        },
+        {
+          "offset_sec": 0.925,
+          "duration_sec": 1.05,
+          "text": "모터바겐"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_medium",
+      "role": "answer",
+      "text": "직지심체요절",
+      "probe": "한자어 고유명사 정답 낭독",
+      "target_sec": 3.0,
+      "sample": "samples/a_medium__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.993,
+      "byte_size": 12096,
+      "container_duration_sec": 2.016,
+      "decoded_duration_sec": 2.01,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 1,
+      "last_boundary_end_sec": 1.663,
+      "spoken_tokens": [
+        "직지심체요절"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 1.613,
+          "text": "직지심체요절"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "hook",
+      "role": "hook",
+      "text": "이 상식 4개, 다 맞히면 상위 1%",
+      "probe": "후킹 문장. 현 스펙은 낭독하지 않지만 낭독 시 길이를 알아 둔다",
+      "target_sec": 3.0,
+      "sample": "samples/hook__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 1.292,
+      "byte_size": 24624,
+      "container_duration_sec": 4.104,
+      "decoded_duration_sec": 4.1,
+      "duration_gap_sec": 0.004,
+      "word_boundary_count": 7,
+      "last_boundary_end_sec": 3.763,
+      "spoken_tokens": [
+        "이",
+        "상식",
+        "4개",
+        "다",
+        "맞히면",
+        "상위",
+        "1%"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.287,
+          "text": "이"
+        },
+        {
+          "offset_sec": 0.338,
+          "duration_sec": 0.425,
+          "text": "상식"
+        },
+        {
+          "offset_sec": 0.762,
+          "duration_sec": 0.562,
+          "text": "4개"
+        },
+        {
+          "offset_sec": 1.637,
+          "duration_sec": 0.2,
+          "text": "다"
+        },
+        {
+          "offset_sec": 1.837,
+          "duration_sec": 0.662,
+          "text": "맞히면"
+        },
+        {
+          "offset_sec": 2.5,
+          "duration_sec": 0.4,
+          "text": "상위"
+        },
+        {
+          "offset_sec": 2.9,
+          "duration_sec": 0.863,
+          "text": "1%"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "cta",
+      "role": "cta",
+      "text": "몇 개 맞혔나요? 댓글로 알려주세요!",
+      "probe": "CTA 문장. 위와 같다",
+      "target_sec": 4.0,
+      "sample": "samples/cta__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 1.407,
+      "byte_size": 24192,
+      "container_duration_sec": 4.032,
+      "decoded_duration_sec": 4.03,
+      "duration_gap_sec": 0.002,
+      "word_boundary_count": 5,
+      "last_boundary_end_sec": 3.675,
+      "spoken_tokens": [
+        "몇",
+        "개",
+        "맞혔나요",
+        "댓글로",
+        "알려주세요"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.312,
+          "text": "몇"
+        },
+        {
+          "offset_sec": 0.362,
+          "duration_sec": 0.25,
+          "text": "개"
+        },
+        {
+          "offset_sec": 0.613,
+          "duration_sec": 1.05,
+          "text": "맞혔나요"
+        },
+        {
+          "offset_sec": 2.0,
+          "duration_sec": 0.625,
+          "text": "댓글로"
+        },
+        {
+          "offset_sec": 2.625,
+          "duration_sec": 1.05,
+          "text": "알려주세요"
+        }
+      ]
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "q_percent",
+      "role": "question",
+      "text": "지구 표면의 약 71%를 덮고 있는 것은?",
+      "probe": "퍼센트 기호",
+      "target_sec": 3.0,
+      "sample": "samples/q_percent__ko-KR-HyunsuMultilingualNeural.mp3",
+      "synth_sec": 0.363,
+      "byte_size": 24336,
+      "container_duration_sec": 4.056,
+      "decoded_duration_sec": 4.05,
+      "duration_gap_sec": 0.006,
+      "word_boundary_count": 7,
+      "last_boundary_end_sec": 3.712,
+      "spoken_tokens": [
+        "지구",
+        "표면의",
+        "약",
+        "71%를",
+        "덮고",
+        "있는",
+        "것은"
+      ],
+      "word_boundaries": [
+        {
+          "offset_sec": 0.05,
+          "duration_sec": 0.463,
+          "text": "지구"
+        },
+        {
+          "offset_sec": 0.512,
+          "duration_sec": 0.65,
+          "text": "표면의"
+        },
+        {
+          "offset_sec": 1.163,
+          "duration_sec": 0.325,
+          "text": "약"
+        },
+        {
+          "offset_sec": 1.488,
+          "duration_sec": 1.1,
+          "text": "71%를"
+        },
+        {
+          "offset_sec": 2.587,
+          "duration_sec": 0.338,
+          "text": "덮고"
+        },
+        {
+          "offset_sec": 2.925,
+          "duration_sec": 0.225,
+          "text": "있는"
+        },
+        {
+          "offset_sec": 3.15,
+          "duration_sec": 0.562,
+          "text": "것은"
+        }
+      ]
+    }
+  ],
+  "determinism": [
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_number_unit",
+      "decoded_durations_sec": [
+        5.11,
+        5.11,
+        5.11
+      ],
+      "identical": true
+    }
+  ],
+  "pronunciation": [
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_number_unit",
+      "token": "6,650km로",
+      "expected_reading": "육천육백오십킬로미터로",
+      "expected_syllables": 11,
+      "token_duration_sec": 1.725,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 9.5,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_date",
+      "token": "1969년 7월 20일",
+      "expected_reading": "천구백육십구년칠월이십일",
+      "expected_syllables": 12,
+      "token_duration_sec": 2.188,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 12.05,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_date",
+      "token": "11호가",
+      "expected_reading": "십일호가",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.575,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 3.17,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_height_unit",
+      "token": "8,848m입니다",
+      "expected_reading": "팔천팔백사십팔미터입니다",
+      "expected_syllables": 12,
+      "token_duration_sec": 2.312,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 12.73,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_formula",
+      "token": "H2",
+      "expected_reading": "에이치투",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.625,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 3.44,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "a_formula",
+      "token": "O입니다",
+      "expected_reading": "오입니다",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.675,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 3.72,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-SunHiNeural",
+      "sentence_id": "q_percent",
+      "token": "71%를",
+      "expected_reading": "칠십일퍼센트를",
+      "expected_syllables": 7,
+      "token_duration_sec": 1.1,
+      "sec_per_syllable": 0.1816,
+      "implied_syllables": 6.06,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_number_unit",
+      "token": "6,650km로",
+      "expected_reading": "육천육백오십킬로미터로",
+      "expected_syllables": 11,
+      "token_duration_sec": 1.875,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 9.15,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_date",
+      "token": "1969년 7월 20일",
+      "expected_reading": "천구백육십구년칠월이십일",
+      "expected_syllables": 12,
+      "token_duration_sec": 2.487,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 12.14,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_date",
+      "token": "11호가",
+      "expected_reading": "십일호가",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.562,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 2.74,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_height_unit",
+      "token": "8,848m입니다",
+      "expected_reading": "팔천팔백사십팔미터입니다",
+      "expected_syllables": 12,
+      "token_duration_sec": 2.212,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 10.8,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_formula",
+      "token": "H2",
+      "expected_reading": "에이치투",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.613,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 2.99,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "a_formula",
+      "token": "O입니다",
+      "expected_reading": "오입니다",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.912,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 4.45,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-InJoonNeural",
+      "sentence_id": "q_percent",
+      "token": "71%를",
+      "expected_reading": "칠십일퍼센트를",
+      "expected_syllables": 7,
+      "token_duration_sec": 1.1,
+      "sec_per_syllable": 0.2048,
+      "implied_syllables": 5.37,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_number_unit",
+      "token": "6,650km로",
+      "expected_reading": "육천육백오십킬로미터로",
+      "expected_syllables": 11,
+      "token_duration_sec": 1.863,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 8.13,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_date",
+      "token": "1969년 7월 20일",
+      "expected_reading": "천구백육십구년칠월이십일",
+      "expected_syllables": 12,
+      "token_duration_sec": 2.263,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 9.87,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_date",
+      "token": "11호가",
+      "expected_reading": "십일호가",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.662,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 2.89,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_height_unit",
+      "token": "8,848m입니다",
+      "expected_reading": "팔천팔백사십팔미터입니다",
+      "expected_syllables": 12,
+      "token_duration_sec": 2.737,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 11.94,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_formula",
+      "token": "H2",
+      "expected_reading": "에이치투",
+      "expected_syllables": 4,
+      "token_duration_sec": 0.787,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 3.43,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "a_formula",
+      "token": "O입니다",
+      "expected_reading": "오입니다",
+      "expected_syllables": 4,
+      "token_duration_sec": 1.0,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 4.36,
+      "within_tolerance": true
+    },
+    {
+      "voice": "ko-KR-HyunsuMultilingualNeural",
+      "sentence_id": "q_percent",
+      "token": "71%를",
+      "expected_reading": "칠십일퍼센트를",
+      "expected_syllables": 7,
+      "token_duration_sec": 1.1,
+      "sec_per_syllable": 0.2292,
+      "implied_syllables": 4.8,
+      "within_tolerance": true
+    }
+  ]
+}

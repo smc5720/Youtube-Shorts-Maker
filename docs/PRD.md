@@ -176,8 +176,10 @@ outputs/
 
 ### 7.5 음성 생성
 
-- MVP 기본값은 무료 또는 로컬 실행이 쉬운 TTS provider를 사용한다.
-- provider는 교체 가능하게 설계한다.
+- MVP 기본값은 무료 또는 로컬 실행이 쉬운 TTS provider를 사용한다. **Edge TTS, 기본 음성
+  `ko-KR-SunHiNeural`로 확정됐다 (14.1 참조).**
+- provider는 교체 가능하게 설계한다. 단어 타이밍 제공 여부는 provider마다 다르므로
+  필수가 아닌 선택 기능으로 둔다.
 - 낭독 장면마다 세그먼트 오디오를 만들고, 이를 타임라인에 배치한 합성 트랙을 `voice.mp3`로 저장한다 (7.5.2).
 - provider는 합성한 오디오의 **실제 재생 길이를 초 단위로 보고할 수 있어야 한다**. 이 값이
   7.5.1의 입력이므로, 길이를 신뢰할 수 없는 provider는 채택하지 않는다.
@@ -315,9 +317,12 @@ outputs/run-{timestamp}/
 - 기본 배경: 단색/그라디언트 내장 + 사용자 파일 교체 (14.1 참조)
 - 1차 언어: 한국어 — 스키마의 `language` 필드로 확장 여지 유지 (14.1 참조)
 - LLM: 로컬 `claude` CLI 헤드리스 호출, 기본 모델 `claude-opus-5` — provider 방식으로 교체 가능하게 설계 (14.1 참조)
-- TTS: Edge TTS, OpenAI TTS, ElevenLabs, Kokoro 중 provider 방식으로 교체 가능하게 설계
+- TTS: Edge TTS, 기본 음성 `ko-KR-SunHiNeural` — provider 방식으로 교체 가능하게 설계 (14.1 참조)
+  - 공식 승격 경로: Azure AI Speech (동일 음성 이름 제공)
+  - 오프라인 승격 경로: MeloTTS-Korean (MIT). **Kokoro는 한국어 미지원으로 후보에서 제외**
 - 자막: SRT, 이후 ASS 스타일 자막 지원
-- 전사/정렬: MVP 이후 Faster Whisper 검토
+- 전사/정렬: Edge TTS의 WordBoundary가 단어 타이밍을 제공하므로 word-level timestamp에
+  전사가 불필요할 수 있다 (14.1 참조). Faster Whisper는 TTS 외 입력이 생길 때 검토
 - 업로드: MVP 이후 YouTube Data API v3 검토
 
 ## 11. 초기 프로젝트 구조
@@ -528,9 +533,40 @@ MVP는 로컬에 설치된 `claude` CLI를 헤드리스(`-p`)로 호출한다. �
 
 영향 — CLI 산출물 검증(#5), 스키마 검증기(#7), 타입 플러그인 인터페이스(#8), E2E 스모크(#24).
 
+#### 기본 TTS provider: Edge TTS, 기본 음성 `ko-KR-SunHiNeural`
+
+MVP는 `edge-tts`로 합성한다. 기본 음성은 `ko-KR-SunHiNeural`이며 config에서 교체한다.
+호출 시 `boundary="WordBoundary"`를 명시한다 — 기본값은 `SentenceBoundary`이고 문장 단위
+합성에서는 쓸모가 없다.
+
+근거 — PRD 10장 후보 4개 중 실질 선택지가 하나였다. **Kokoro는 공식 `VOICES.md`에 한국어
+섹션이 없어 탈락**했고(2차 자료 다수가 지원한다고 적지만 근거가 없다), OpenAI TTS와
+ElevenLabs는 API 키가 필요해 7.5의 "무료 또는 로컬 실행이 쉬운" 기본값 조건에서 벗어난다.
+Edge TTS는 세 가지를 실측으로 만족했다. 길이 측정이 두 방법에서 0.008초 안에 일치하고
+(7.5.1의 전제), 같은 문장 3회 합성 길이가 완전히 동일하며(재실행 캐시의 전제), 숫자·단위·
+기호 토큰 21개가 모두 한국어로 펼쳐 읽혔다. `ko-KR-InJoonNeural`은 모든 문장에서 8~18%
+길어 60초 예산에서 불리하다.
+
+**이 결정은 개인 로컬 사용을 전제한다.** `edge-tts`는 Microsoft Edge의 문서화되지 않은
+엔드포인트를 호출하는 비공식 클라이언트다. 상류 저장소가 미션 크리티컬 용도를 권하지 않으며,
+Microsoft가 이미 anti-abuse 토큰을 요구하도록 변경한 전례가 있어 예고 없이 깨질 수 있다.
+상업적 사용·배포로 범위가 넓어지거나 엔드포인트가 막히면 **Azure AI Speech로 승격**한다 —
+같은 Azure Neural 음성이라 `ko-KR-SunHiNeural`이라는 음성 이름이 그대로 유지되고 목소리가
+바뀌지 않는다. 오프라인이 요구사항이 되면 MeloTTS-Korean(MIT)으로 간다.
+
+**음질은 아직 판정하지 않았다.** 청취가 필요하고 스파이크는 청취하지 않았다. 샘플 39개와
+청취 체크리스트가 스파이크 문서 7장에 있다. 음질이 기각되면 provider를 다시 열어야 한다.
+
+부수 소득 — Edge TTS가 **단어별 오프셋과 지속시간**을 함께 주므로, 7.6의 word-level
+timestamp 개선에 Whisper 전사가 필요하지 않을 수 있다. 전사는 추정이고 이 값은 합성 엔진의
+실제 타이밍이다. 단 provider마다 제공 여부가 다르므로 인터페이스에서는 선택 기능으로 둔다.
+
+영향 — config `tts.provider` / `tts.voice` 키(#6), TTS 인터페이스(#14), 세그먼트 배치(#15),
+duration 보정(#16), 자막 타임코드(#17), 10장 기술 스택. 상세 실측치와 provider 인터페이스
+요구사항은 `docs/spikes/2-tts-provider.md`.
+
 ### 14.2 남은 미해결 항목
 
-- 기본 TTS provider를 무엇으로 할지 결정해야 한다. (#2)
 - 앱 프레임워크를 Electron으로 할지 Tauri로 할지 결정해야 한다. (#25)
 - Python 백엔드와 앱 프론트엔드를 어떻게 연결할지 결정해야 한다. (#25)
 - 링크 본문 추출을 어떤 라이브러리로 시작할지 결정해야 한다. (#31)
