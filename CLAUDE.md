@@ -14,7 +14,8 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 ## 로드맵
 
-`src/`, `app/`, `tests/`는 아직 없다. 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다.
+`src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마까지 있고 `app/`은 아직 없다.
+이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다.
 
 | Phase | 이슈 | 내용 |
 | --- | --- | --- |
@@ -49,6 +50,10 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
   세그먼트 파일명은 장면 인덱스(`audio/seg-003.mp3`)로 매긴다. → PRD 7.5.2
 - **공통 파이프라인은 `scenes.json`만 읽는다.** TTS·자막·렌더러·메타데이터가 `quiz.json`을
   직접 열면 타입 경계 위반이며 두 번째 타입 추가가 막힌다. → PRD 7.4.1, 퀴즈 스펙 1.1
+- **산출물 JSON의 필드명·열거값은 `src/shorts_maker/schemas/`가 확정한다.** 문서(퀴즈 스펙 3장,
+  PRD 7.5.2·7.10)는 그 이름을 설명하는 쪽이므로 문서만 고치면 계약이 바뀌지 않는다.
+  `scenes.json`은 스키마 하나 + 확정 검증(`validate_scenes_final`) 구조다 — 오디오 필드가
+  없는 초안도 통과해야 하기 때문이다. (#7)
 - **산출물은 타입·입력 경로에 따라 다르다.** `script.txt`·`summary.json`·`source.json`은
   퀴즈 + `--topic` 경로에서 생성되지 않고, 없는 것이 실패가 아니다. → PRD 6.2 표
 
