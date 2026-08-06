@@ -18,6 +18,40 @@
 앱에서 편집·내보내기**하는 것입니다. 업로드 자동화는 YouTube Data API 정책과 OAuth
 구성을 별도 검토한 뒤 **2차 기능**으로 진행합니다.
 
+## 설치와 실행
+
+Python 3.11 이상이 필요합니다 (개발 환경은 3.13에서 확인).
+
+```bash
+python -m venv .venv
+.venv/Scripts/activate        # Windows. macOS·Linux는 source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+```bash
+shorts-maker --topic "세계 지리 상식 퀴즈"
+```
+
+`outputs/run-{timestamp}/` 디렉터리가 생기고 실행 로그가 `run.log`로 남습니다. 같은 명령을
+다시 실행하면 새 run 디렉터리가 생기고 이전 결과는 그대로 보존됩니다.
+
+| 인자 | 기본값 | 설명 |
+| --- | --- | --- |
+| `--topic` | (필수) | 쇼츠로 만들 주제 한 줄 |
+| `--type` | `quiz` | 쇼츠 타입 |
+| `--out` | `outputs` | run 디렉터리를 만들 상위 경로 |
+| `-v`, `--verbose` | off | 디버그 로그까지 출력 |
+
+> **현재는 CLI 골격까지만 동작합니다.** run 디렉터리와 로그를 만들고 종료하며, 생성
+> 파이프라인은 아직 연결되지 않았습니다. `--url` / `--text-file` 입력과 `config.yaml`
+> 로딩도 이후 이슈에서 추가됩니다.
+
+테스트:
+
+```bash
+pytest
+```
+
 ## 문서
 
 - [PRD](docs/PRD.md) — 입력 기반 YouTube Shorts 자동 생성 MVP 기획서
