@@ -329,6 +329,7 @@ outputs/run-{timestamp}/
 
 ```text
 Youtube-Shorts-Maker/
+  pyproject.toml          # 의존성 선언 + shorts-maker 콘솔 스크립트
   docs/
     PRD.md
   app/
@@ -343,24 +344,34 @@ Youtube-Shorts-Maker/
     urls.txt
   assets/
     backgrounds/
+    sfx/
     music/
   outputs/
   src/
-    main.py
-    config.py
-    source_loader.py
-    article_extractor.py
-    summarizer.py
-    script_generator.py
-    scene_planner.py
-    tts.py
-    captions.py
-    video_renderer.py
-    metadata_generator.py
-    project.py
-    api.py
+    shorts_maker/
+      main.py             # CLI 진입점
+      run_context.py      # run 디렉터리 생성, 실행 로그
+      shorts_types.py     # 지원 타입 목록 (이후 플러그인 레지스트리)
+      config.py
+      source_loader.py
+      article_extractor.py
+      summarizer.py
+      script_generator.py
+      scene_planner.py
+      tts.py
+      captions.py
+      video_renderer.py
+      metadata_generator.py
+      project.py
+      api.py
+      types/
+        quiz/             # 타입 전용 생성기와 장면 템플릿 (퀴즈 스펙 4장)
   tests/
 ```
+
+파이프라인 모듈은 `src/` 바로 아래가 아니라 `src/shorts_maker/` 패키지 안에 둔다. `src`를
+그대로 패키지로 쓰면 배포 이름이 `src`가 되고, 테스트와 앱 백엔드에서 `from src.tts import ...`
+같은 import를 쓰게 된다. 모듈 이름 자체는 위 목록을 따른다.
 
 ## 12. 구현 마일스톤
 

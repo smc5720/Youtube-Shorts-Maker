@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-shorts-maker"
+version = "0.1.0"
+description = "세로형 쇼츠 자동 생성 엔진"
+readme = "README.md"
+requires-python = ">=3.11"
+
+# 아직 서드파티 의존성이 없다. CLI 골격은 표준 라이브러리(argparse, logging)만 쓴다.
+# config.yaml 로더가 PyYAML을(#6), TTS provider가 합성 라이브러리를(#14) 여기에 추가한다.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+shorts-maker = "shorts_maker.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 설치하지 않은 상태에서도 tests가 src/를 import할 수 있게 한다.
+pythonpath = ["src"]
