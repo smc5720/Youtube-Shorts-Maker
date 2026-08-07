@@ -102,6 +102,12 @@ SPEC: dict[str, Any] = {
         "answer_max_len": Setting(20, "int"),
         "explanation_max_len": Setting(60, "int"),
     },
+    # 업로드용 메타데이터 (#13). 상한이 config에 있는 이유는 YouTube의 하드 리밋이 아니라
+    # 운영 기준이기 때문이다 — 제목 100자는 허용되지만 모바일 검색 결과에서 잘린다.
+    "metadata": {
+        "title_max_len": Setting(40, "int"),
+        "tag_max_count": Setting(10, "int"),
+    },
     "render": {
         # null이면 번들 폰트를 찾는다. 실제 탐색과 파일 존재 확인은 #20/#38이 한다.
         "font_path": Setting(None, "str", nullable=True),

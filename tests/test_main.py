@@ -23,7 +23,13 @@ from shorts_maker.main import (
     main,
 )
 from shorts_maker.run_context import LOG_FILENAME
-from shorts_maker.schemas import SCENES_SCHEMA, SchemaError, load_scenes
+from shorts_maker.schemas import (
+    METADATA_SCHEMA,
+    SCENES_SCHEMA,
+    SchemaError,
+    load_metadata,
+    load_scenes,
+)
 from shorts_maker.shorts_types import DEFAULT_TYPE, available_types, get_type
 
 pytestmark = pytest.mark.usefixtures("stub_llm")
@@ -300,6 +306,7 @@ def test_failed_run_leaves_no_content_artifact(tmp_path: Path, stub_llm: StubLLM
     run_dir = run_dirs(tmp_path)[0]
     assert not (run_dir / get_type(DEFAULT_TYPE).content_artifact).exists()
     assert not (run_dir / SCENES_SCHEMA.name).exists()
+    assert not (run_dir / METADATA_SCHEMA.name).exists()
 
 
 # --- 장면 산출물 (#12) -------------------------------------------------------
@@ -342,6 +349,55 @@ def test_run_log_records_the_scene_artifact(tmp_path: Path) -> None:
 
     assert f"{SCENES_SCHEMA.name} 생성 완료" in log_text
     assert "장면 14개" in log_text
+
+
+# --- 메타데이터 산출물 (#13) -------------------------------------------------
+
+
+def test_run_writes_the_metadata(tmp_path: Path) -> None:
+    exit_code = main(["--topic", "세계 지리 상식", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    metadata = load_metadata(run_dirs(tmp_path)[0] / METADATA_SCHEMA.name)
+    assert len(metadata["titles"]) == 3
+    assert metadata["type"] == DEFAULT_TYPE
+    # `--topic` 경로에는 출처가 없다. 없는 것이 실패가 아니다 (PRD 6.2 표).
+    assert metadata["source"] is None
+
+
+def test_run_log_records_the_metadata_artifact(tmp_path: Path) -> None:
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert f"{METADATA_SCHEMA.name} 생성 완료" in log_text
+
+
+def test_metadata_generation_gets_the_scene_material(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """마지막 호출이 메타데이터다. 재료는 장면 문구뿐이고 `quiz.json`을 열지 않는다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    scenes = scenes_artifact(run_dirs(tmp_path)[0])
+    assert scenes["scenes"][0]["text"] in stub_llm.calls[-1]["prompt"]
+
+
+def test_metadata_failure_leaves_the_reason_in_the_log(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stub_llm: StubLLM
+) -> None:
+    """콘텐츠와 장면은 이미 남았다. 어느 단계에서 멈췄는지는 run.log가 답한다."""
+    fixed_run(stub_llm)
+    stub_llm.reply(*[LLMError("메타데이터 응답이 스키마를 벗어났다")] * 3)
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    assert "생성 실패" in capsys.readouterr().err
+    run_dir = run_dirs(tmp_path)[0]
+    assert "메타데이터 생성 실패" in (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
+    assert not (run_dir / METADATA_SCHEMA.name).exists()
+    assert (run_dir / SCENES_SCHEMA.name).exists()
 
 
 # --- 검수 게이트 (#11) -------------------------------------------------------

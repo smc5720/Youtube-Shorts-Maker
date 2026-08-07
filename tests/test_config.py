@@ -260,6 +260,8 @@ def test_every_documented_key_has_a_default() -> None:
         "quiz.countdown_sec",
         "quiz.answer_max_len",
         "quiz.explanation_max_len",
+        "metadata.title_max_len",
+        "metadata.tag_max_count",
         "render.font_path",
         "render.background",
     }

@@ -2,7 +2,8 @@
 
 이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
 불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고한 뒤, 타입의 장면 템플릿으로 `scenes.json`
-초안을 쓰는 것**까지다. TTS부터 렌더까지는 아직 붙지 않았다.
+초안을 쓰고, 그 초안에서 `metadata.json`을 만드는 것**까지다. TTS부터 렌더까지는 아직 붙지
+않았다.
 
 - 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더(#19–#24)가
   붙으면 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
@@ -27,11 +28,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__
+from . import __version__, metadata_generator
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .llm import LLMError, validate_providers
 from .run_context import RunContext, run_logging, start_run, write_artifact
-from .schemas import SCENES_SCHEMA, SchemaError
+from .schemas import METADATA_SCHEMA, SCENES_SCHEMA, SchemaError
 from .shorts_types import (
     DEFAULT_TYPE,
     ContentIssue,
@@ -189,6 +190,18 @@ def run(
         # 파일명은 스키마가 확정한다. `scenes.json`은 타입과 무관한 공통 산출물이다.
         scenes_path = write_artifact(context.run_dir, SCENES_SCHEMA.name, scenes)
         logger.info("%s 생성 완료 — 장면 %d개", scenes_path.name, len(scenes["scenes"]))
+
+        # 퀴즈 스펙 4장의 파이프라인 그림은 메타데이터를 렌더 뒤에 두지만, 입력은 장면
+        # 초안이고 오디오 길이·렌더 결과와 무관하다 (PRD 7.8). 렌더가 붙어도 여기서
+        # 옮길 이유가 없다 — 렌더가 실패해도 남아야 하는 산출물이다 (PRD 6.2 표).
+        logger.info("메타데이터 생성 중")
+        try:
+            metadata = metadata_generator.generate(scenes, config=config)
+        except (LLMError, SchemaError) as error:
+            logger.error("메타데이터 생성 실패 — %s", error)
+            raise
+        metadata_path = write_artifact(context.run_dir, METADATA_SCHEMA.name, metadata)
+        logger.info("%s 생성 완료", metadata_path.name)
 
         logger.info("이후 단계(TTS·자막·렌더)는 아직 연결되지 않았다")
 

@@ -38,6 +38,12 @@ quiz:
   answer_max_len: 20              # 정답 글자 수 상한. 넘으면 생성 실패로 멈춘다
   explanation_max_len: 60         # 한 줄 해설 글자 수 상한. 정답 장면 자막에 들어간다
 
+# 업로드 시 붙여넣을 제목·설명·태그 (PRD 7.8). 상한은 YouTube의 하드 리밋이 아니라 운영
+# 기준이다 — 제목 100자는 허용되지만 모바일 검색 결과에서 잘린다.
+metadata:
+  title_max_len: 40               # 제목 후보 1개의 글자 수 상한. 넘으면 생성 실패로 멈춘다
+  tag_max_count: 10               # 태그 개수 상한. 1개 이상이어야 한다
+
 render:
   font_path: null                 # 자막·오버레이 폰트 경로. null이면 번들 폰트를 찾는다
   background: gradient_default    # 배경 프리셋 이름

@@ -275,6 +275,42 @@ outputs/run-{timestamp}/
 - 결과를 `metadata.json`으로 저장한다.
 - 업로드는 하지 않는다.
 
+**필드는 아래로 확정됐다.** 스키마 정의는 `src/shorts_maker/schemas/metadata.py`에 있고,
+생성은 `metadata_generator`가 LLM 호출 1회로 한다 (#13).
+
+```json
+{
+  "schema_version": 1,
+  "type": "quiz",
+  "language": "ko",
+  "titles": [
+    "이 상식 4개, 다 맞히면 상위 1%",
+    "상식 퀴즈 4문제, 몇 개 맞히나요",
+    "세계 지리 상식 테스트"
+  ],
+  "description": "세계 지리 상식 퀴즈 4문제입니다. 정답을 맞혀 보세요.",
+  "tags": ["상식퀴즈", "지리"],
+  "source": null
+}
+```
+
+| 필드 | 의미 |
+| --- | --- |
+| `titles` | 업로드 시 고를 제목 후보. **정확히 3개**를 스키마가 강제한다 — 사람이 셋 중 하나를 골라 붙여넣는 것이 용도이므로 개수가 계약이다 |
+| `description` | 업로드 설명문 |
+| `tags` | 태그 후보. 1개 이상이며 상한은 `metadata.tag_max_count` |
+| `source` | 출처 URL 또는 원문 출처 표기. **nullable 필수 필드다** — 필드를 통째로 빼면 "출처가 없는 입력 경로였다"와 "생성기가 빠뜨렸다"가 구분되지 않는다 |
+
+- **입력은 `scenes.json`뿐이다** (7.4.1). 제목의 재료는 장면의 `role` / `text` / `caption`이며,
+  `quiz.json` 같은 타입 전용 산출물을 열지 않는다.
+- **확정 상태를 요구하지 않는다.** 장면 초안만으로 생성한다 — 메타데이터는 오디오 길이와
+  무관하고, 렌더가 실패해도 남아야 하는 산출물이다 (6.2 표).
+- 제목 길이와 태그 개수의 상한은 config가 정한다 (`metadata.title_max_len` 기본 40,
+  `metadata.tag_max_count` 기본 10). YouTube의 하드 리밋(제목 100자)이 아니라 모바일 검색
+  결과에서 잘리지 않게 하려는 운영 기준이므로 config에 둔다.
+- `--topic` 입력에는 출처가 없어 `source`가 `null`이다. `--url` / `--text-file` 경로에서
+  값을 채우는 것은 #31이다.
+
 ### 7.9 편집 앱
 
 - 사용자는 생성된 프로젝트를 앱에서 열 수 있다.
