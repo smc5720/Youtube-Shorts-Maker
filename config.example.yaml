@@ -13,8 +13,8 @@ llm:
   verifier:
     provider: claude_cli          # 검증 provider. 생성과 다른 vendor로 바꿀 수 있다
     model: opus                   # 검증 모델. 생성과 같으면 블라인드 검증력이 구조적으로 약해진다
-    runs: 2                       # 문제당 블라인드 재답변 횟수
-    confidence_threshold: 0.8     # 미만이면 flagged 처리. 잠정값 — #10에서 확정한다
+    runs: 2                       # 블라인드 재답변 호출 횟수 (1 이상. 문제 수와 무관하다)
+    confidence_threshold: 0.8     # 미만이면 flagged 처리. 판정은 #11이 붙인다
   timeout_sec: 600                # LLM 호출 1회 타임아웃(초)
   max_retries: 2                  # 재시도 횟수. 타임아웃·바이너리 부재는 재시도하지 않는다
   providers:
