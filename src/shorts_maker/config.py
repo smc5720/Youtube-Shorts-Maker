@@ -62,9 +62,12 @@ SPEC: dict[str, Any] = {
         "verifier": {
             "provider": Setting("claude_cli", "str"),
             "model": Setting("opus", "str"),
+            # 블라인드 재답변 호출 횟수. 문제 수와 무관하다 — 검증기가 문제를 묶어 부른다.
+            # 하한(1 이상)은 여기가 아니라 `ShortsType.config_check`가 본다. 재답변이
+            # 몇 번 필요한지는 사실 검증을 필수로 두는 타입의 규칙이다 (#10).
             "runs": Setting(2, "int"),
-            # 잠정값이다. 스파이크 #1에서 블라인드 재답변이 24회 전부 일치해 임계값을
-            # 정할 근거가 나오지 않았다. #10에서 어려운 문제 세트로 재측정해 확정한다.
+            # 이 값을 읽어 flagged를 판정하는 것은 #11이다. 검증기(#10)는 confidence를
+            # 산출하기만 한다 — 재답변 불일치·질문 모호는 임계값과 무관한 실검출이다.
             "confidence_threshold": Setting(0.8, "float"),
         },
         "timeout_sec": Setting(600, "int"),

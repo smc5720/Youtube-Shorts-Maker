@@ -26,6 +26,7 @@ from ...schemas.quiz import (
     content_json_schema,
     validate_quiz,
 )
+from .quiz_verifier import MIN_RUNS, verify
 
 if TYPE_CHECKING:
     from ...config import Config
@@ -56,20 +57,34 @@ SYSTEM = (
 def check_config(config: Config) -> None:
     """퀴즈 타입이 요구하는 설정 조건을 확인한다. 타입 선언이 파이프라인에 노출한다.
 
-    run 디렉터리를 만들기 전에 돈다 — 문제 수 하나 때문에 빈 run 디렉터리가 쌓이면
-    검수할 산출물과 구분되지 않는다.
+    run 디렉터리를 만들기 전에 돈다 — 값 하나 때문에 빈 run 디렉터리가 쌓이면 검수할
+    산출물과 구분되지 않는다.
+
+    `llm.verifier.runs`는 `llm` 아래 키지만 여기서 본다. 재답변 횟수의 하한을 아는 것은
+    사실 검증을 필수로 두는 퀴즈 타입이고(퀴즈 스펙 5장), 설정 로더는 그 요구를 모른다 —
+    문제 수 범위를 `config.SPEC`이 아니라 여기서 보는 것과 같은 이유다.
 
     Raises:
-        ConfigError: 문제 수가 허용 범위 밖일 때.
+        ConfigError: 문제 수나 재답변 횟수가 허용 범위 밖일 때.
     """
+    errors = []
+
     count = config.get("quiz.question_count")
     if not MIN_QUESTIONS <= count <= MAX_QUESTIONS:
-        raise ConfigError(
-            [
-                f"quiz.question_count: {MIN_QUESTIONS}~{MAX_QUESTIONS} 사이여야 한다. "
-                f"받은 값: {count}"
-            ]
+        errors.append(
+            f"quiz.question_count: {MIN_QUESTIONS}~{MAX_QUESTIONS} 사이여야 한다. "
+            f"받은 값: {count}"
         )
+
+    runs = config.get("llm.verifier.runs")
+    if runs < MIN_RUNS:
+        errors.append(
+            f"llm.verifier.runs: {MIN_RUNS} 이상이어야 한다. 재답변이 한 번도 없으면 "
+            f"검증 단계가 이름만 남는다. 받은 값: {runs}"
+        )
+
+    if errors:
+        raise ConfigError(errors)
 
 
 def build_prompt(
@@ -98,11 +113,12 @@ def build_prompt(
 
 
 def generate(*, topic: str, config: Config) -> dict[str, Any]:
-    """주제에서 퀴즈 문제 세트를 만든다.
+    """주제에서 퀴즈 문제 세트를 만든다. 각 문제의 `verify`까지 채워서 돌려준다.
 
-    돌려주는 dict는 `validate_quiz`를 통과한다. 검증(#10)이 붙으면 각 문제의 `verify`가
-    채워진 상태가 되며, 그 자리는 아래 주석이 가리킨다 — 검증을 별도의 플러그인 축으로
-    두지 않는 이유는 그것이 퀴즈 타입 내부 단계이기 때문이다.
+    **블라인드 검증(#10)은 별도의 플러그인 축이 아니라 여기 안의 한 단계다.** 레지스트리가
+    아는 교체 가능한 축은 생성기와 장면 템플릿 둘뿐이고(#8), 검증은 퀴즈 타입이 자기
+    산출물에 대해 하는 일이다. 검증기를 세 번째 축으로 올리면 "검증 없는 타입"을 위해
+    레지스트리가 선택 축을 하나 더 들고 다녀야 한다.
 
     Raises:
         ConfigError: 설정이 퀴즈 타입의 요구를 만족하지 않을 때.
@@ -137,8 +153,14 @@ def generate(*, topic: str, config: Config) -> dict[str, Any]:
     _check_lengths(
         content, answer_max_len=answer_max_len, explanation_max_len=explanation_max_len
     )
-    # 여기에 #10의 블라인드 검증이 붙는다 — 각 문제에 `verify`를 채운 뒤 아래 검증으로
-    # 넘어간다. 그전까지 초안은 `verify` 없이 스키마를 통과한다.
+    # 초안을 먼저 검증한다. 모양이 깨진 초안을 그대로 검증기에 넘기면 재답변·모호성 프로브
+    # 호출 비용을 쓰고 나서 같은 이유로 실패한다. 이 시점의 초안에는 `verify`가 없고,
+    # 스키마가 그것을 선택 필드로 둔 이유가 이 호출이다.
+    validate_quiz(content)
+
+    verify(content, config=config)
+    # 검증기가 채운 값도 계약을 지켜야 한다. 순수 파이썬 검사라 비용이 없고, 상태·확신도가
+    # 스키마를 벗어나면 `quiz.json`을 쓰기 전에 여기서 걸린다.
     validate_quiz(content)
     return content
 

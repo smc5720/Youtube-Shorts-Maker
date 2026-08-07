@@ -15,7 +15,7 @@ import pytest
 from shorts_maker.config import Config, ConfigError, defaults, load_config
 from shorts_maker.llm import LLMError
 from shorts_maker.schemas import DIFFICULTIES, SchemaError, validate_quiz
-from shorts_maker.schemas.quiz import content_json_schema
+from shorts_maker.schemas.quiz import VERIFY_STATUSES, content_json_schema
 from shorts_maker.types.quiz.quiz_generator import (
     CATEGORY,
     LANGUAGE,
@@ -27,6 +27,13 @@ from shorts_maker.types.quiz.quiz_generator import (
 )
 
 from conftest import StubLLM, from_schema
+
+DEFAULT_VERIFY_CALLS = 3
+"""기본 설정에서 검증이 쓰는 호출 수 — 재답변 `llm.verifier.runs`(2) + 모호성 프로브 1 (#10).
+
+생성 호출 수를 세는 테스트가 검증 호출까지 함께 세게 된다. 이 값이 문제 수와 무관하다는
+것이 아래 `test_call_count_does_not_scale_with_question_count`가 확인하는 성질이다.
+"""
 
 
 def config_with(**overrides: Any) -> Config:
@@ -62,11 +69,15 @@ def test_generated_content_passes_the_quiz_schema(stub_llm: StubLLM) -> None:
     validate_quiz(content)  # 위반이 있으면 SchemaError로 실패한다
 
 
-def test_draft_has_no_verify_field_because_the_verifier_fills_it(stub_llm: StubLLM) -> None:
-    """#10이 채우기 전의 초안은 `verify` 없이 검증을 통과한다 (퀴즈 스펙 3.1)."""
+def test_every_question_carries_a_verify_field(stub_llm: StubLLM) -> None:
+    """검증(#10)은 `generate()` 안의 한 단계다 — 산출물에 `verify`가 이미 채워져 나온다.
+
+    초안이 `verify` 없이 스키마를 통과하는 성질은 여전히 필요하고(검증 전 검증),
+    `tests/test_schemas.py`가 그것을 고정한다.
+    """
     content = generate(topic="주제", config=config_with())
 
-    assert all("verify" not in item for item in content["questions"])
+    assert all(item["verify"]["status"] in VERIFY_STATUSES for item in content["questions"])
 
 
 def test_category_and_language_are_fixed_by_code(stub_llm: StubLLM) -> None:
@@ -110,6 +121,26 @@ def test_question_count_outside_the_allowed_range_is_a_config_error(count: int) 
     assert f"{MIN_QUESTIONS}~{MAX_QUESTIONS}" in str(error.value)
 
 
+@pytest.mark.parametrize("runs", [0, -1])
+def test_verifier_runs_below_one_is_a_config_error(runs: int) -> None:
+    """재답변이 한 번도 없으면 검증 단계가 이름만 남는다 (#10).
+
+    `llm` 아래 키이지만 하한을 아는 것은 사실 검증을 필수로 두는 퀴즈 타입이다.
+    """
+    with pytest.raises(ConfigError) as error:
+        check_config(config_with(**{"llm.verifier.runs": runs}))
+
+    assert "llm.verifier.runs" in str(error.value)
+
+
+def test_config_check_reports_every_violation_at_once() -> None:
+    """설정 오류는 모아서 던진다 — 하나 고치고 다시 돌려서 다음 오류를 보는 왕복을 줄인다."""
+    with pytest.raises(ConfigError) as error:
+        check_config(config_with(**{"quiz.question_count": 9, "llm.verifier.runs": 0}))
+
+    assert len(error.value.messages) == 2
+
+
 def test_out_of_range_count_stops_before_calling_the_model(stub_llm: StubLLM) -> None:
     """범위를 벗어난 값으로 모델을 부르면 그 비용이 그대로 버려진다."""
     with pytest.raises(ConfigError):
@@ -119,11 +150,16 @@ def test_out_of_range_count_stops_before_calling_the_model(stub_llm: StubLLM) ->
 
 
 @pytest.mark.parametrize("count", [MIN_QUESTIONS, 4, MAX_QUESTIONS])
-def test_one_llm_call_regardless_of_question_count(stub_llm: StubLLM, count: int) -> None:
-    """CLI 기동 오버헤드가 호출당 약 6.5초다 (스파이크 3장). 문제별 호출은 이를 곱한다."""
+def test_call_count_does_not_scale_with_question_count(stub_llm: StubLLM, count: int) -> None:
+    """CLI 기동 오버헤드가 호출당 약 6.5초다 (스파이크 3장). 문제별 호출은 이를 곱한다.
+
+    생성 1회 + 검증 `DEFAULT_VERIFY_CALLS`회로 끝난다. 문제 수를 3에서 5로 올려도
+    호출 수가 그대로여야 한다 — 생성기와 검증기가 둘 다 문제를 묶어 부르기 때문이다.
+    """
     generate(topic="주제", config=config_with(**{"quiz.question_count": count}))
 
-    assert stub_llm.call_count == 1
+    assert stub_llm.call_count == 1 + DEFAULT_VERIFY_CALLS
+    assert stub_llm.calls[0]["prompt"].startswith("주제:")  # 첫 호출이 생성이다
 
 
 # --- 배치와 식별자 ---------------------------------------------------------
@@ -281,14 +317,15 @@ def test_system_prompt_replaces_the_default_one(stub_llm: StubLLM) -> None:
     assert stub_llm.calls[0]["system"] == SYSTEM
 
 
-def test_generator_role_decides_the_model(stub_llm: StubLLM) -> None:
-    """검증(#10)과 다른 모델을 쓸 수 있어야 한다 (스파이크 4.2)."""
+def test_each_role_uses_its_own_model(stub_llm: StubLLM) -> None:
+    """생성과 검증이 같은 모델이면 프롬프트만 탈상관되고 지식은 공유된다 (스파이크 4.2)."""
     generate(
         topic="주제",
         config=config_with(**{"llm.generator.model": "haiku", "llm.verifier.model": "opus"}),
     )
 
     assert stub_llm.calls[0]["model"] == "haiku"
+    assert {call["model"] for call in stub_llm.calls[1:]} == {"opus"}
 
 
 # --- 실패 경로 --------------------------------------------------------------
@@ -299,7 +336,7 @@ def test_schema_failure_is_retried_up_to_max_retries(stub_llm: StubLLM) -> None:
 
     content = generate(topic="주제", config=config_with(**{"llm.max_retries": 2}))
 
-    assert stub_llm.call_count == 2
+    assert stub_llm.call_count == 2 + DEFAULT_VERIFY_CALLS
     assert len(content["questions"]) == 4
 
 
@@ -337,21 +374,25 @@ def test_length_overrun_stops_instead_of_regenerating(
     assert setting in str(error.value)
 
 
-def test_length_caps_are_read_from_config(stub_llm: StubLLM) -> None:
+@pytest.mark.parametrize(("cap", "accepted"), [(12, True), (11, False)])
+def test_length_caps_are_read_from_config(stub_llm: StubLLM, cap: int, accepted: bool) -> None:
+    """상한은 코드에 박힌 값이 아니라 config에서 온다 — 같은 응답의 판정이 상한으로 갈린다.
+
+    두 경우를 한 테스트에서 연달아 부르지 않는다. `stub_llm.reply()`가 넣은 응답은 생성과
+    검증이 함께 소비하는 하나의 큐라, 생성 2회분을 미리 넣으면 두 번째 응답을 검증기가
+    먼저 가져간다.
+    """
     payload = model_output(count=3)
     payload["questions"] = [question(answer="가" * 12) for _ in range(3)]
-    stub_llm.reply(copy.deepcopy(payload), copy.deepcopy(payload))
+    stub_llm.reply(copy.deepcopy(payload))
+    config = config_with(**{"quiz.question_count": 3, "quiz.answer_max_len": cap})
 
-    generate(
-        topic="주제",
-        config=config_with(**{"quiz.question_count": 3, "quiz.answer_max_len": 12}),
-    )
+    if accepted:
+        generate(topic="주제", config=config)
+        return
 
     with pytest.raises(LLMError, match="quiz.answer_max_len"):
-        generate(
-            topic="주제",
-            config=config_with(**{"quiz.question_count": 3, "quiz.answer_max_len": 11}),
-        )
+        generate(topic="주제", config=config)
 
 
 def test_output_that_breaks_the_artifact_schema_is_reported_with_the_field_path(
