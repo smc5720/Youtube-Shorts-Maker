@@ -67,24 +67,27 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
 > 크게 벗어났을 때 경고를 내는 기준으로만 쓴다.
 
 ```text
-[0~3초]     후킹        강한 첫 문장 (예: "이 상식 4개, 다 맞히면 상위 1%")
+[0~2.5초]   후킹        강한 첫 문장 (예: "이 상식 4개, 다 맞히면 상위 1%")
 ── 문제 블록 (문제 수만큼 반복) ──
-  [질문 ~3초]   질문 텍스트 크게 표시 + TTS 질문 낭독      ← 실측 확정
-  [카운트 4초]  3 → 2 → 1 타이머 오버레이 + 비프음 (생각할 시간)  ← 고정
+  [질문 ~4초]   질문 텍스트 크게 표시 + TTS 질문 낭독      ← 실측 확정
+  [카운트 3초]  3 → 2 → 1 타이머 오버레이 + 비프음 (생각할 시간)  ← 고정
   [정답 ~3초]   정답 강조 등장 + 한 줄 해설(자막) + 정답 효과음 + TTS 정답 낭독  ← 실측 확정
 ── 반복 끝 ──
-[마지막 3~5초] CTA        "몇 개 맞혔나요? 댓글 + 구독"
+[마지막 3초]  CTA        "몇 개 맞혔나요? 댓글 + 구독"
 ```
 
 | 장면 | 길이 결정 | 근거 |
 | --- | --- | --- |
-| `hook` | 고정 3.0초 | 현재 TTS 범위가 질문·정답뿐이라 낭독이 없다 |
+| `hook` | 고정 2.5초 | 현재 TTS 범위가 질문·정답뿐이라 낭독이 없다 |
 | `question` | 실측 오디오 + 패딩 | 질문 문장 길이가 문제마다 다르다 |
-| `countdown` | 고정 `countdown_sec` (기본 4초) | 낭독이 없고, 숫자 전환이 정수 초에 맞아야 한다 |
-| `answer` | 실측 오디오 + 패딩 | 정답 낭독 길이가 "나일강"과 "카를 벤츠의 페이턴트 모터바겐"만큼 차이난다 |
-| `cta` | 고정 4.0초 | 낭독이 없다 |
+| `countdown` | 고정 `countdown_sec` (기본 3초) | 낭독이 없고, 숫자 전환이 정수 초에 맞아야 한다 |
+| `answer` | 실측 오디오 + 패딩, **해설 읽기 시간 하한** | 정답 낭독 길이가 "나일강"과 "카를 벤츠의 페이턴트 모터바겐"만큼 차이나고, 해설은 낭독이 없어 별도 하한이 필요하다 (PRD 7.5.1) |
+| `cta` | 고정 3.0초 | 낭독이 없다 |
 
-- 길이 가이드: 3문제 ≈ 38초 / 4문제 ≈ 48초 / 5문제 ≈ 58초. 이것도 목표 범위이며, 확정 합계가
+고정 길이 세 개는 **D1 영상 디자인 시안이 그 길이로 레이아웃을 검증했기 때문에** 각각
+3.0 / 4 / 4.0초에서 바뀐 값이다 ([D1 확정 스펙](../design/d1-video-design-spec.md) 3장).
+
+- 길이 가이드: 3문제 ≈ 36초 / 4문제 ≈ 47초 / 5문제 ≈ 57초. 이것도 목표 범위이며, 확정 합계가
   PRD 6.3의 45~60초를 벗어나면 경고만 남기고 렌더는 진행한다.
 - **난이도 오름차순 배치**(easy → hard)로 이탈을 방지한다. 후킹의 "상위 1%"는 마지막 고난도 문제로 정당화한다.
 - 문제당 카운트다운 길이는 난이도에 따라 조정 가능 (`countdown_sec`).
@@ -141,26 +144,35 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
   "schema_version": 1,
   "type": "quiz",
   "scenes": [
-    { "role": "hook", "text": "이 상식 4개, 다 맞히면 상위 1%", "duration": 3.0 },
+    { "role": "hook", "text": "이 상식 4개, 다 맞히면 상위 1%", "duration": 2.5 },
     { "role": "question", "question_id": 1, "text": "세계에서 가장 긴 강은?",
       "narrate": true, "target_duration": 3.0, "duration": 2.94,
-      "audio": "audio/seg-001.mp3", "audio_duration": 2.14, "narration_offset": 3.3 },
-    { "role": "countdown", "question_id": 1, "seconds": 4, "duration": 4.0, "sfx": "beep" },
+      "audio": "audio/seg-001.mp3", "audio_duration": 2.14, "narration_offset": 2.8 },
+    { "role": "countdown", "question_id": 1, "seconds": 3, "duration": 3.0, "sfx": "beep" },
     { "role": "answer", "question_id": 1, "text": "나일강", "caption": "약 6,650km로 세계 최장",
-      "narrate": true, "target_duration": 3.0, "duration": 1.72,
-      "audio": "audio/seg-003.mp3", "audio_duration": 0.92, "narration_offset": 10.24,
+      "narrate": true, "target_duration": 3.0, "duration": 2.733,
+      "audio": "audio/seg-003.mp3", "audio_duration": 0.92, "narration_offset": 8.74,
       "sfx": "correct" },
-    { "role": "cta", "text": "몇 개 맞혔나요? 댓글로 알려주세요!", "duration": 4.0 }
+    { "role": "cta", "text": "몇 개 맞혔나요? 댓글로 알려주세요!", "duration": 3.0 }
   ]
 }
 ```
 
 - `target_duration`: 템플릿이 넣은 목표치. 확정값과 크게 벌어졌는지 검증할 때만 쓴다.
 - `duration`: 확정 길이. 낭독 장면은 `lead_in + audio_duration + tail`, 최소 `min_duration`.
+  **`caption`이 있으면 해설 읽기 하한도 함께 걸린다** — 위 예시의 정답 장면 2.733초는 낭독
+  기준값 1.72초가 아니라 `caption_onset(0.9) + 16자/12cps + tail(0.5)`에서 나왔다 (PRD 7.5.1).
 - `audio`: 세그먼트 파일 경로. 인덱스는 `scenes` 배열 위치(0-based)를 따르므로 낭독이 아닌
   장면 번호는 비어 있다 (위 예시에서 `seg-000`·`seg-002`·`seg-004`가 없다).
 - `narration_offset`: `voice.mp3` 안에서 이 세그먼트가 시작하는 시각. 자막 타임코드의 기준이다.
 - `audio` / `audio_duration` / `narration_offset`은 TTS 단계가 채운다. 장면 템플릿은 비워 둔다.
+- **`heading` / `kicker`는 아직 없다 — #55가 넣는다.** D1 시안이 countdown·answer 장면에도
+  질문을 띄우고 hook에 카테고리 라벨을 붙이는데, 지금 스키마에는 그 문구를 담을 자리가 없다.
+  `heading`(질문을 question·countdown·answer 세 장면에 같은 값으로)과 `kicker`(hook 위 라벨)를
+  통과 필드로 추가하고 위 예시도 그때 함께 갱신한다
+  ([D1 확정 스펙](../design/d1-video-design-spec.md) 8장).
+  **위 예시는 이 문서가 아니라 코드가 검증한다** — `tests/test_schemas.py`가 이 JSON 블록을
+  읽어 `validate_scenes_final()`에 넣으므로, 스키마에 없는 필드를 예시에만 먼저 적으면 깨진다.
 
 > **필드명은 위 이름으로 확정됐다.** 스키마 정의는 `src/shorts_maker/schemas/scenes.py`에
 > 있고, 이 문서가 아니라 그 코드가 단일 진실 공급원이다. 검증은 두 단계다 —
@@ -387,7 +399,17 @@ assets/
 
 ## 10. 미해결 결정사항
 
-- 카운트다운 UI 스타일 (숫자 vs 원형 타이머).
+- `answer` 장면에서 질문을 감쇠색으로 유지할지, 완전히 숨길지. 인스턴스 교체라 1프레임에
+  색이 바뀌는데 컷이 튀는지는 실제 렌더를 봐야 안다 (#22).
+- 문제 인덱스(`Q2 / 4`) 표기 채택 여부. D1 시안이 발주서에 없던 요소로 넣었고, 빼도 다른
+  좌표에 영향이 없다 (#20).
+
+**카운트다운 UI 스타일은 확정됐다** — 큰 숫자(`drawtext` + `%{eif}`) + 하단 가로 진행
+바(`drawbox`)다. 원형 타이머는 채택하지 않았다. PNG 시퀀스 파이프라인이 별도로 필요하고,
+같은 "남은 시간" 정보를 가로 바가 추가 비용 없이 전달한다. 다만 **`drawbox` 폭의 시간
+표현식 제어는 아직 실측하지 않았다** — #21의 첫 검증 항목이고 실패하면 바만 제거한다
+(숫자와 다른 수치는 영향받지 않는다). 좌표·크기·색은
+[D1 확정 스펙 5.3](../design/d1-video-design-spec.md).
 
 검증 임계값은 **#11에서 확정됐다** — `llm.verifier.confidence_threshold` 기본값 **0.8**.
 잠정값을 그대로 굳힌 것이 아니라 #10이 함정 문제 세트로 실측해 재확인한 값이다
