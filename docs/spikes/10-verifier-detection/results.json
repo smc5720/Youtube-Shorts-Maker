@@ -1,0 +1,1846 @@
+{
+  "started_at": "2026-08-07T11:15:39",
+  "finished_at": "2026-08-07T11:33:27",
+  "harness": "shorts_maker.types.quiz.quiz_verifier.verify (출하 코드 직접 호출)",
+  "batch_size": 4,
+  "verifier_runs": 2,
+  "repeats": 2,
+  "trap_set": [
+    {
+      "label": "wrong",
+      "question": "태양계에서 가장 큰 행성은?",
+      "planted_answer": "토성",
+      "note": "정답은 목성"
+    },
+    {
+      "label": "wrong",
+      "question": "대한민국 제헌 헌법이 공포된 해는?",
+      "planted_answer": "1945년",
+      "note": "정답은 1948년"
+    },
+    {
+      "label": "wrong",
+      "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+      "planted_answer": "90도",
+      "note": "정답은 100도"
+    },
+    {
+      "label": "wrong",
+      "question": "훈민정음을 반포한 조선의 왕은?",
+      "planted_answer": "정조",
+      "note": "정답은 세종"
+    },
+    {
+      "label": "wrong",
+      "question": "원소기호 Fe가 가리키는 원소는?",
+      "planted_answer": "납",
+      "note": "정답은 철"
+    },
+    {
+      "label": "wrong",
+      "question": "제1차 세계대전이 끝난 해는?",
+      "planted_answer": "1914년",
+      "note": "1914는 개전 연도"
+    },
+    {
+      "label": "wrong",
+      "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+      "planted_answer": "평화상",
+      "note": "정답은 경제학상(1968)"
+    },
+    {
+      "label": "wrong",
+      "question": "에베레스트를 최초로 등정한 사람은?",
+      "planted_answer": "조지 맬러리",
+      "note": "정답은 힐러리·텐징(1953)"
+    },
+    {
+      "label": "ambiguous",
+      "question": "한국 최초의 금속활자본은?",
+      "planted_answer": "직지심체요절",
+      "note": "현존 최초 / 기록상 상정고금예문"
+    },
+    {
+      "label": "ambiguous",
+      "question": "세계에서 가장 긴 강은?",
+      "planted_answer": "나일강",
+      "note": "측정 기준에 따라 아마존강"
+    },
+    {
+      "label": "ambiguous",
+      "question": "대한민국에서 가장 높은 산은?",
+      "planted_answer": "한라산",
+      "note": "한반도 기준이면 백두산"
+    },
+    {
+      "label": "ambiguous",
+      "question": "세계 최초의 컴퓨터는?",
+      "planted_answer": "에니악",
+      "note": "ABC·콜로서스와 정의가 갈린다"
+    },
+    {
+      "label": "control",
+      "question": "대한민국의 수도는?",
+      "planted_answer": "서울",
+      "note": ""
+    },
+    {
+      "label": "control",
+      "question": "물의 화학식은?",
+      "planted_answer": "H2O",
+      "note": ""
+    },
+    {
+      "label": "control",
+      "question": "훈민정음을 창제한 조선의 왕은?",
+      "planted_answer": "세종대왕",
+      "note": ""
+    },
+    {
+      "label": "control",
+      "question": "지구에서 가장 큰 대양은?",
+      "planted_answer": "태평양",
+      "note": ""
+    }
+  ],
+  "summary": [
+    {
+      "verifier_model": "opus",
+      "cost_usd": 0.3775,
+      "detection": {
+        "wrong": {
+          "hits": 16,
+          "total": 16,
+          "rate": 1.0
+        },
+        "ambiguous": {
+          "hits": 8,
+          "total": 8,
+          "rate": 1.0
+        }
+      },
+      "false_positive": {
+        "hits": 0,
+        "total": 8,
+        "rate": 0.0
+      },
+      "confidence": {
+        "wrong": {
+          "min": 0.0,
+          "mean": 0.0,
+          "max": 0.0
+        },
+        "ambiguous": {
+          "min": 0.3,
+          "mean": 0.714,
+          "max": 0.975
+        },
+        "control": {
+          "min": 0.99,
+          "mean": 0.991,
+          "max": 0.995
+        }
+      },
+      "status_counts": {
+        "flagged": 24,
+        "verified": 8
+      }
+    },
+    {
+      "verifier_model": "sonnet",
+      "cost_usd": 0.2656,
+      "detection": {
+        "wrong": {
+          "hits": 16,
+          "total": 16,
+          "rate": 1.0
+        },
+        "ambiguous": {
+          "hits": 6,
+          "total": 8,
+          "rate": 0.75
+        }
+      },
+      "false_positive": {
+        "hits": 0,
+        "total": 8,
+        "rate": 0.0
+      },
+      "confidence": {
+        "wrong": {
+          "min": 0.0,
+          "mean": 0.0,
+          "max": 0.0
+        },
+        "ambiguous": {
+          "min": 0.6,
+          "mean": 0.755,
+          "max": 0.99
+        },
+        "control": {
+          "min": 0.98,
+          "mean": 0.994,
+          "max": 1.0
+        }
+      },
+      "status_counts": {
+        "flagged": 22,
+        "verified": 10
+      }
+    },
+    {
+      "verifier_model": "haiku",
+      "cost_usd": 0.2415,
+      "detection": {
+        "wrong": {
+          "hits": 16,
+          "total": 16,
+          "rate": 1.0
+        },
+        "ambiguous": {
+          "hits": 6,
+          "total": 8,
+          "rate": 0.75
+        }
+      },
+      "false_positive": {
+        "hits": 0,
+        "total": 8,
+        "rate": 0.0
+      },
+      "confidence": {
+        "wrong": {
+          "min": 0.0,
+          "mean": 0.0,
+          "max": 0.0
+        },
+        "ambiguous": {
+          "min": 0.0,
+          "mean": 0.686,
+          "max": 0.95
+        },
+        "control": {
+          "min": 0.985,
+          "mean": 0.996,
+          "max": 1.0
+        }
+      },
+      "status_counts": {
+        "flagged": 22,
+        "verified": 10
+      }
+    }
+  ],
+  "runs": [
+    {
+      "verifier_model": "opus",
+      "runs": 2,
+      "repeat": 1,
+      "wall_sec": 193.2,
+      "calls": [
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0221,
+          "latency_ms": 13727
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.04,
+          "latency_ms": 24806
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0214,
+          "latency_ms": 12889
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0135,
+          "latency_ms": 18529
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0094,
+          "latency_ms": 14681
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0195,
+          "latency_ms": 14796
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.029,
+          "latency_ms": 18592
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0116,
+          "latency_ms": 12815
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0208,
+          "latency_ms": 15822
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0166,
+          "latency_ms": 15297
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.013,
+          "latency_ms": 17359
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0186,
+          "latency_ms": 13833
+        }
+      ],
+      "failures": [
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5"
+      ],
+      "cost_usd": 0.2355,
+      "outcomes": [
+        {
+          "label": "wrong",
+          "question": "태양계에서 가장 큰 행성은?",
+          "planted_answer": "토성",
+          "note": "정답은 목성",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '목성', '목성'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "원소기호 Fe가 가리키는 원소는?",
+          "planted_answer": "납",
+          "note": "정답은 철",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '철', '철'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "한국 최초의 금속활자본은?",
+          "planted_answer": "직지심체요절",
+          "note": "현존 최초 / 기록상 상정고금예문",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.3,
+            "source": "질문 모호 — '현존하는' 등 범위 한정이 없어 직지심체요절과 상정고금예문으로 답이 갈린다. / 재답변: '직지심체요절', '상정고금예문'"
+          }
+        },
+        {
+          "label": "control",
+          "question": "대한민국의 수도는?",
+          "planted_answer": "서울",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "대한민국 수도는 서울특별시"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "대한민국 제헌 헌법이 공포된 해는?",
+          "planted_answer": "1945년",
+          "note": "정답은 1948년",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1948년', '1948년'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "제1차 세계대전이 끝난 해는?",
+          "planted_answer": "1914년",
+          "note": "1914는 개전 연도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 종전 기준이 휴전 협정(1918)인지 베르사유 조약 체결(1919)인지 명시되지 않아 답이 갈린다. / 재답변: '1918년', '1918년'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계에서 가장 긴 강은?",
+          "planted_answer": "나일강",
+          "note": "측정 기준에 따라 아마존강",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.775,
+            "source": "질문 모호 — 길이 측정 기준(발원지 설정)에 따라 나일강과 아마존강으로 답이 갈린다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "물의 화학식은?",
+          "planted_answer": "H2O",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "기초 화학 상식"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+          "planted_answer": "90도",
+          "note": "정답은 100도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '100도', '100도'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+          "planted_answer": "평화상",
+          "note": "정답은 경제학상(1968)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '경제학상', '경제학상'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "대한민국에서 가장 높은 산은?",
+          "planted_answer": "한라산",
+          "note": "한반도 기준이면 백두산",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.94,
+            "source": "질문 모호 — '대한민국'의 범위를 남한 실효 지배 지역으로 보느냐 헌법상 한반도 전체로 보느냐에 따라 한라산과 백두산으로 갈린다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "훈민정음을 창제한 조선의 왕은?",
+          "planted_answer": "세종대왕",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "1443년 세종이 훈민정음 창제, 1446년 반포"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "훈민정음을 반포한 조선의 왕은?",
+          "planted_answer": "정조",
+          "note": "정답은 세종",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '세종대왕', '세종대왕(조선 제4대 왕 세종)'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "에베레스트를 최초로 등정한 사람은?",
+          "planted_answer": "조지 맬러리",
+          "note": "정답은 힐러리·텐징(1953)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 1953년 힐러리와 텐징 두 명의 공동 등정이고 1924년 맬러리 등정설 논란도 있어 답이 갈린다. / 재답변: '에드먼드 힐러리와 텐징 노르가이', '에드먼드 힐러리(셰르파 텐징 노르가이와 함께)'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계 최초의 컴퓨터는?",
+          "planted_answer": "에니악",
+          "note": "ABC·콜로서스와 정의가 갈린다",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.6,
+            "source": "질문 모호 — 기계식·전자식·프로그램 내장식 등 기준에 따라 ABC, 콜로서스, Z3, 에니악 등으로 달라진다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "지구에서 가장 큰 대양은?",
+          "planted_answer": "태평양",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "면적·부피 모두 가장 큰 대양"
+          }
+        }
+      ]
+    },
+    {
+      "verifier_model": "opus",
+      "runs": 2,
+      "repeat": 2,
+      "wall_sec": 171.8,
+      "calls": [
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0138,
+          "latency_ms": 15204
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0092,
+          "latency_ms": 11807
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0098,
+          "latency_ms": 13243
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0101,
+          "latency_ms": 12604
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0092,
+          "latency_ms": 15212
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0124,
+          "latency_ms": 14696
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0115,
+          "latency_ms": 16923
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0099,
+          "latency_ms": 12241
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0161,
+          "latency_ms": 16014
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0122,
+          "latency_ms": 14131
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0122,
+          "latency_ms": 13896
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-opus-5",
+          "cost_usd": 0.0156,
+          "latency_ms": 15798
+        }
+      ],
+      "failures": [
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-opus-5"
+      ],
+      "cost_usd": 0.142,
+      "outcomes": [
+        {
+          "label": "wrong",
+          "question": "태양계에서 가장 큰 행성은?",
+          "planted_answer": "토성",
+          "note": "정답은 목성",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '목성', '목성'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "원소기호 Fe가 가리키는 원소는?",
+          "planted_answer": "납",
+          "note": "정답은 철",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '철', '철'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "한국 최초의 금속활자본은?",
+          "planted_answer": "직지심체요절",
+          "note": "현존 최초 / 기록상 상정고금예문",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.725,
+            "source": "질문 모호 — '현존하는' 등 기준이 빠져 직지심체요절과 상정고금예문으로 답이 갈린다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "대한민국의 수도는?",
+          "planted_answer": "서울",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "대한민국 수도는 서울특별시"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "대한민국 제헌 헌법이 공포된 해는?",
+          "planted_answer": "1945년",
+          "note": "정답은 1948년",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1948년', '1948년'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "제1차 세계대전이 끝난 해는?",
+          "planted_answer": "1914년",
+          "note": "1914는 개전 연도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1918년', '1918년'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계에서 가장 긴 강은?",
+          "planted_answer": "나일강",
+          "note": "측정 기준에 따라 아마존강",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.8,
+            "source": "질문 모호 — 측정 기준(수원 설정·측량 방식)에 따라 나일강과 아마존강으로 답이 갈린다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "물의 화학식은?",
+          "planted_answer": "H2O",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "수소 2개와 산소 1개로 이루어진 분자"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+          "planted_answer": "90도",
+          "note": "정답은 100도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '100도', '100도'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+          "planted_answer": "평화상",
+          "note": "정답은 경제학상(1968)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '경제학상', '경제학상'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "대한민국에서 가장 높은 산은?",
+          "planted_answer": "한라산",
+          "note": "한반도 기준이면 백두산",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.975,
+            "source": "질문 모호 — '대한민국'의 범위를 남한으로 보느냐 한반도 전체로 보느냐에 따라 한라산과 백두산으로 답이 갈린다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "훈민정음을 창제한 조선의 왕은?",
+          "planted_answer": "세종대왕",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.995,
+            "source": "1443년 훈민정음 창제, 1446년 반포한 조선 4대 왕"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "훈민정음을 반포한 조선의 왕은?",
+          "planted_answer": "정조",
+          "note": "정답은 세종",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '세종대왕', '세종대왕'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "에베레스트를 최초로 등정한 사람은?",
+          "planted_answer": "조지 맬러리",
+          "note": "정답은 힐러리·텐징(1953)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 공동 등정자(힐러리·텐징) 중 누구인지, 무산소·단독·여성 최초 등 기준이 빠져 답이 갈린다. / 재답변: '에드먼드 힐러리와 텐징 노르가이', '에드먼드 힐러리와 텐징 노르가이'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계 최초의 컴퓨터는?",
+          "planted_answer": "에니악",
+          "note": "ABC·콜로서스와 정의가 갈린다",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.6,
+            "source": "질문 모호 — 기계식/전자식, 프로그램 내장식, 범용 여부 등 정의 기준에 따라 ABC·콜로서스·ENIAC 등으로 답이 달라진다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "지구에서 가장 큰 대양은?",
+          "planted_answer": "태평양",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "면적·부피 모두 지구 최대 대양"
+          }
+        }
+      ]
+    },
+    {
+      "verifier_model": "sonnet",
+      "runs": 2,
+      "repeat": 1,
+      "wall_sec": 161.7,
+      "calls": [
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0118,
+          "latency_ms": 10522
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.012,
+          "latency_ms": 16793
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0128,
+          "latency_ms": 11185
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0122,
+          "latency_ms": 10553
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0052,
+          "latency_ms": 12176
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0159,
+          "latency_ms": 15777
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0127,
+          "latency_ms": 11195
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.009,
+          "latency_ms": 13523
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0204,
+          "latency_ms": 16455
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0132,
+          "latency_ms": 12130
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.008,
+          "latency_ms": 12286
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0298,
+          "latency_ms": 19058
+        }
+      ],
+      "failures": [
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5"
+      ],
+      "cost_usd": 0.163,
+      "outcomes": [
+        {
+          "label": "wrong",
+          "question": "태양계에서 가장 큰 행성은?",
+          "planted_answer": "토성",
+          "note": "정답은 목성",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '목성', '목성'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "원소기호 Fe가 가리키는 원소는?",
+          "planted_answer": "납",
+          "note": "정답은 철",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '철', '철'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "한국 최초의 금속활자본은?",
+          "planted_answer": "직지심체요절",
+          "note": "현존 최초 / 기록상 상정고금예문",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.725,
+            "source": "질문 모호 — '현존하는'이라는 조건이 없어 기록상 최초인 상정고금예문과 현존 최고(最古)인 직지심체요절 중 어느 것을 뜻하는지 갈린다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "대한민국의 수도는?",
+          "planted_answer": "서울",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "대한민국 헌법상 수도로 인정되는 도시"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "대한민국 제헌 헌법이 공포된 해는?",
+          "planted_answer": "1945년",
+          "note": "정답은 1948년",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1948년', '1948년'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "제1차 세계대전이 끝난 해는?",
+          "planted_answer": "1914년",
+          "note": "1914는 개전 연도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 종전 시점이 1918년 휴전과 1919년 베르사유 조약 체결 중 어느 것을 기준으로 하는지에 따라 답이 갈릴 수 있다. / 재답변: '1918년', '1918년'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계에서 가장 긴 강은?",
+          "planted_answer": "나일강",
+          "note": "측정 기준에 따라 아마존강",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.6,
+            "source": "질문 모호 — 측정 기준(강 길이 산정 방식)에 따라 나일강과 아마존강 등으로 답이 달라질 수 있다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "물의 화학식은?",
+          "planted_answer": "H2O",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "수소 원자 2개와 산소 원자 1개로 구성된 화합물"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+          "planted_answer": "90도",
+          "note": "정답은 100도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '100도', '100도'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+          "planted_answer": "평화상",
+          "note": "정답은 경제학상(1968)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '경제학상', '경제학상'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "대한민국에서 가장 높은 산은?",
+          "planted_answer": "한라산",
+          "note": "한반도 기준이면 백두산",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.9,
+            "source": "대한민국(남한) 영토 내 최고봉은 제주도 한라산(1,947m)"
+          }
+        },
+        {
+          "label": "control",
+          "question": "훈민정음을 창제한 조선의 왕은?",
+          "planted_answer": "세종대왕",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "세종대왕이 1443년 훈민정음을 창제함"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "훈민정음을 반포한 조선의 왕은?",
+          "planted_answer": "정조",
+          "note": "정답은 세종",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '세종대왕', '세종대왕'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "에베레스트를 최초로 등정한 사람은?",
+          "planted_answer": "조지 맬러리",
+          "note": "정답은 힐러리·텐징(1953)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 에드먼드 힐러리와 텐징 노르게이가 함께 등정하여 누가 최초인지 답이 갈릴 수 있다. / 재답변: '에드먼드 힐러리와 텐징 노르가이', '에드먼드 힐러리'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계 최초의 컴퓨터는?",
+          "planted_answer": "에니악",
+          "note": "ABC·콜로서스와 정의가 갈린다",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.65,
+            "source": "질문 모호 — 컴퓨터의 정의(전자식, 프로그램 내장식 등)에 따라 콜로서스, ABC, ENIAC, Z3 등 답이 달라질 수 있다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "지구에서 가장 큰 대양은?",
+          "planted_answer": "태평양",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.98,
+            "source": "지구상에서 면적이 가장 넓은 대양"
+          }
+        }
+      ]
+    },
+    {
+      "verifier_model": "sonnet",
+      "runs": 2,
+      "repeat": 2,
+      "wall_sec": 149.3,
+      "calls": [
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0048,
+          "latency_ms": 11451
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0063,
+          "latency_ms": 12359
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0073,
+          "latency_ms": 11831
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0052,
+          "latency_ms": 9838
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0057,
+          "latency_ms": 9666
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0076,
+          "latency_ms": 12611
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0063,
+          "latency_ms": 12485
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0079,
+          "latency_ms": 12197
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0258,
+          "latency_ms": 18642
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0064,
+          "latency_ms": 11047
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0067,
+          "latency_ms": 11156
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-sonnet-5",
+          "cost_usd": 0.0126,
+          "latency_ms": 16027
+        }
+      ],
+      "failures": [
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5",
+        "응답에 모델이 여럿이다: claude-haiku-4-5-20251001, claude-sonnet-5"
+      ],
+      "cost_usd": 0.1026,
+      "outcomes": [
+        {
+          "label": "wrong",
+          "question": "태양계에서 가장 큰 행성은?",
+          "planted_answer": "토성",
+          "note": "정답은 목성",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '목성', '목성'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "원소기호 Fe가 가리키는 원소는?",
+          "planted_answer": "납",
+          "note": "정답은 철",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '철', '철'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "한국 최초의 금속활자본은?",
+          "planted_answer": "직지심체요절",
+          "note": "현존 최초 / 기록상 상정고금예문",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.825,
+            "source": "질문 모호 — '현존하는'이라는 기준이 없어 직지심체요절과 상정고금예문 중 답이 갈릴 수 있다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "대한민국의 수도는?",
+          "planted_answer": "서울",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "대한민국 헌법 및 관습상 수도"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "대한민국 제헌 헌법이 공포된 해는?",
+          "planted_answer": "1945년",
+          "note": "정답은 1948년",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1948년', '1948년'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "제1차 세계대전이 끝난 해는?",
+          "planted_answer": "1914년",
+          "note": "1914는 개전 연도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1918년', '1918년'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계에서 가장 긴 강은?",
+          "planted_answer": "나일강",
+          "note": "측정 기준에 따라 아마존강",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.65,
+            "source": "질문 모호 — 측정 기준(본류 길이, 지류 포함 여부 등)에 따라 나일강과 아마존강 중 답이 갈림"
+          }
+        },
+        {
+          "label": "control",
+          "question": "물의 화학식은?",
+          "planted_answer": "H2O",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.995,
+            "source": "물은 수소 2개와 산소 1개로 구성된 화합물"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+          "planted_answer": "90도",
+          "note": "정답은 100도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '100도', '100도'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+          "planted_answer": "평화상",
+          "note": "정답은 경제학상(1968)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '경제학상', '경제학상'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "대한민국에서 가장 높은 산은?",
+          "planted_answer": "한라산",
+          "note": "한반도 기준이면 백두산",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "한라산(해발 1947m)이 대한민국에서 가장 높은 산으로 알려짐"
+          }
+        },
+        {
+          "label": "control",
+          "question": "훈민정음을 창제한 조선의 왕은?",
+          "planted_answer": "세종대왕",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "훈민정음은 조선 세종대왕이 창제함"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "훈민정음을 반포한 조선의 왕은?",
+          "planted_answer": "정조",
+          "note": "정답은 세종",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '세종대왕', '세종대왕'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "에베레스트를 최초로 등정한 사람은?",
+          "planted_answer": "조지 맬러리",
+          "note": "정답은 힐러리·텐징(1953)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 1953년 에베레스트 최초 등정은 에드먼드 힐러리와 텐징 노르가이가 함께 이룬 것으로, 한 사람으로 답이 확정되지 않는다. / 재답변: '에드먼드 힐러리', '에드먼드 힐러리와 텐징 노르가이'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계 최초의 컴퓨터는?",
+          "planted_answer": "에니악",
+          "note": "ABC·콜로서스와 정의가 갈린다",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.7,
+            "source": "질문 모호 — '컴퓨터'의 정의(전자식·프로그램 가능·범용 등)에 따라 ENIAC, Z3, ABC 등 답이 달라질 수 있다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "지구에서 가장 큰 대양은?",
+          "planted_answer": "태평양",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.98,
+            "source": "지구상 가장 넓은 면적을 가진 대양"
+          }
+        }
+      ]
+    },
+    {
+      "verifier_model": "haiku",
+      "runs": 2,
+      "repeat": 1,
+      "wall_sec": 197.8,
+      "calls": [
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0062,
+          "latency_ms": 11345
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0069,
+          "latency_ms": 12112
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0119,
+          "latency_ms": 18228
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0068,
+          "latency_ms": 12251
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0061,
+          "latency_ms": 10705
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0111,
+          "latency_ms": 18262
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0084,
+          "latency_ms": 16118
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0075,
+          "latency_ms": 13573
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0252,
+          "latency_ms": 32927
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.011,
+          "latency_ms": 18805
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0097,
+          "latency_ms": 15336
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0119,
+          "latency_ms": 18148
+        }
+      ],
+      "failures": [],
+      "cost_usd": 0.1227,
+      "outcomes": [
+        {
+          "label": "wrong",
+          "question": "태양계에서 가장 큰 행성은?",
+          "planted_answer": "토성",
+          "note": "정답은 목성",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '목성', '목성'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "원소기호 Fe가 가리키는 원소는?",
+          "planted_answer": "납",
+          "note": "정답은 철",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '철', '철'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "한국 최초의 금속활자본은?",
+          "planted_answer": "직지심체요절",
+          "note": "현존 최초 / 기록상 상정고금예문",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.95,
+            "source": "질문 모호 — 최초의 기준이 불명확하다. '현존하는' 조건이 빠져 직지심체요절과 다른 문헌으로 답이 갈릴 수 있다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "대한민국의 수도는?",
+          "planted_answer": "서울",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.995,
+            "source": "대한민국의 공식 수도"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "대한민국 제헌 헌법이 공포된 해는?",
+          "planted_answer": "1945년",
+          "note": "정답은 1948년",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1948', '1948년'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "제1차 세계대전이 끝난 해는?",
+          "planted_answer": "1914년",
+          "note": "1914는 개전 연도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1918', '1918년'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계에서 가장 긴 강은?",
+          "planted_answer": "나일강",
+          "note": "측정 기준에 따라 아마존강",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.9,
+            "source": "질문 모호 — '가장 긴'의 기준이 불명확하다. 길이 기준(나일강), 유역면적 기준(아마존강), 유량 기준(아마존강) 등으로 답이 달라질 수 있다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "물의 화학식은?",
+          "planted_answer": "H2O",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "물은 수소 2개와 산소 1개로 구성된 화합물"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+          "planted_answer": "90도",
+          "note": "정답은 100도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '100', '100'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+          "planted_answer": "평화상",
+          "note": "정답은 경제학상(1968)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '경제학상', '경제학상'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "대한민국에서 가장 높은 산은?",
+          "planted_answer": "한라산",
+          "note": "한반도 기준이면 백두산",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.95,
+            "source": "대한민국 영토 내에서 가장 높은 산은 제주도의 한라산(1,950m)"
+          }
+        },
+        {
+          "label": "control",
+          "question": "훈민정음을 창제한 조선의 왕은?",
+          "planted_answer": "세종대왕",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "훈민정음은 조선 세종대왕이 1443년에 창제함"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "훈민정음을 반포한 조선의 왕은?",
+          "planted_answer": "정조",
+          "note": "정답은 세종",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '세종', '세종'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "에베레스트를 최초로 등정한 사람은?",
+          "planted_answer": "조지 맬러리",
+          "note": "정답은 힐러리·텐징(1953)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 최초 등정자가 에드먼드 힐러리와 텐징 노르가이 두 명이므로 단수형 '사람'이 모호하고 기준에 따라 답이 갈릴 수 있다. / 재답변: '에드먼드 힐러리', '에드먼드 힐러리'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계 최초의 컴퓨터는?",
+          "planted_answer": "에니악",
+          "note": "ABC·콜로서스와 정의가 갈린다",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 최초의 기준(기계식/전자식/범용 등)이 명확하지 않아 파스칼의 계산기, ENIAC, Z3 등 답이 갈릴 수 있다. / 재답변: 'ENIAC', 'ENIAC'"
+          }
+        },
+        {
+          "label": "control",
+          "question": "지구에서 가장 큰 대양은?",
+          "planted_answer": "태평양",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.985,
+            "source": "태평양은 지구에서 가장 넓은 대양입니다."
+          }
+        }
+      ]
+    },
+    {
+      "verifier_model": "haiku",
+      "runs": 2,
+      "repeat": 2,
+      "wall_sec": 194.8,
+      "calls": [
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0069,
+          "latency_ms": 13802
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0063,
+          "latency_ms": 13207
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0076,
+          "latency_ms": 13664
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0055,
+          "latency_ms": 10542
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0076,
+          "latency_ms": 13316
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0118,
+          "latency_ms": 17624
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0152,
+          "latency_ms": 21632
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0076,
+          "latency_ms": 12842
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.008,
+          "latency_ms": 14082
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0086,
+          "latency_ms": 14195
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0244,
+          "latency_ms": 34320
+        },
+        {
+          "provider": "claude_cli",
+          "model": "claude-haiku-4-5-20251001",
+          "cost_usd": 0.0093,
+          "latency_ms": 15584
+        }
+      ],
+      "failures": [],
+      "cost_usd": 0.1188,
+      "outcomes": [
+        {
+          "label": "wrong",
+          "question": "태양계에서 가장 큰 행성은?",
+          "planted_answer": "토성",
+          "note": "정답은 목성",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '목성', '목성'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "원소기호 Fe가 가리키는 원소는?",
+          "planted_answer": "납",
+          "note": "정답은 철",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '철', '철'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "한국 최초의 금속활자본은?",
+          "planted_answer": "직지심체요절",
+          "note": "현존 최초 / 기록상 상정고금예문",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.925,
+            "source": "질문 모호 — 현존하는 여부라는 기준이 명시되지 않아 답이 달라질 수 있음"
+          }
+        },
+        {
+          "label": "control",
+          "question": "대한민국의 수도는?",
+          "planted_answer": "서울",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "대한민국의 공식적인 수도"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "대한민국 제헌 헌법이 공포된 해는?",
+          "planted_answer": "1945년",
+          "note": "정답은 1948년",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '1948년', '1948'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "제1차 세계대전이 끝난 해는?",
+          "planted_answer": "1914년",
+          "note": "1914는 개전 연도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 제1차 세계대전의 '끝난 해'가 1918년 휴전협정 기준인지 1919년 베르사유 조약 기준인지 명확하지 않다. / 재답변: '1918년', '1918'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계에서 가장 긴 강은?",
+          "planted_answer": "나일강",
+          "note": "측정 기준에 따라 아마존강",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.9,
+            "source": "질문 모호 — 길이가 가장 긴 강(나일강)인지, 유역 넓이가 가장 넓은 강(아마존강)인지 '가장 긴'의 기준이 명확하지 않다."
+          }
+        },
+        {
+          "label": "control",
+          "question": "물의 화학식은?",
+          "planted_answer": "H2O",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 1.0,
+            "source": "물은 수소 2개와 산소 1개로 이루어진 화합물"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "1기압에서 물의 끓는점은 섭씨 몇 도인가?",
+          "planted_answer": "90도",
+          "note": "정답은 100도",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '100', '100도'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "노벨상 6개 부문 중 가장 나중에 신설된 것은?",
+          "planted_answer": "평화상",
+          "note": "정답은 경제학상(1968)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '경제학상', '경제학상'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "대한민국에서 가장 높은 산은?",
+          "planted_answer": "한라산",
+          "note": "한반도 기준이면 백두산",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.865,
+            "source": "한라산(1,947m)이 남한에서 가장 높은 산"
+          }
+        },
+        {
+          "label": "control",
+          "question": "훈민정음을 창제한 조선의 왕은?",
+          "planted_answer": "세종대왕",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.99,
+            "source": "훈민정음은 세종대왕이 1443년에 창제함"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "훈민정음을 반포한 조선의 왕은?",
+          "planted_answer": "정조",
+          "note": "정답은 세종",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "재답변 불일치 — 2회 중 0회 일치. 재답변: '세종', '세종'"
+          }
+        },
+        {
+          "label": "wrong",
+          "question": "에베레스트를 최초로 등정한 사람은?",
+          "planted_answer": "조지 맬러리",
+          "note": "정답은 힐러리·텐징(1953)",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 최초 등정의 순서가 불명확하여 힐러리인지 노르가이인지 또는 둘 다인지 갈릴 수 있음 / 재답변: '에드먼드 힐러리, 텐징 노르게이', '에드먼드 힐러리, 텐징 노르게이'"
+          }
+        },
+        {
+          "label": "ambiguous",
+          "question": "세계 최초의 컴퓨터는?",
+          "planted_answer": "에니악",
+          "note": "ABC·콜로서스와 정의가 갈린다",
+          "verify": {
+            "status": "flagged",
+            "confidence": 0.0,
+            "source": "질문 모호 — 컴퓨터의 정의(디지털/아날로그, 프로그래머블 여부)와 최초의 기준이 불명확하여 답이 달라질 수 있음 / 재답변: 'ENIAC', 'ENIAC'"
+          }
+        },
+        {
+          "label": "control",
+          "question": "지구에서 가장 큰 대양은?",
+          "planted_answer": "태평양",
+          "note": "",
+          "verify": {
+            "status": "verified",
+            "confidence": 0.995,
+            "source": "지구 상의 5개 대양 중 태평양이 가장 큰 면적을 차지"
+          }
+        }
+      ]
+    }
+  ]
+}
