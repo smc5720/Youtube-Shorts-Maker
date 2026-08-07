@@ -249,26 +249,44 @@ class Object(Rule):
 
 @dataclass(frozen=True)
 class Array(Rule):
-    """같은 규칙을 따르는 항목의 목록. 항목 경로는 `scenes[2]`로 매긴다."""
+    """같은 규칙을 따르는 항목의 목록. 항목 경로는 `scenes[2]`로 매긴다.
+
+    상한(`max_items`)은 하한과 성질이 다르다. 하한은 "비어 있으면 쓸모가 없다"는 요구지만,
+    상한은 개수 자체가 계약인 필드를 위한 것이다 — `metadata.json`의 제목 후보 3개처럼
+    개수가 흔들리면 그 값을 쓰는 쪽(사람이 셋 중 하나를 고른다)이 깨진다.
+    """
 
     item: Rule
     min_items: int = 0
+    max_items: int | None = None
 
     def check(self, value: Any, path: str, errors: list[str]) -> None:
         if not isinstance(value, list):
             errors.append(f"{path}: 목록이 필요하다. 받은 값: {describe(value)}")
             return
 
-        if len(value) < self.min_items:
-            errors.append(f"{path}: 항목이 최소 {self.min_items}개 필요하다. 받은 값: {len(value)}개")
+        count = len(value)
+        if count < self.min_items or (self.max_items is not None and count > self.max_items):
+            errors.append(f"{path}: {self._expected_count()}. 받은 값: {count}개")
 
         for index, item in enumerate(value):
             self.item.check(item, f"{path}[{index}]", errors)
+
+    def _expected_count(self) -> str:
+        if self.max_items is None:
+            return f"항목이 최소 {self.min_items}개 필요하다"
+        if self.max_items == self.min_items:
+            return f"항목이 정확히 {self.min_items}개여야 한다"
+        if self.min_items == 0:
+            return f"항목이 최대 {self.max_items}개여야 한다"
+        return f"항목이 {self.min_items}~{self.max_items}개여야 한다"
 
     def to_json_schema(self) -> dict[str, Any]:
         node: dict[str, Any] = {"type": "array", "items": self.item.to_json_schema()}
         if self.min_items:
             node["minItems"] = self.min_items
+        if self.max_items is not None:
+            node["maxItems"] = self.max_items
         return node
 
 
@@ -339,8 +357,14 @@ def section(fields: Mapping[str, Field], *, required: bool = True) -> Field:
     return Field(Object(fields), required=required)
 
 
-def items(rule: Rule, *, min_items: int = 0, required: bool = True) -> Field:
-    return Field(Array(rule, min_items=min_items), required=required)
+def items(
+    rule: Rule,
+    *,
+    min_items: int = 0,
+    max_items: int | None = None,
+    required: bool = True,
+) -> Field:
+    return Field(Array(rule, min_items=min_items, max_items=max_items), required=required)
 
 
 # --- 파일 단위 스키마 -------------------------------------------------------

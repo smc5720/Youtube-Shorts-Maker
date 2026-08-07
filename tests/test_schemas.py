@@ -17,15 +17,18 @@ import pytest
 
 from shorts_maker.schemas import (
     SchemaError,
+    load_metadata,
     load_project,
     load_quiz,
     load_scenes,
     segment_path,
+    validate_metadata,
     validate_project,
     validate_quiz,
     validate_scenes,
     validate_scenes_final,
 )
+from shorts_maker.schemas import metadata as metadata_schema
 from shorts_maker.schemas.core import (
     Array,
     Choices,
@@ -169,6 +172,25 @@ def project(**overrides: Any) -> dict[str, Any]:
     return data
 
 
+def metadata(**overrides: Any) -> dict[str, Any]:
+    """`--topic` 경로가 만드는 상태 — 출처가 없으므로 `source`는 `null`이다."""
+    data = {
+        "schema_version": 1,
+        "type": "quiz",
+        "language": "ko",
+        "titles": [
+            "이 상식 4개, 다 맞히면 상위 1%",
+            "상식 퀴즈 4문제, 몇 개 맞히나요",
+            "세계 지리 상식 테스트",
+        ],
+        "description": "세계 지리 상식 퀴즈 4문제입니다. 정답을 맞혀 보세요.",
+        "tags": ["상식퀴즈", "지리"],
+        "source": None,
+    }
+    data.update(overrides)
+    return data
+
+
 def write_json(path: Path, data: Any) -> Path:
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return path
@@ -191,6 +213,10 @@ def test_scenes_spec_example_is_a_finalized_state() -> None:
 
 def test_project_prd_example_validates() -> None:
     validate_project(doc_example(PRD, "### 7.10 프로젝트 파일"))
+
+
+def test_metadata_prd_example_validates() -> None:
+    validate_metadata(doc_example(PRD, "### 7.8 메타데이터 생성"))
 
 
 # --- quiz.json -------------------------------------------------------------
@@ -304,6 +330,7 @@ def test_quiz_collects_every_violation_at_once() -> None:
         (validate_quiz, quiz()),
         (validate_scenes, draft_scenes()),
         (validate_project, project()),
+        (validate_metadata, metadata()),
     ],
 )
 def test_schema_version_is_required(validate: Validator, data: dict[str, Any]) -> None:
@@ -319,6 +346,7 @@ def test_schema_version_is_required(validate: Validator, data: dict[str, Any]) -
         (validate_scenes, draft_scenes(schema_version=99)),
         (validate_scenes_final, final_scenes(schema_version=99)),
         (validate_project, project(schema_version=99)),
+        (validate_metadata, metadata(schema_version=99)),
     ],
 )
 def test_unknown_schema_version_is_an_error(
@@ -517,6 +545,57 @@ def test_project_rejects_non_mapping_root() -> None:
     assert "매핑" in message
 
 
+# --- metadata.json ---------------------------------------------------------
+
+
+def test_metadata_accepts_the_topic_path_state() -> None:
+    validate_metadata(metadata())
+
+
+def test_metadata_requires_exactly_three_titles() -> None:
+    """사람이 셋 중 하나를 골라 업로드 폼에 붙여넣는다 (PRD 7.8). 개수가 계약이다."""
+    two = metadata()["titles"][:2]
+
+    message = assert_reports(failures(validate_metadata, metadata(titles=two)), "titles")
+
+    assert f"정확히 {metadata_schema.TITLE_COUNT}개" in message
+
+
+def test_metadata_rejects_more_than_three_titles() -> None:
+    four = [*metadata()["titles"], "덤으로 하나 더"]
+
+    assert_reports(failures(validate_metadata, metadata(titles=four)), "titles")
+
+
+def test_metadata_keeps_source_as_a_nullable_required_field() -> None:
+    """필드를 빼면 "출처 없음"과 "생성기가 빠뜨림"이 구분되지 않는다 (#13, #31)."""
+    validate_metadata(metadata(source=None))
+    validate_metadata(metadata(source="https://example.com/article"))
+
+    data = metadata()
+    del data["source"]
+    assert_reports(failures(validate_metadata, data), "source")
+
+
+def test_metadata_rejects_an_empty_tag_list() -> None:
+    assert_reports(failures(validate_metadata, metadata(tags=[])), "tags")
+
+
+def test_metadata_rejects_an_empty_description() -> None:
+    assert_reports(failures(validate_metadata, metadata(description="  ")), "description")
+
+
+def test_metadata_rejects_an_unregistered_type() -> None:
+    """타입 후보는 레지스트리가 정한다. 스키마에 이름을 적지 않는다 (#8)."""
+    message = assert_reports(failures(validate_metadata, metadata(type="ranking")), "type")
+
+    assert "등록된 타입" in message
+
+
+def test_metadata_rejects_unknown_field() -> None:
+    assert_reports(failures(validate_metadata, metadata(category="general")), "category")
+
+
 # --- 파일 읽기 -------------------------------------------------------------
 
 
@@ -524,10 +603,12 @@ def test_loaders_read_and_validate_files(tmp_path: Path) -> None:
     loaded_quiz = load_quiz(write_json(tmp_path / "quiz.json", quiz()))
     loaded_scenes = load_scenes(write_json(tmp_path / "scenes.json", draft_scenes()))
     loaded_project = load_project(write_json(tmp_path / "project.json", project()))
+    loaded_metadata = load_metadata(write_json(tmp_path / "metadata.json", metadata()))
 
     assert loaded_quiz["type"] == "quiz"
     assert len(loaded_scenes["scenes"]) == 5
     assert loaded_project["scenes"] == "scenes.json"
+    assert loaded_metadata["source"] is None
 
 
 def test_load_scenes_can_demand_a_finalized_file(tmp_path: Path) -> None:
@@ -638,6 +719,21 @@ def test_array_carries_its_minimum_length() -> None:
     assert node["type"] == "array"
     assert node["items"]["type"] == "string"
     assert node["minItems"] == 2
+    assert "maxItems" not in node
+
+
+def test_array_carries_its_maximum_length() -> None:
+    node = Array(Scalar("str"), min_items=3, max_items=3).to_json_schema()
+
+    assert node["minItems"] == 3
+    assert node["maxItems"] == 3
+
+
+def test_array_reports_a_count_it_cannot_accept() -> None:
+    errors: list[str] = []
+    Array(Scalar("str"), min_items=3, max_items=3).check(["하나"], "titles", errors)
+
+    assert errors == ["titles: 항목이 정확히 3개여야 한다. 받은 값: 1개"]
 
 
 def test_without_drops_fields_and_leaves_the_original_alone() -> None:
@@ -666,3 +762,23 @@ def test_quiz_content_schema_matches_the_artifact_schema_field_by_field() -> Non
     assert set(derived["properties"]) < set(full["properties"])
     assert set(question) < set(full_question)
     assert question["difficulty"]["enum"] == full_question["difficulty"]["enum"]
+
+
+def test_metadata_content_schema_asks_only_for_what_the_model_decides() -> None:
+    """버전·타입·언어·출처는 코드가 채운다. 물어봐야 버려지는 값에 토큰을 쓰지 않는다 (#13)."""
+    derived = metadata_schema.content_json_schema(title_max_len=40, tag_max_count=10)
+
+    assert set(derived["properties"]) == {"titles", "description", "tags"}
+    assert set(derived["properties"]) < set(
+        metadata_schema.METADATA_SCHEMA.root.to_json_schema()["properties"]
+    )
+
+
+def test_metadata_content_schema_carries_the_config_limits() -> None:
+    """상한은 스키마가 아니라 config가 정한다. 파생 시점에 얹힌다."""
+    derived = metadata_schema.content_json_schema(title_max_len=25, tag_max_count=6)
+
+    titles = derived["properties"]["titles"]
+    assert titles["minItems"] == titles["maxItems"] == metadata_schema.TITLE_COUNT
+    assert titles["items"]["maxLength"] == 25
+    assert derived["properties"]["tags"]["maxItems"] == 6
