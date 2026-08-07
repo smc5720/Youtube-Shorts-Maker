@@ -96,10 +96,41 @@ def test_quiz_routes_to_its_generator_and_scene_template() -> None:
     assert quiz.scene_template.__module__ == "shorts_maker.types.quiz.scene_template"
 
 
-def test_quiz_scene_template_is_a_stub_pointing_at_its_issue() -> None:
-    """실제 구현은 #12가 채운다. 스텁이 조용히 빈 값을 돌려주면 안 된다."""
-    with pytest.raises(NotImplementedError, match="#12"):
-        get_type("quiz").scene_template({}, config=None)
+def test_the_scene_template_axis_is_wired_to_a_real_implementation() -> None:
+    """레지스트리를 거쳐 부른 장면 템플릿이 실제로 장면을 낸다 (#12).
+
+    여기서 보는 것은 배선이다. 장면 구성 규칙은 `test_scene_template.py`가 본다.
+    """
+    quiz = get_type("quiz")
+    content = {
+        "schema_version": 1,
+        "type": "quiz",
+        "category": "general_knowledge",
+        "language": "ko",
+        "hook": "후킹 문장",
+        "cta": "CTA 문장",
+        "questions": [
+            {
+                "id": 1,
+                "question": "질문은?",
+                "answer": "정답",
+                "explanation": "해설입니다.",
+                "difficulty": "easy",
+                "countdown_sec": 4,
+            }
+        ],
+    }
+
+    scenes = quiz.scene_template(content, config=Config(data=defaults()))
+
+    assert scenes["type"] == quiz.name
+    assert [scene["role"] for scene in scenes["scenes"]] == [
+        "hook",
+        "question",
+        "countdown",
+        "answer",
+        "cta",
+    ]
 
 
 def test_lookup_is_cached_so_the_declaration_module_imports_once() -> None:

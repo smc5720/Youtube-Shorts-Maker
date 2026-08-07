@@ -15,8 +15,9 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 ## 로드맵
 
 `src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리(Phase 0 완료)에
-LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11)까지 있고 `app/`은
-아직 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`과 flagged 경고까지 나온다.
+LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
+템플릿(#12)까지 있고 `app/`은 아직 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged
+경고, 그리고 낭독 장면의 `duration`이 비어 있는 `scenes.json` 초안까지 나온다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
 
