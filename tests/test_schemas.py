@@ -26,6 +26,16 @@ from shorts_maker.schemas import (
     validate_scenes,
     validate_scenes_final,
 )
+from shorts_maker.schemas.core import (
+    Array,
+    Choices,
+    Object,
+    Scalar,
+    integer,
+    section,
+    text,
+)
+from shorts_maker.schemas.quiz import QUIZ_SCHEMA, content_json_schema
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QUIZ_SPEC = REPO_ROOT / "docs" / "types" / "quiz.md"
@@ -557,3 +567,102 @@ def test_validation_does_not_mutate_the_input() -> None:
     validate_scenes_final(data)
 
     assert data == before
+
+
+# --- JSON Schema 파생 -------------------------------------------------------
+#
+# 산출물 스키마를 LLM에 넘길 형태로 옮기는 변환 (#9). 필드 이름과 열거값을 프롬프트 쪽에
+# 다시 적지 않기 위한 것이므로, 여기서 검증하는 것은 "같은 규칙이 그대로 옮겨졌는가"다.
+
+
+def test_scalar_kinds_map_to_json_types() -> None:
+    assert Scalar("str").to_json_schema()["type"] == "string"
+    assert Scalar("int").to_json_schema()["type"] == "integer"
+    assert Scalar("float").to_json_schema()["type"] == "number"
+    assert Scalar("bool").to_json_schema()["type"] == "boolean"
+
+
+def test_non_empty_text_becomes_min_length() -> None:
+    """`check`가 빈 문자열을 반려하는 것과 같다 — 자막에 빈 값이 렌더될 수 없다."""
+    assert Scalar("str").to_json_schema()["minLength"] == 1
+    assert "minLength" not in Scalar("str", allow_empty=True).to_json_schema()
+
+
+def test_choices_become_an_enum() -> None:
+    node = Scalar("str", choices=("easy", "hard")).to_json_schema()
+
+    assert node["enum"] == ["easy", "hard"]
+
+
+def test_nullable_scalar_allows_null() -> None:
+    node = Scalar("str", nullable=True).to_json_schema()
+
+    assert node["type"] == ["string", "null"]
+
+
+def test_numeric_bounds_are_carried_over() -> None:
+    node = Scalar("float", minimum=0.0, maximum=1.0).to_json_schema()
+
+    assert node["minimum"] == 0.0
+    assert node["maximum"] == 1.0
+
+
+def test_pattern_is_anchored_because_check_uses_fullmatch() -> None:
+    """JSON Schema의 `pattern`은 부분 일치다. 앵커가 빠지면 접두·접미가 붙은 값도 통과한다."""
+    node = Scalar("str", pattern=r"audio/seg-\d{3}\.mp3").to_json_schema()
+
+    assert re.search(node["pattern"], "audio/seg-003.mp3") is not None
+    assert re.search(node["pattern"], "x/audio/seg-003.mp3.bak") is None
+
+
+def test_runtime_choices_are_resolved_when_derived() -> None:
+    """`Choices`는 검증 시점에 후보를 조회한다. 파생된 스키마는 그 순간의 목록으로 굳는다."""
+    node = Choices(lambda: ("quiz", "ranking"), "등록된 타입").to_json_schema()
+
+    assert node["enum"] == ["quiz", "ranking"]
+
+
+def test_object_lists_required_fields_and_rejects_unknown_ones() -> None:
+    node = Object(
+        {"question": text(), "verify": section({"status": text()}, required=False)}
+    ).to_json_schema()
+
+    assert node["required"] == ["question"]
+    assert node["additionalProperties"] is False
+    assert set(node["properties"]) == {"question", "verify"}
+
+
+def test_array_carries_its_minimum_length() -> None:
+    node = Array(Scalar("str"), min_items=2).to_json_schema()
+
+    assert node["type"] == "array"
+    assert node["items"]["type"] == "string"
+    assert node["minItems"] == 2
+
+
+def test_without_drops_fields_and_leaves_the_original_alone() -> None:
+    original = Object({"id": integer(), "question": text()})
+
+    trimmed = original.without("id")
+
+    assert set(trimmed.fields) == {"question"}
+    assert set(original.fields) == {"id", "question"}
+
+
+def test_without_rejects_a_name_that_is_not_in_the_schema() -> None:
+    """오타를 조용히 무시하면 코드가 채울 필드가 LLM에 넘기는 스키마에 남는다."""
+    with pytest.raises(ValueError, match="countdown_secc"):
+        Object({"countdown_sec": integer()}).without("countdown_secc")
+
+
+def test_quiz_content_schema_matches_the_artifact_schema_field_by_field() -> None:
+    """생성기가 넘기는 스키마는 `quiz.json` 스키마에서 파생된 것이어야 한다 (#9)."""
+    derived = content_json_schema(question_count=4, answer_max_len=20, explanation_max_len=60)
+    full = QUIZ_SCHEMA.root.to_json_schema()
+
+    question = derived["properties"]["questions"]["items"]["properties"]
+    full_question = full["properties"]["questions"]["items"]["properties"]
+
+    assert set(derived["properties"]) < set(full["properties"])
+    assert set(question) < set(full_question)
+    assert question["difficulty"]["enum"] == full_question["difficulty"]["enum"]

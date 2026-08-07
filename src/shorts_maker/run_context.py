@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from . import PACKAGE_LOGGER
 
@@ -66,6 +68,18 @@ def start_run(output_root: Path, started_at: datetime | None = None) -> RunConte
         log_path=run_dir / LOG_FILENAME,
         started_at=started_at,
     )
+
+
+def write_artifact(run_dir: Path, name: str, data: Any) -> Path:
+    """산출물 JSON을 run 디렉터리에 쓴다.
+
+    **사람이 읽고 고치는 파일이다** (퀴즈 스펙 3.1: `quiz.json`이 검수 원본). 그래서
+    들여쓰기를 넣고 한글을 이스케이프하지 않는다. 파일명은 호출자가 준다 — 타입 전용
+    산출물의 이름을 이 모듈이 알면 공통 파이프라인이 타입을 알게 된다 (퀴즈 스펙 1.1).
+    """
+    path = run_dir / name
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 @contextmanager

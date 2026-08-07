@@ -81,6 +81,46 @@ QUIZ_SCHEMA = Schema(
 )
 
 
+# --- 생성기가 LLM에 넘기는 부분 스키마 --------------------------------------
+
+_MODEL_OMITS_ROOT = ("schema_version", "type", "category", "language")
+"""모델에게 묻지 않는 최상위 필드 — 전부 코드가 정한다 (버전, 타입 이름, 고정 분류·언어)."""
+
+_MODEL_OMITS_QUESTION = ("id", "countdown_sec", "verify")
+"""모델에게 묻지 않는 문제 필드.
+
+`id`는 난이도 정렬 뒤에 코드가 1부터 다시 매기고, `countdown_sec`은 config가 정하며,
+`verify`는 `quiz_verifier`(#10)가 채운다. 물어봐야 버려지는 값에 토큰을 쓰지 않는다.
+"""
+
+
+def content_json_schema(
+    *, question_count: int, answer_max_len: int, explanation_max_len: int
+) -> dict[str, Any]:
+    """`quiz_generator`가 `--json-schema`로 넘길 JSON Schema.
+
+    **`QUIZ_SCHEMA`에서 파생한다.** 프롬프트 쪽에 필드 이름을 손으로 다시 적으면 계약이
+    두 곳에 생기고, 한쪽만 고쳐졌을 때 모델이 낡은 모양을 만들어 낸다 (PRD 14.1).
+    스파이크 2.2가 실측한 형태 — 3.1의 콘텐츠 구조에서 `verify`를 뺀 것 — 와 같다.
+
+    길이·개수 상한은 스키마가 아니라 config가 정하므로 여기서 받아 얹는다. CLI가
+    `--json-schema`를 강제하므로(스파이크 4.3) 상한 위반은 대개 모델 쪽에서 걸러진다.
+    """
+    schema = _ROOT.without(*_MODEL_OMITS_ROOT).to_json_schema()
+
+    questions = schema["properties"]["questions"]
+    questions["items"] = _QUESTION.without(*_MODEL_OMITS_QUESTION).to_json_schema()
+    # 문제 수는 정확히 config 값이다. 모델이 더 내거나 덜 내면 카운트다운·장면 수가
+    # 사용자가 지정한 값과 달라진다.
+    questions["minItems"] = question_count
+    questions["maxItems"] = question_count
+
+    fields = questions["items"]["properties"]
+    fields["answer"]["maxLength"] = answer_max_len
+    fields["explanation"]["maxLength"] = explanation_max_len
+    return schema
+
+
 def validate_quiz(data: Any, *, source: Path | None = None) -> None:
     """`quiz.json` 내용을 검증한다. 위반이 있으면 `SchemaError`."""
     QUIZ_SCHEMA.validate(data, source=source)

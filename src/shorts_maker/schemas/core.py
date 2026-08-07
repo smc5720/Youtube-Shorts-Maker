@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 _TYPE_LABELS = {"str": "문자열", "int": "정수", "float": "실수", "bool": "참/거짓"}
+_JSON_TYPES = {"str": "string", "int": "integer", "float": "number", "bool": "boolean"}
 
 
 class SchemaError(Exception):
@@ -45,6 +46,18 @@ class Rule:
     """값 하나를 검증한다. 위반을 `errors`에 append하고 예외는 던지지 않는다."""
 
     def check(self, value: Any, path: str, errors: list[str]) -> None:
+        raise NotImplementedError
+
+    def to_json_schema(self) -> dict[str, Any]:
+        """같은 규칙을 JSON Schema로 옮긴다 — LLM에 `--json-schema`로 넘길 형태다.
+
+        **검증에 이 결과를 쓰지 않는다.** 검증은 위 `check`가 하고, 이 변환은 산출물
+        스키마를 생성 프롬프트 쪽에 다시 적지 않기 위한 것이다. 필드 이름과 열거값이
+        두 곳에 생기면 한쪽만 고쳐졌을 때 모델이 낡은 모양을 만들어 낸다 (PRD 14.1).
+
+        조건부 규칙(`Schema.checks`)은 옮기지 않는다. JSON Schema로 표현되지 않아
+        이 패키지가 `jsonschema`를 쓰지 않는 이유이기도 하다.
+        """
         raise NotImplementedError
 
 
@@ -125,6 +138,27 @@ class Scalar(Rule):
         label = _TYPE_LABELS[self.kind]
         return f"{label} 또는 null" if self.nullable else label
 
+    def to_json_schema(self) -> dict[str, Any]:
+        kind = _JSON_TYPES[self.kind]
+        node: dict[str, Any] = {"type": [kind, "null"] if self.nullable else kind}
+
+        if self.choices is not None:
+            node["enum"] = [*self.choices, *([None] if self.nullable else [])]
+        if self.kind == "str":
+            if not self.allow_empty:
+                node["minLength"] = 1
+            if self.pattern is not None:
+                # `check`는 `re.fullmatch`를 쓰지만 JSON Schema의 pattern은 부분 일치다.
+                node["pattern"] = f"^(?:{self.pattern})$"
+        else:
+            if self.minimum is not None:
+                node["minimum"] = self.minimum
+            if self.exclusive_minimum is not None:
+                node["exclusiveMinimum"] = self.exclusive_minimum
+            if self.maximum is not None:
+                node["maximum"] = self.maximum
+        return node
+
 
 @dataclass(frozen=True)
 class Choices(Rule):
@@ -151,6 +185,11 @@ class Choices(Rule):
             errors.append(
                 f"{path}: 허용되지 않는 값 {value!r}. {self.label}: {' | '.join(allowed)}"
             )
+
+    def to_json_schema(self) -> dict[str, Any]:
+        # 후보를 지금 조회해 굳힌다. 파생된 JSON Schema는 호출 1회에 넘기고 버리는
+        # 값이므로, `check`와 달리 나중에 등록될 타입을 기다릴 필요가 없다.
+        return {"type": "string", "enum": list(self.options())}
 
 
 @dataclass(frozen=True)
@@ -183,6 +222,30 @@ class Object(Rule):
         where = f"{path} 아래에" if path else "최상위에"
         return f"{where} 쓸 수 있는 필드: {', '.join(self.fields)}"
 
+    def without(self, *names: str) -> Object:
+        """일부 필드를 뺀 사본. 파일 스키마에서 부분 스키마를 파생시킬 때 쓴다.
+
+        **없는 이름을 주면 오류다.** 조용히 무시하면 필드 이름을 바꾼 뒤에도 이 호출이
+        통과해, 코드가 채울 필드가 LLM에 넘기는 스키마에 남는다.
+        """
+        unknown = [name for name in names if name not in self.fields]
+        if unknown:
+            raise ValueError(
+                f"{', '.join(unknown)}: 이 스키마에 없는 필드다. "
+                f"쓸 수 있는 필드: {', '.join(self.fields)}"
+            )
+        return Object({key: field for key, field in self.fields.items() if key not in names})
+
+    def to_json_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {key: field.rule.to_json_schema() for key, field in self.fields.items()},
+            "required": [key for key, field in self.fields.items() if field.required],
+            # `check`가 모르는 필드를 오류로 보는 것과 같다. 모델이 필드를 하나 더
+            # 지어내면 그 값은 산출물 검증에서 어차피 반려된다.
+            "additionalProperties": False,
+        }
+
 
 @dataclass(frozen=True)
 class Array(Rule):
@@ -201,6 +264,12 @@ class Array(Rule):
 
         for index, item in enumerate(value):
             self.item.check(item, f"{path}[{index}]", errors)
+
+    def to_json_schema(self) -> dict[str, Any]:
+        node: dict[str, Any] = {"type": "array", "items": self.item.to_json_schema()}
+        if self.min_items:
+            node["minItems"] = self.min_items
+        return node
 
 
 # --- 스키마 선언을 짧게 쓰기 위한 생성자 ------------------------------------

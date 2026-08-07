@@ -1,12 +1,12 @@
 """CLI 진입점.
 
-이번 단계에서 하는 일은 입력을 검증하고 run 디렉터리와 실행 로그를 만드는 것까지다.
-생성 파이프라인은 아직 붙지 않았다.
+이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
+불러 그 산출물을 쓰는 것**까지다. 장면 분할부터 렌더까지는 아직 붙지 않았다.
 
 - `--url` / `--text-file` 입력은 #31에서 추가한다. 그때 `--topic`은 배타 그룹의 한 갈래가 된다.
-- `--type`은 레지스트리에서 타입 선언을 찾는 데까지만 쓴다. 생성기·장면 템플릿을 실제로
-  호출하는 것은 #9·#12가 스텁을 채운 뒤다.
-- LLM provider도 이름 검증까지만 한다. 실제 호출은 #9·#10·#13이 붙인다.
+- 산출물 파일명은 타입 선언(`content_artifact`)에서 나온다. 여기 `quiz.json`을 적으면
+  공통 파이프라인이 타입을 알게 되고 `tests/test_type_boundary.py`가 깨진다.
+- 산출물 검증은 생성기가 한다. 파이프라인은 타입 전용 스키마를 열 수 없다 (퀴즈 스펙 1.1).
 - 설정 키별 CLI 플래그(`--voice` 등)는 그 값을 실제로 쓰는 이슈가 추가한다. 여기서는
   `--config`와 우선순위 규칙만 제공한다.
 """
@@ -21,7 +21,8 @@ from pathlib import Path
 from . import __version__
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .llm import LLMError, validate_providers
-from .run_context import RunContext, run_logging, start_run
+from .run_context import RunContext, run_logging, start_run, write_artifact
+from .schemas import SchemaError
 from .shorts_types import (
     DEFAULT_TYPE,
     ShortsType,
@@ -136,7 +137,18 @@ def run(args: argparse.Namespace, config: Config, shorts_type: ShortsType) -> Ru
             logger.debug("설정 %s = %s", key, value)
         logger.debug("python %s", sys.version.split()[0])
         logger.debug("출력 상위 경로 %s", args.output_root.resolve())
-        logger.info("생성 파이프라인은 아직 연결되지 않았다. 산출물 없이 종료한다")
+
+        logger.info("콘텐츠 생성 중 — 모델 호출은 수십 초가 걸린다")
+        try:
+            content = shorts_type.generator(topic=args.topic, config=config)
+        except (LLMError, SchemaError) as error:
+            # run.log에 원인을 남기고 넘긴다. 콘솔 메시지는 main이 낸다.
+            logger.error("콘텐츠 생성 실패 — %s", error)
+            raise
+
+        path = write_artifact(context.run_dir, shorts_type.content_artifact, content)
+        logger.info("%s 생성 완료", path.name)
+        logger.info("이후 단계(장면 분할·TTS·자막·렌더)는 아직 연결되지 않았다")
 
     return context
 
@@ -162,6 +174,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"쇼츠 타입 오류:\n{error}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
+    # 타입만 아는 설정 조건(퀴즈의 문제 수 3~5 등)도 여기서 본다. 값 하나가 범위를
+    # 벗어난 것 때문에 빈 run 디렉터리가 쌓이면 검수할 산출물과 구분되지 않는다.
+    try:
+        shorts_type.check_config(config)
+    except ConfigError as error:
+        print(f"설정 오류:\n{error}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
     # 같은 이유로 여기서 본다. 등록되지 않은 provider 이름은 설정 오타이고, 첫 LLM 호출까지
     # 가서야 드러나면 그 전에 만든 run 디렉터리가 남는다.
     try:
@@ -174,7 +194,11 @@ def main(argv: list[str] | None = None) -> int:
         run(args, config, shorts_type)
     except OSError as error:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
-        print(f"run 디렉터리를 만들 수 없다: {error}", file=sys.stderr)
+        print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
+        return EXIT_RUNTIME_ERROR
+    except (LLMError, SchemaError) as error:
+        # run 디렉터리는 남긴다 — run.log에 실패 원인과 그때의 설정이 들어 있다.
+        print(f"콘텐츠 생성 실패:\n{error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
 
     return EXIT_OK

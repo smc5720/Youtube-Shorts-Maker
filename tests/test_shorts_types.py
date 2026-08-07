@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from shorts_maker import shorts_types
+from shorts_maker.config import Config, ConfigError, defaults, load_config
 from shorts_maker.main import main
 from shorts_maker.run_context import LOG_FILENAME
 from shorts_maker.schemas import SchemaError, validate_project, validate_scenes
@@ -93,18 +95,40 @@ def test_quiz_routes_to_its_generator_and_scene_template() -> None:
     assert quiz.scene_template.__module__ == "shorts_maker.types.quiz.scene_template"
 
 
-def test_quiz_generator_and_template_are_stubs_pointing_at_their_issues() -> None:
-    """실제 구현은 #9·#12가 채운다. 스텁이 조용히 빈 값을 돌려주면 안 된다."""
-    quiz = get_type("quiz")
-
-    with pytest.raises(NotImplementedError, match="#9"):
-        quiz.generator(topic="주제", config=None)
+def test_quiz_scene_template_is_a_stub_pointing_at_its_issue() -> None:
+    """실제 구현은 #12가 채운다. 스텁이 조용히 빈 값을 돌려주면 안 된다."""
     with pytest.raises(NotImplementedError, match="#12"):
-        quiz.scene_template({}, config=None)
+        get_type("quiz").scene_template({}, config=None)
 
 
 def test_lookup_is_cached_so_the_declaration_module_imports_once() -> None:
     assert get_type("quiz") is get_type("quiz")
+
+
+# --- 설정 사전 점검 ---------------------------------------------------------
+
+
+def test_type_without_a_config_check_accepts_any_config(dummy_type: ShortsType) -> None:
+    """확인할 것이 없는 타입은 선언하지 않는다 — 빈 함수를 강요하지 않는다."""
+    dummy_type.check_config(Config(data=defaults()))
+
+
+def test_declared_config_check_runs(dummy_type: ShortsType) -> None:
+    seen: list[Config] = []
+    checked = replace(dummy_type, config_check=seen.append)
+    config = Config(data=defaults())
+
+    checked.check_config(config)
+
+    assert seen == [config]
+
+
+def test_quiz_declares_the_config_check_that_bounds_its_question_count() -> None:
+    """범위를 아는 것은 타입이다. `config.py`는 타입별 허용 범위를 알 수 없다."""
+    quiz = get_type("quiz")
+
+    with pytest.raises(ConfigError, match="quiz.question_count"):
+        quiz.check_config(load_config(overrides={"quiz.question_count": 9}))
 
 
 def test_cli_type_choices_and_help_come_from_the_registry(
