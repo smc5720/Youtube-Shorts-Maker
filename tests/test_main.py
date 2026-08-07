@@ -16,7 +16,12 @@ import pytest
 from conftest import StubLLM
 
 from shorts_maker.llm import LLMError
-from shorts_maker.main import EXIT_CONFIG_ERROR, EXIT_RUNTIME_ERROR, main
+from shorts_maker.main import (
+    EXIT_CONFIG_ERROR,
+    EXIT_FLAGGED,
+    EXIT_RUNTIME_ERROR,
+    main,
+)
 from shorts_maker.run_context import LOG_FILENAME
 from shorts_maker.shorts_types import DEFAULT_TYPE, available_types, get_type
 
@@ -98,7 +103,7 @@ def test_help_lists_arguments_and_defaults(capsys: pytest.CaptureFixture[str]) -
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
-    for flag in ("--topic", "--type", "--out", "--config", "--verbose"):
+    for flag in ("--topic", "--type", "--out", "--config", "--fail-on-flagged", "--verbose"):
         assert flag in help_text
     assert f"default: {DEFAULT_TYPE}" in help_text
     assert "default: outputs" in help_text
@@ -292,3 +297,126 @@ def test_failed_run_leaves_no_content_artifact(tmp_path: Path, stub_llm: StubLLM
 
     run_dir = run_dirs(tmp_path)[0]
     assert not (run_dir / get_type(DEFAULT_TYPE).content_artifact).exists()
+
+
+# --- 검수 게이트 (#11) -------------------------------------------------------
+
+QUESTION = "세계에서 가장 긴 강은?"
+ANSWER = "나일강"
+
+
+def fixed_run(stub_llm: StubLLM, *, given: str = ANSWER, certainty: float = 1.0) -> None:
+    """문제 하나짜리 고정 응답 세트 — 생성 1회 + 재답변 2회 + 모호성 프로브 1회.
+
+    기본값은 전원 일치·확신도 1.0이라 `verified`로 통과한다. `given`을 바꾸면 재답변이
+    갈려 검증기가 `flagged`를 만들고, `certainty`를 낮추면 임계값이 자른다 — **#11의
+    두 경로를 같은 입력에서 갈라 볼 수 있다.**
+    """
+    reply = {
+        "answers": [{"id": 1, "answer": given, "certainty": certainty, "basis": "근거"}]
+    }
+    stub_llm.reply(
+        {
+            "hook": "이 상식 다 맞히면 상위 1%",
+            "cta": "몇 개 맞혔나요?",
+            "questions": [
+                {
+                    "question": QUESTION,
+                    "answer": ANSWER,
+                    "explanation": "해설입니다.",
+                    "difficulty": "easy",
+                }
+            ],
+        },
+        reply,
+        reply,
+        {"questions": [{"id": 1, "single_answer": True, "reason": "판단 근거"}]},
+    )
+
+
+def test_flagged_content_still_exits_zero_and_leaves_the_artifact(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """검수 주체는 사람이고 사람은 산출물이 있어야 검수한다 (PRD 2장).
+    flagged 하나 때문에 산출물이 없으면 검수할 대상이 사라진다."""
+    fixed_run(stub_llm, given="아마존강")
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    content = content_artifact(run_dirs(tmp_path)[0])
+    assert content["questions"][0]["verify"]["status"] == "flagged"
+
+
+def test_the_threshold_verdict_is_saved_in_the_artifact(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """재답변은 전부 일치했지만 확신도가 낮은 경우 — 임계값이 자르는 유일한 경로다."""
+    fixed_run(stub_llm, certainty=0.5)
+
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    verify = content_artifact(run_dirs(tmp_path)[0])["questions"][0]["verify"]
+    assert verify["status"] == "flagged"
+    assert "임계값 미달" in verify["source"]
+
+
+def test_the_warning_carries_id_question_confidence_reason_and_threshold(
+    tmp_path: Path, stub_llm: StubLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixed_run(stub_llm, certainty=0.5)
+
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    console = capsys.readouterr().err
+    for expected in ("문제 1", QUESTION, "confidence 0.5", "임계값 0.8", "임계값 미달"):
+        assert expected in console
+
+
+def test_the_warning_is_kept_in_the_run_log_without_verbose(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """run.log는 사후 검수 기록이므로 그때 --verbose를 붙였는지에 좌우되면 안 된다."""
+    fixed_run(stub_llm, given="아마존강")
+
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+    assert "검수 필요" in log_text
+    assert QUESTION in log_text
+    assert "임계값 0.8" in log_text
+
+
+def test_a_clean_run_says_nothing_about_review(
+    tmp_path: Path, stub_llm: StubLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixed_run(stub_llm)
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    assert "검수 필요" not in capsys.readouterr().err
+    assert content_artifact(run_dirs(tmp_path)[0])["questions"][0]["verify"]["status"] == (
+        "verified"
+    )
+
+
+def test_fail_on_flagged_stops_with_a_code_of_its_own(
+    tmp_path: Path, stub_llm: StubLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """배치 실행이 "생성이 깨졌다"와 "검수가 필요하다"를 구분할 수 있어야 한다."""
+    fixed_run(stub_llm, given="아마존강")
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path), "--fail-on-flagged"])
+
+    assert exit_code == EXIT_FLAGGED
+    assert exit_code not in (0, EXIT_RUNTIME_ERROR, EXIT_CONFIG_ERROR)
+    assert "--fail-on-flagged" in capsys.readouterr().err
+    # 멈추는 것은 이후 단계이지 이번 실행의 산출물이 아니다.
+    assert content_artifact(run_dirs(tmp_path)[0])["questions"][0]["verify"]
+
+
+def test_fail_on_flagged_passes_a_clean_run(tmp_path: Path, stub_llm: StubLLM) -> None:
+    fixed_run(stub_llm)
+
+    assert main(["--topic", "주제", "--out", str(tmp_path), "--fail-on-flagged"]) == 0

@@ -1,7 +1,15 @@
 """CLI 진입점.
 
 이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
-불러 그 산출물을 쓰는 것**까지다. 장면 분할부터 렌더까지는 아직 붙지 않았다.
+불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고하는 것**까지다. 장면 분할부터 렌더까지는
+아직 붙지 않았다.
+
+- 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더(#19–#24)가
+  붙으면 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
+  사람이고 사람은 산출물이 있어야 검수한다 (PRD 2장). 멈추는 것은 `--fail-on-flagged`를
+  지정한 쪽(배치 실행, 이후의 앱 자동화)의 선택이다.
+- 무엇이 검수 대상인지는 타입이 정한다. 파이프라인은 `ContentIssue` 세 칸을 읽어 옮길 뿐
+  `confidence`도 임계값도 모른다 (퀴즈 스펙 1.1).
 
 - `--url` / `--text-file` 입력은 #31에서 추가한다. 그때 `--topic`은 배타 그룹의 한 갈래가 된다.
 - 산출물 파일명은 타입 선언(`content_artifact`)에서 나온다. 여기 `quiz.json`을 적으면
@@ -14,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +34,7 @@ from .run_context import RunContext, run_logging, start_run, write_artifact
 from .schemas import SchemaError
 from .shorts_types import (
     DEFAULT_TYPE,
+    ContentIssue,
     ShortsType,
     ShortsTypeError,
     available_types,
@@ -37,6 +47,10 @@ EXIT_OK = 0
 EXIT_RUNTIME_ERROR = 1
 # 인자 오류는 argparse가 종료 코드 2로 처리한다.
 EXIT_CONFIG_ERROR = 3
+EXIT_FLAGGED = 4
+"""`--fail-on-flagged`로 멈췄다. **실패와 구분되는 코드다** — 산출물은 정상적으로 남아
+있고 사람의 검수를 기다리는 상태다. 배치 스크립트가 이 둘을 같은 코드로 받으면 "생성이
+깨졌다"와 "검수가 필요하다"에 같은 대응을 하게 된다."""
 
 
 def _force_utf8_console() -> None:
@@ -98,6 +112,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"설정 파일 경로 (미지정 시 실행 디렉터리의 {DEFAULT_CONFIG_FILENAME}, 없으면 기본값)",
     )
     parser.add_argument(
+        "--fail-on-flagged",
+        dest="fail_on_flagged",
+        action="store_true",
+        help="검수 필요 항목이 하나라도 있으면 0이 아닌 종료 코드로 멈춘다 (기본은 경고 후 진행)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -114,8 +134,10 @@ def _callable_name(target: object) -> str:
     return f"{module}.{qualname}" if module else qualname
 
 
-def run(args: argparse.Namespace, config: Config, shorts_type: ShortsType) -> RunContext:
-    """run 디렉터리를 만들고 실행 정보를 로그에 남긴다."""
+def run(
+    args: argparse.Namespace, config: Config, shorts_type: ShortsType
+) -> tuple[RunContext, list[ContentIssue]]:
+    """run 디렉터리를 만들고 실행 정보를 로그에 남긴다. 검수 필요 항목을 함께 돌려준다."""
     context = start_run(args.output_root, datetime.now())
 
     with run_logging(context.log_path, verbose=args.verbose) as logger:
@@ -146,11 +168,35 @@ def run(args: argparse.Namespace, config: Config, shorts_type: ShortsType) -> Ru
             logger.error("콘텐츠 생성 실패 — %s", error)
             raise
 
+        # 판정을 산출물보다 먼저 확정한다. 경고만 하고 파일에는 남기지 않으면 콘솔을
+        # 놓친 사람과 앱(#30)이 다른 상태를 보게 된다.
+        issues = shorts_type.review(content, config=config)
+
         path = write_artifact(context.run_dir, shorts_type.content_artifact, content)
         logger.info("%s 생성 완료", path.name)
+
+        # 게이트 자리. 렌더(#19–#24)가 붙으면 그 앞에 그대로 남는다 (#24가 확인한다).
+        _warn_about(logger, issues, artifact=path.name)
         logger.info("이후 단계(장면 분할·TTS·자막·렌더)는 아직 연결되지 않았다")
 
-    return context
+    return context, issues
+
+
+def _warn_about(
+    logger: logging.Logger, issues: list[ContentIssue], *, artifact: str
+) -> None:
+    """검수 필요 항목을 경고로 남긴다.
+
+    **`WARNING`이라 `--verbose` 여부와 무관하게 콘솔과 `run.log` 양쪽에 남는다.**
+    run.log는 사후 검수 기록이므로(`run_context.py`) 그때 `--verbose`를 붙였는지에 따라
+    경고가 사라지면 안 된다.
+    """
+    if not issues:
+        return
+
+    logger.warning("검수 필요 %d건 — %s의 verify를 확인한 뒤 사용한다", len(issues), artifact)
+    for issue in issues:
+        logger.warning("  %s: %s — %s", issue.subject, issue.summary, issue.reason)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -191,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_CONFIG_ERROR
 
     try:
-        run(args, config, shorts_type)
+        context, issues = run(args, config, shorts_type)
     except OSError as error:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
         print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
@@ -200,6 +246,15 @@ def main(argv: list[str] | None = None) -> int:
         # run 디렉터리는 남긴다 — run.log에 실패 원인과 그때의 설정이 들어 있다.
         print(f"콘텐츠 생성 실패:\n{error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
+
+    if issues and args.fail_on_flagged:
+        # 산출물은 이미 다 썼다. 멈추는 것은 이후 단계이지 이번 실행의 결과물이 아니다.
+        print(
+            f"검수 필요 항목이 {len(issues)}건이다 (--fail-on-flagged). "
+            f"산출물은 {context.run_dir}에 남아 있다.",
+            file=sys.stderr,
+        )
+        return EXIT_FLAGGED
 
     return EXIT_OK
 

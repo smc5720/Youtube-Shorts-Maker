@@ -66,8 +66,10 @@ SPEC: dict[str, Any] = {
             # 하한(1 이상)은 여기가 아니라 `ShortsType.config_check`가 본다. 재답변이
             # 몇 번 필요한지는 사실 검증을 필수로 두는 타입의 규칙이다 (#10).
             "runs": Setting(2, "int"),
-            # 이 값을 읽어 flagged를 판정하는 것은 #11이다. 검증기(#10)는 confidence를
-            # 산출하기만 한다 — 재답변 불일치·질문 모호는 임계값과 무관한 실검출이다.
+            # 미만이면 flagged. 판정은 검증기(#10)가 아니라 타입의 검수 훅(#11)이 하고,
+            # 재답변 불일치·질문 모호는 임계값과 무관한 실검출이라 그 전에 이미 잡힌다.
+            # 0.8은 #10의 함정 문제 세트 실측에서 확정됐다 — 의미 있는 범위가
+            # (0.5, 0.98)이고 그 가운데다 (docs/spikes/10-verifier-detection.md 5장).
             "confidence_threshold": Setting(0.8, "float"),
         },
         "timeout_sec": Setting(600, "int"),
