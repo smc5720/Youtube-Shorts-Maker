@@ -1,8 +1,8 @@
 """CLI 진입점.
 
 이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
-불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고하는 것**까지다. 장면 분할부터 렌더까지는
-아직 붙지 않았다.
+불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고한 뒤, 타입의 장면 템플릿으로 `scenes.json`
+초안을 쓰는 것**까지다. TTS부터 렌더까지는 아직 붙지 않았다.
 
 - 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더(#19–#24)가
   붙으면 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
@@ -31,7 +31,7 @@ from . import __version__
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .llm import LLMError, validate_providers
 from .run_context import RunContext, run_logging, start_run, write_artifact
-from .schemas import SchemaError
+from .schemas import SCENES_SCHEMA, SchemaError
 from .shorts_types import (
     DEFAULT_TYPE,
     ContentIssue,
@@ -177,7 +177,20 @@ def run(
 
         # 게이트 자리. 렌더(#19–#24)가 붙으면 그 앞에 그대로 남는다 (#24가 확인한다).
         _warn_about(logger, issues, artifact=path.name)
-        logger.info("이후 단계(장면 분할·TTS·자막·렌더)는 아직 연결되지 않았다")
+
+        # 장면 분할. 여기부터 뒤는 타입을 모른다 — 공통 파이프라인이 읽는 것은
+        # `scenes.json` 하나다 (퀴즈 스펙 1.1, PRD 7.4.1).
+        try:
+            scenes = shorts_type.scene_template(content, config=config)
+        except SchemaError as error:
+            # 초안이 계약을 어겼다는 뜻이므로 원인은 타입의 장면 템플릿에 있다.
+            logger.error("장면 구성 실패 — %s", error)
+            raise
+        # 파일명은 스키마가 확정한다. `scenes.json`은 타입과 무관한 공통 산출물이다.
+        scenes_path = write_artifact(context.run_dir, SCENES_SCHEMA.name, scenes)
+        logger.info("%s 생성 완료 — 장면 %d개", scenes_path.name, len(scenes["scenes"]))
+
+        logger.info("이후 단계(TTS·자막·렌더)는 아직 연결되지 않았다")
 
     return context, issues
 
@@ -243,8 +256,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
     except (LLMError, SchemaError) as error:
-        # run 디렉터리는 남긴다 — run.log에 실패 원인과 그때의 설정이 들어 있다.
-        print(f"콘텐츠 생성 실패:\n{error}", file=sys.stderr)
+        # run 디렉터리는 남긴다 — run.log에 어느 단계에서 무슨 이유로 멈췄는지와 그때의
+        # 설정이 들어 있다. 콘솔 문구가 단계를 특정하지 않는 이유가 그것이다 — 콘텐츠
+        # 생성과 장면 구성이 같은 예외를 던지고, 구분은 run.log에 이미 있다.
+        print(f"생성 실패:\n{error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
 
     if issues and args.fail_on_flagged:

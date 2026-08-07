@@ -105,7 +105,8 @@ SPEC: dict[str, Any] = {
     "render": {
         # null이면 번들 폰트를 찾는다. 실제 탐색과 파일 존재 확인은 #20/#38이 한다.
         "font_path": Setting(None, "str", nullable=True),
-        # 프리셋 목록과의 대조는 프리셋이 생기는 #38/#12에서 붙인다.
+        # 프리셋 목록과의 대조는 프리셋이 생기는 #38에서 붙인다. 장면 템플릿(#12)은
+        # 이 값을 읽지 않는다 — 배경은 장면별 값이 아니라 `project.json`의 필드다.
         "background": Setting("gradient_default", "str"),
     },
 }

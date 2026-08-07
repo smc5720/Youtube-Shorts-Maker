@@ -1,4 +1,4 @@
-"""CLI 동작 검증 — 이슈 #5의 완료 조건, 그리고 #9가 붙인 산출물 배선.
+"""CLI 동작 검증 — 이슈 #5의 완료 조건, 그리고 #9·#12가 붙인 산출물 배선.
 
 **모든 테스트가 `stub_llm`을 쓴다.** run이 콘텐츠 생성기를 부르므로, 픽스처가 없으면
 테스트마다 실제 claude CLI가 돈다 (`conftest.py`).
@@ -23,6 +23,7 @@ from shorts_maker.main import (
     main,
 )
 from shorts_maker.run_context import LOG_FILENAME
+from shorts_maker.schemas import SCENES_SCHEMA, SchemaError, load_scenes
 from shorts_maker.shorts_types import DEFAULT_TYPE, available_types, get_type
 
 pytestmark = pytest.mark.usefixtures("stub_llm")
@@ -283,7 +284,8 @@ def test_generation_failure_exits_nonzero_and_leaves_the_reason_in_the_log(
     exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
 
     assert exit_code == EXIT_RUNTIME_ERROR
-    assert "콘텐츠 생성 실패" in capsys.readouterr().err
+    # 콘솔은 단계를 특정하지 않는다. 어느 단계였는지는 run.log가 아래에서 답한다.
+    assert "생성 실패" in capsys.readouterr().err
     log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
     assert "콘텐츠 생성 실패" in log_text
     assert "structured_output" in log_text
@@ -297,6 +299,49 @@ def test_failed_run_leaves_no_content_artifact(tmp_path: Path, stub_llm: StubLLM
 
     run_dir = run_dirs(tmp_path)[0]
     assert not (run_dir / get_type(DEFAULT_TYPE).content_artifact).exists()
+    assert not (run_dir / SCENES_SCHEMA.name).exists()
+
+
+# --- 장면 산출물 (#12) -------------------------------------------------------
+
+
+def scenes_artifact(run_dir: Path) -> dict:
+    """이번 run이 만든 `scenes.json`. 타입과 무관한 공통 산출물이다."""
+    return json.loads((run_dir / SCENES_SCHEMA.name).read_text(encoding="utf-8"))
+
+
+def test_run_writes_the_scene_draft(tmp_path: Path) -> None:
+    exit_code = main(["--topic", "세계 지리 상식", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    scenes = scenes_artifact(run_dirs(tmp_path)[0])
+    # 기본 4문제 → 후킹 1 + (질문·카운트다운·정답) × 4 + CTA 1.
+    assert len(scenes["scenes"]) == 14
+    assert scenes["type"] == DEFAULT_TYPE
+
+
+def test_the_written_scene_draft_passes_validation(tmp_path: Path) -> None:
+    """`scenes.json`을 읽는 이후 단계가 파일에서 실제로 받는 것을 검증한다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    load_scenes(run_dirs(tmp_path)[0] / SCENES_SCHEMA.name)
+
+
+def test_the_scene_draft_is_not_finalized_yet(tmp_path: Path) -> None:
+    """낭독 장면의 `duration`은 TTS(#16)가 채운다. 여기서 확정 상태가 되면 실측이 무의미해진다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    with pytest.raises(SchemaError):
+        load_scenes(run_dirs(tmp_path)[0] / SCENES_SCHEMA.name, finalized=True)
+
+
+def test_run_log_records_the_scene_artifact(tmp_path: Path) -> None:
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert f"{SCENES_SCHEMA.name} 생성 완료" in log_text
+    assert "장면 14개" in log_text
 
 
 # --- 검수 게이트 (#11) -------------------------------------------------------
@@ -420,3 +465,30 @@ def test_fail_on_flagged_passes_a_clean_run(tmp_path: Path, stub_llm: StubLLM) -
     fixed_run(stub_llm)
 
     assert main(["--topic", "주제", "--out", str(tmp_path), "--fail-on-flagged"]) == 0
+
+
+def test_flagged_content_still_produces_the_scene_draft(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """검수 경고는 진행을 멈추지 않는다 (#11). 장면 분할은 그 경고 **뒤에** 있다."""
+    fixed_run(stub_llm, given="아마존강")
+
+    assert main(["--topic", "주제", "--out", str(tmp_path)]) == 0
+    # 문제 하나짜리 응답 세트 → 후킹 1 + 3 + CTA 1.
+    assert len(scenes_artifact(run_dirs(tmp_path)[0])["scenes"]) == 5
+
+
+def test_fail_on_flagged_still_leaves_this_runs_artifacts(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """`--fail-on-flagged`가 멈추는 것은 **이후 단계**이지 이번 실행의 산출물이 아니다.
+
+    종료 코드는 run이 끝난 뒤에 정해지므로 장면 초안까지는 남는다. 검수 주체인 사람이
+    `quiz.json`을 고친 뒤 무엇이 어떻게 배치됐는지 함께 보려면 이 파일이 있어야 한다.
+    """
+    fixed_run(stub_llm, given="아마존강")
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path), "--fail-on-flagged"])
+
+    assert exit_code == EXIT_FLAGGED
+    assert scenes_artifact(run_dirs(tmp_path)[0])["scenes"]
