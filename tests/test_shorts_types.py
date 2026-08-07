@@ -22,6 +22,7 @@ from shorts_maker.schemas import SchemaError, validate_project, validate_scenes
 from shorts_maker.shorts_types import (
     DEFAULT_TYPE,
     SCRIPT_ARTIFACT,
+    ContentIssue,
     SUMMARY_ARTIFACT,
     ShortsType,
     ShortsTypeError,
@@ -153,6 +154,37 @@ def test_registered_type_runs_without_touching_pipeline_code(
     assert f"타입 {DUMMY_TYPE}" in log_text
     assert "dummy_generate" in log_text
     assert "dummy_scene_template" in log_text
+
+
+# --- 콘텐츠 검수 훅 (#11) ---------------------------------------------------
+
+
+def test_type_without_a_content_review_reports_nothing(dummy_type: ShortsType) -> None:
+    """검수 기준이 없는 타입은 선언하지 않는다. 빈 함수를 강요하지 않는다."""
+    assert dummy_type.review({"topic": "주제"}, config=Config(data=defaults())) == []
+
+
+def test_declared_content_review_receives_the_content(dummy_type: ShortsType) -> None:
+    seen: list[Any] = []
+    reviewed = replace(
+        dummy_type, content_review=lambda content, *, config: seen.append(content) or []
+    )
+    content = {"topic": "주제"}
+
+    reviewed.review(content, config=Config(data=defaults()))
+
+    assert seen == [content]
+
+
+def test_the_pipeline_reads_only_the_three_neutral_fields(dummy_type: ShortsType) -> None:
+    """파이프라인이 판정 기준을 알면 타입 경계가 깨진다 (퀴즈 스펙 1.1).
+
+    더미 타입이 내는 항목은 퀴즈 어휘를 한 글자도 담지 않지만 경고에 그대로 실린다.
+    """
+    issue = ContentIssue(subject="항목 1", summary="확인이 필요한 값", reason="사유")
+    reviewed = replace(dummy_type, content_review=lambda content, *, config: [issue])
+
+    assert reviewed.review({"topic": "주제"}, config=Config(data=defaults())) == [issue]
 
 
 # --- 미등록 타입 -----------------------------------------------------------

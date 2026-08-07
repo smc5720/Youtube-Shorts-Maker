@@ -16,6 +16,7 @@
 shorts_type = get_type(args.shorts_type)      # 미등록이면 UnknownShortsTypeError
 shorts_type.check_config(config)              # 타입이 요구하는 설정 조건 (run 디렉터리 전에)
 content = shorts_type.generator(topic=topic, config=config)
+issues = shorts_type.review(content, config=config)   # 사람이 검수할 항목 (산출물 쓰기 전에)
 scenes = shorts_type.scene_template(content, config=config)
 if shorts_type.produces(SCRIPT_ARTIFACT):     # 퀴즈는 False — 없는 것이 정상이다
     ...
@@ -94,6 +95,46 @@ class ConfigCheck(Protocol):
     def __call__(self, config: Config) -> None: ...
 
 
+@dataclass(frozen=True)
+class ContentIssue:
+    """사람이 검수해야 할 항목 하나. 타입이 만들고 파이프라인이 그대로 출력한다.
+
+    **타입 어휘를 담지 않는다.** 퀴즈의 `confidence`·임계값·플래그 사유는 전부 `reason`
+    문자열 안에서 타입이 조립한 것이고, 파이프라인은 세 칸을 읽어 경고로 옮길 뿐이다.
+    여기에 `confidence: float` 같은 칸을 열면 두 번째 타입이 자기 축을 하나 더 요구하고,
+    공통 파이프라인이 타입별 판정 기준을 알게 된다 (퀴즈 스펙 1.1).
+    """
+
+    subject: str
+    """어느 부분인가. 퀴즈는 `"문제 2"`."""
+
+    summary: str
+    """그 부분이 무엇인가. 한 줄이어야 한다 — 퀴즈는 질문 문장."""
+
+    reason: str
+    """왜 검수가 필요한가. 판정 사유와 근거 값을 타입이 조립해 넣는다."""
+
+
+class ContentReview(Protocol):
+    """콘텐츠 → 검수가 필요한 항목 목록. 판정 결과를 콘텐츠에 되쓸 수 있다.
+
+    **생성 축이 아니다.** `config_check`와 같은 성격의 훅이며, 레지스트리가 교체 가능한
+    축으로 아는 것은 여전히 생성기와 장면 템플릿 둘뿐이다 (퀴즈 스펙 1장). 여기 있는
+    이유는 판정 기준이 타입의 것이기 때문이다 — 퀴즈의 "confidence가 임계값 미만이면
+    flagged"(퀴즈 스펙 5장)를 공통 파이프라인이 알면 `quiz.json`을 직접 열어야 한다.
+
+    파이프라인은 **콘텐츠 산출물을 쓰기 전에** 부른다. 판정이 산출물에 남아야 앱과
+    이후 단계가 같은 상태를 본다. 두 번 불러도 결과가 같아야 한다 (#30이 앱에서 다시
+    부른다).
+
+    돌려준 항목이 있어도 파이프라인은 계속 진행한다. 검수 주체가 사람이고 사람은
+    산출물이 있어야 검수하므로, 멈추는 것은 `--fail-on-flagged`를 지정한 쪽의 선택이다
+    (PRD 2장, 8장).
+    """
+
+    def __call__(self, content: dict[str, Any], *, config: Config) -> list[ContentIssue]: ...
+
+
 class SceneTemplate(Protocol):
     """콘텐츠 → `scenes.json` 초안.
 
@@ -123,6 +164,9 @@ class ShortsType:
     config_check: ConfigCheck | None = None
     """설정 사전 점검. 확인할 것이 없는 타입은 선언하지 않는다."""
 
+    content_review: ContentReview | None = None
+    """콘텐츠 검수 판정. 검수 기준이 없는 타입은 선언하지 않는다."""
+
     produces_script: bool = False
     """`script.txt`를 만드는가. 내레이션 대본을 쓰는 타입만 참이다."""
 
@@ -141,6 +185,16 @@ class ShortsType:
         """
         if self.config_check is not None:
             self.config_check(config)
+
+    def review(self, content: dict[str, Any], *, config: Config) -> list[ContentIssue]:
+        """검수가 필요한 항목을 돌려준다. 선언하지 않았으면 빈 목록이다.
+
+        빈 목록이 "검수할 것이 없다"와 "검수 기준이 없다"를 함께 뜻한다. 두 경우 모두
+        파이프라인이 할 일이 같으므로(경고 없이 진행) 구분하지 않는다.
+        """
+        if self.content_review is None:
+            return []
+        return self.content_review(content, config=config)
 
     def artifacts(self) -> tuple[str, ...]:
         """이 타입이 만드는 타입 전용 산출물 전부."""
