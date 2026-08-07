@@ -1,5 +1,10 @@
 # D1 영상 디자인 발주서
 
+> **수령 완료.** 이 문서는 무엇을 요청했는지의 기록이고, 구현 기준은
+> [`d1-video-design-spec.md`](d1-video-design-spec.md)다. 수령한 시안을 저장소의 확정값과
+> 대조해 정리한 결과가 거기 있고, 둘이 다르면 그쪽이 이긴다.
+> 원본 시안: [Claude Design 프로젝트](https://claude.ai/design/p/26611470-26f3-4d73-9faf-4fff2acf1743)
+
 YouTube Shorts Maker의 **영상 안 화면 디자인**(D1) 발주 문서다.
 편집 앱 UI(D2)는 범위가 다르고 마감도 한참 뒤이므로 별도 발주한다.
 
