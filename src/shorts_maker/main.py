@@ -6,6 +6,7 @@
 - `--url` / `--text-file` 입력은 #31에서 추가한다. 그때 `--topic`은 배타 그룹의 한 갈래가 된다.
 - `--type`은 레지스트리에서 타입 선언을 찾는 데까지만 쓴다. 생성기·장면 템플릿을 실제로
   호출하는 것은 #9·#12가 스텁을 채운 뒤다.
+- LLM provider도 이름 검증까지만 한다. 실제 호출은 #9·#10·#13이 붙인다.
 - 설정 키별 CLI 플래그(`--voice` 등)는 그 값을 실제로 쓰는 이슈가 추가한다. 여기서는
   `--config`와 우선순위 규칙만 제공한다.
 """
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
+from .llm import LLMError, validate_providers
 from .run_context import RunContext, run_logging, start_run
 from .shorts_types import (
     DEFAULT_TYPE,
@@ -158,6 +160,14 @@ def main(argv: list[str] | None = None) -> int:
         shorts_type = get_type(args.shorts_type)
     except ShortsTypeError as error:
         print(f"쇼츠 타입 오류:\n{error}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    # 같은 이유로 여기서 본다. 등록되지 않은 provider 이름은 설정 오타이고, 첫 LLM 호출까지
+    # 가서야 드러나면 그 전에 만든 run 디렉터리가 남는다.
+    try:
+        validate_providers(config)
+    except LLMError as error:
+        print(f"LLM provider 오류:\n{error}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
     try:

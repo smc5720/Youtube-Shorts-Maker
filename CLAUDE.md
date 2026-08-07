@@ -14,8 +14,8 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 ## 로드맵
 
-`src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리까지 있고(Phase 0 완료)
-`app/`은 아직 없다.
+`src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리(Phase 0 완료)에
+LLM provider 레이어(#48)까지 있고 `app/`은 아직 없다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
 
