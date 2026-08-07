@@ -88,8 +88,14 @@ SPEC: dict[str, Any] = {
         "min_duration_sec": Setting(1.20, "float"),
     },
     "quiz": {
+        # 허용 범위(퀴즈 스펙 0장의 3~5)는 여기서 강제하지 않는다. 범위를 아는 것은
+        # 퀴즈 타입이고, 타입이 자기 설정을 확인하는 자리가 `ShortsType.check_config`다.
         "question_count": Setting(4, "int"),
         "countdown_sec": Setting(4, "int"),
+        # 낭독·자막 길이 상한. 화면에 들어가는 글자 수 문제이므로 모델이 아니라 여기서
+        # 정하고, 생성기가 JSON Schema와 프롬프트 양쪽에 실어 보낸다 (#9).
+        "answer_max_len": Setting(20, "int"),
+        "explanation_max_len": Setting(60, "int"),
     },
     "render": {
         # null이면 번들 폰트를 찾는다. 실제 탐색과 파일 존재 확인은 #20/#38이 한다.

@@ -206,6 +206,36 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
 
 신설 모듈: `src/types/quiz/quiz_generator.py`, `src/types/quiz/quiz_verifier.py`, `src/types/quiz/scene_template.py` (구조는 구현 시 확정).
 
+### 4.1 `quiz_generator`가 정하는 것과 묻지 않는 것 (#9)
+
+`quiz_generator`는 **LLM을 1회 부른다.** 문제별로 나눠 부르면 CLI 기동 오버헤드(호출당 약
+6.5초, 스파이크 #1 3장)가 문제 수만큼 곱해진다.
+
+모델에게 묻는 것은 `hook` / `cta` / 각 문제의 `question`·`answer`·`explanation`·`difficulty`
+뿐이다. 나머지는 코드가 채운다.
+
+| 필드 | 채우는 주체 |
+| --- | --- |
+| `schema_version` / `type` | 스키마 |
+| `category` / `language` | 코드 고정 — `general_knowledge` / `ko` (0장, PRD 14.1) |
+| `id` | 난이도 오름차순 정렬 **뒤에** 1부터 다시 매긴다 |
+| `countdown_sec` | `quiz.countdown_sec` (모든 문제에 균일) |
+| `verify` | `quiz_verifier` (#10). 초안에는 없다 |
+
+- **난이도 오름차순은 프롬프트와 정렬 양쪽에서 보장한다.** 스키마는 값 사이의 순서를 강제하지
+  않으므로 프롬프트만으로는 어긋난 배치가 검증을 통과한다.
+- `--json-schema`로 넘기는 JSON Schema는 `src/shorts_maker/schemas/quiz.py`의
+  `content_json_schema()`가 `quiz.json` 스키마에서 **파생**한다. 프롬프트 쪽에 필드 이름을
+  다시 적으면 계약이 두 곳에 생긴다 (PRD 14.1).
+
+설정 세 가지가 생성 결과를 좌우한다.
+
+| 키 | 기본값 | 위반 시 |
+| --- | --- | --- |
+| `quiz.question_count` | 4 | **3~5 밖이면 run 디렉터리를 만들기 전에 오류.** 범위를 아는 것은 퀴즈 타입이므로 설정 로더가 아니라 타입 선언(`ShortsType.config_check`)이 확인한다 |
+| `quiz.answer_max_len` | 20 | JSON Schema의 `maxLength`로 먼저 걸러지고, 그래도 넘으면 **재생성하지 않고 오류로 멈춘다** — 다시 불러도 같은 이유로 같은 결과가 나온다 |
+| `quiz.explanation_max_len` | 60 | 위와 같다 |
+
 ## 5. 사실 검증 (필수)
 
 주관식 + 상식 + LLM 자동 생성은 **오답 리스크**가 가장 크다. 틀린 정답은 댓글에서 즉시 지적되어 채널 신뢰도를 훼손한다 (PRD 8장: 사실 여부가 중요한 내용은 검수 단계).

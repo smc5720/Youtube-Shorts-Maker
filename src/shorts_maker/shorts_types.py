@@ -14,6 +14,7 @@
 
 ```python
 shorts_type = get_type(args.shorts_type)      # 미등록이면 UnknownShortsTypeError
+shorts_type.check_config(config)              # 타입이 요구하는 설정 조건 (run 디렉터리 전에)
 content = shorts_type.generator(topic=topic, config=config)
 scenes = shorts_type.scene_template(content, config=config)
 if shorts_type.produces(SCRIPT_ARTIFACT):     # 퀴즈는 False — 없는 것이 정상이다
@@ -77,6 +78,22 @@ class ContentGenerator(Protocol):
     def __call__(self, *, topic: str, config: Config) -> dict[str, Any]: ...
 
 
+class ConfigCheck(Protocol):
+    """타입이 자기 설정 요구를 확인한다. 위반은 `ConfigError`로 던진다.
+
+    **생성 축이 아니다.** 레지스트리가 교체 가능한 축으로 아는 것은 여전히 생성기와
+    장면 템플릿 둘뿐이고(퀴즈 스펙 1장), 이것은 그 둘을 부르기 전에 도는 사전 점검이다.
+    별도 축으로 두지 않는 이유는 `config.py`가 타입별 허용 범위를 알 수 없기 때문이다 —
+    "문제 3~5개"는 퀴즈 타입의 규칙이지 설정 로더의 문법이 아니다.
+
+    파이프라인은 이것을 **run 디렉터리를 만들기 전에** 부른다. 설정·타입·provider
+    검증과 같은 자리다 — 값 하나가 범위를 벗어난 것 때문에 빈 run 디렉터리가 쌓이면
+    검수할 산출물과 구분되지 않는다.
+    """
+
+    def __call__(self, config: Config) -> None: ...
+
+
 class SceneTemplate(Protocol):
     """콘텐츠 → `scenes.json` 초안.
 
@@ -103,6 +120,9 @@ class ShortsType:
     generator: ContentGenerator
     scene_template: SceneTemplate
 
+    config_check: ConfigCheck | None = None
+    """설정 사전 점검. 확인할 것이 없는 타입은 선언하지 않는다."""
+
     produces_script: bool = False
     """`script.txt`를 만드는가. 내레이션 대본을 쓰는 타입만 참이다."""
 
@@ -112,6 +132,15 @@ class ShortsType:
     참이어도 입력 경로에 원문이 없으면 생성되지 않는다 — 타입은 "요약 단계를 쓰는가"만
     선언하고, 실제 생성 여부는 입력 경로와의 논리곱이다 (PRD 6.2 표).
     """
+
+    def check_config(self, config: Config) -> None:
+        """타입이 요구하는 설정 조건을 확인한다. 선언하지 않았으면 아무것도 하지 않는다.
+
+        Raises:
+            ConfigError: 타입의 요구를 만족하지 않는 값이 있을 때.
+        """
+        if self.config_check is not None:
+            self.config_check(config)
 
     def artifacts(self) -> tuple[str, ...]:
         """이 타입이 만드는 타입 전용 산출물 전부."""

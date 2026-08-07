@@ -258,6 +258,8 @@ def test_every_documented_key_has_a_default() -> None:
         "timing.min_duration_sec",
         "quiz.question_count",
         "quiz.countdown_sec",
+        "quiz.answer_max_len",
+        "quiz.explanation_max_len",
         "render.font_path",
         "render.background",
     }

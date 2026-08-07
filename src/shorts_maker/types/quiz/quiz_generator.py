@@ -1,24 +1,200 @@
-"""주제 → `quiz.json` 내용 (퀴즈 스펙 4장).
+"""주제 → `quiz.json` 내용 (퀴즈 스펙 4장, 이슈 #9).
 
-**아직 스텁이다.** 실제 생성은 #9, 정답 검증은 #10이 채운다.
+세 가지가 이 모듈의 형태를 정한다.
+
+- **LLM 호출은 문제 수와 무관하게 1회다.** claude CLI는 호출당 약 6.5초의 프로세스 기동
+  오버헤드를 가진다 (스파이크 3장). 문제별로 나눠 부르면 이 고정비가 문제 수만큼 곱해지고,
+  얻는 것은 없다 — 문제 세트는 서로 겹치지 않아야 하므로 오히려 한 번에 보는 편이 낫다.
+- **모델에게는 모델만 아는 것을 묻는다.** `schema_version`·`type`·`category`·`language`·
+  `id`·`countdown_sec`은 코드가 정한다. 넘기는 JSON Schema는 `schemas.quiz`가 산출물
+  스키마에서 파생시키므로 필드 이름이 여기 다시 적히지 않는다.
+- **난이도 오름차순을 두 겹으로 보장한다.** 프롬프트로 요구하고, 받은 뒤 다시 정렬한다.
+  스키마는 이 순서를 강제하지 않으므로(정렬은 값 사이의 관계다) 모델이 어긋나게 내도
+  검증에서 걸리지 않는다. 순서가 무너지면 이탈 방지 배치(퀴즈 스펙 2장)가 깨진다.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ...config import ConfigError
+from ...llm import LLMError, provider_for_role
+from ...schemas.quiz import (
+    DIFFICULTIES,
+    SCHEMA_VERSION,
+    TYPE,
+    content_json_schema,
+    validate_quiz,
+)
+
 if TYPE_CHECKING:
     from ...config import Config
+
+MIN_QUESTIONS = 3
+MAX_QUESTIONS = 5
+"""한 영상에 담는 문제 수의 허용 범위 (퀴즈 스펙 0장).
+
+`config.SPEC`이 아니라 여기 있다. 설정 로더는 타입별 허용 범위를 알 수 없고, 이 값은
+길이 가이드(3문제 ≈ 38초 / 5문제 ≈ 58초)와 PRD 6.3의 45~60초에서 나온 퀴즈의 규칙이다.
+"""
+
+CATEGORY = "general_knowledge"
+"""서브 장르 (퀴즈 스펙 0장). MVP는 상식/지식 퀴즈 하나뿐이라 config 키를 열지 않는다."""
+
+LANGUAGE = "ko"
+"""한국어 1차 타깃 (PRD 14.1). 확장 여지는 `quiz.json`의 `language` 필드가 담는다."""
+
+SYSTEM = (
+    "너는 한국어 상식 퀴즈 출제기다. "
+    "쇼츠 영상용으로 짧고 명확한 주관식 문제를 만든다. "
+    "정답은 논란의 여지가 없는 단일 값이어야 한다. "
+    "JSON 외에는 아무것도 출력하지 않는다."
+)
+"""스파이크에서 실측한 시스템 프롬프트 (`docs/spikes/1-llm-provider/harness.py`)."""
+
+
+def check_config(config: Config) -> None:
+    """퀴즈 타입이 요구하는 설정 조건을 확인한다. 타입 선언이 파이프라인에 노출한다.
+
+    run 디렉터리를 만들기 전에 돈다 — 문제 수 하나 때문에 빈 run 디렉터리가 쌓이면
+    검수할 산출물과 구분되지 않는다.
+
+    Raises:
+        ConfigError: 문제 수가 허용 범위 밖일 때.
+    """
+    count = config.get("quiz.question_count")
+    if not MIN_QUESTIONS <= count <= MAX_QUESTIONS:
+        raise ConfigError(
+            [
+                f"quiz.question_count: {MIN_QUESTIONS}~{MAX_QUESTIONS} 사이여야 한다. "
+                f"받은 값: {count}"
+            ]
+        )
+
+
+def build_prompt(
+    *, topic: str, question_count: int, answer_max_len: int, explanation_max_len: int
+) -> str:
+    """생성 프롬프트. 스파이크의 프롬프트에 주제와 다양성 요구를 더한 것이다.
+
+    다양성 요구는 스파이크 4.1의 후속 과제다 — `sonnet`이 동일 프롬프트 3회에서 같은
+    문제를 반복 출제했고, 그것이 프롬프트로 완화되는 성질인지가 확인 대상이다.
+    """
+    return (
+        f"주제: {topic}\n"
+        f"\n"
+        f"위 주제로 한국인 일반 시청자 대상 상식 퀴즈 {question_count}문제를 만들어라.\n"
+        f"- 문제끼리 소재가 겹치지 않게 하고, 주제 안에서 서로 다른 갈래를 골라라.\n"
+        f"- 난이도를 easy → medium → hard 오름차순으로 배치하라. "
+        f"첫 문제는 easy, 마지막 문제는 hard로 한다.\n"
+        f"- 교과서 대표 예시로 굳어진 소재(예: 세종대왕의 한글 창제, 물의 화학식)는 피하라. "
+        f"같은 주제로 다시 실행했을 때 다른 문제가 나와야 한다.\n"
+        f"- 질문은 40자 이내로 하고, 정답은 {answer_max_len}자, "
+        f"해설은 {explanation_max_len}자를 넘기지 마라.\n"
+        f"- 정답이 여러 개로 갈릴 수 있는 문제는 내지 마라. "
+        f"'최초', '최대'처럼 기준에 따라 답이 달라지는 표현은 조건을 질문에 명시하라.\n"
+        f"- hook은 시청을 붙잡는 첫 문장, cta는 댓글·구독을 유도하는 마지막 문장이다.\n"
+    )
 
 
 def generate(*, topic: str, config: Config) -> dict[str, Any]:
     """주제에서 퀴즈 문제 세트를 만든다.
 
-    돌려주는 dict는 `validate_quiz`를 통과해야 한다. 문제 수와 난이도, LLM 설정은
-    `config.quiz` / `config.llm`에서 읽는다.
+    돌려주는 dict는 `validate_quiz`를 통과한다. 검증(#10)이 붙으면 각 문제의 `verify`가
+    채워진 상태가 되며, 그 자리는 아래 주석이 가리킨다 — 검증을 별도의 플러그인 축으로
+    두지 않는 이유는 그것이 퀴즈 타입 내부 단계이기 때문이다.
 
-    검증(#10)까지 마친 상태를 돌려준다 — 각 문제의 `verify`가 채워져 있다. 검증을
-    별도의 플러그인 축으로 두지 않는 이유는 그것이 퀴즈 타입 내부 단계이기 때문이다
-    (레지스트리가 아는 축은 생성기와 장면 템플릿 둘뿐이다).
+    Raises:
+        ConfigError: 설정이 퀴즈 타입의 요구를 만족하지 않을 때.
+        LLMError: 모델이 요구를 만족하는 출력을 내지 못했을 때 (재시도 후에도).
+        SchemaError: 조립한 결과가 `quiz.json` 스키마를 만족하지 않을 때.
     """
-    raise NotImplementedError("퀴즈 콘텐츠 생성기는 #9에서 구현한다 (정답 검증은 #10)")
+    # 파이프라인이 이미 불렀더라도 다시 확인한다. 이 함수는 CLI 말고도 앱 백엔드와
+    # 테스트가 직접 부르는 입구이고, 범위를 벗어난 값으로 LLM을 부르면 그 비용이 버려진다.
+    check_config(config)
+
+    question_count = config.get("quiz.question_count")
+    answer_max_len = config.get("quiz.answer_max_len")
+    explanation_max_len = config.get("quiz.explanation_max_len")
+
+    generator = provider_for_role("generator", config=config)
+    result = generator.complete_json(
+        system=SYSTEM,
+        prompt=build_prompt(
+            topic=topic,
+            question_count=question_count,
+            answer_max_len=answer_max_len,
+            explanation_max_len=explanation_max_len,
+        ),
+        schema=content_json_schema(
+            question_count=question_count,
+            answer_max_len=answer_max_len,
+            explanation_max_len=explanation_max_len,
+        ),
+    )
+
+    content = _assemble(result.data, config=config)
+    _check_lengths(
+        content, answer_max_len=answer_max_len, explanation_max_len=explanation_max_len
+    )
+    # 여기에 #10의 블라인드 검증이 붙는다 — 각 문제에 `verify`를 채운 뒤 아래 검증으로
+    # 넘어간다. 그전까지 초안은 `verify` 없이 스키마를 통과한다.
+    validate_quiz(content)
+    return content
+
+
+def _assemble(data: dict[str, Any], *, config: Config) -> dict[str, Any]:
+    """모델이 낸 부분 결과에 코드가 정하는 필드를 채워 `quiz.json` 내용을 만든다."""
+    countdown_sec = config.get("quiz.countdown_sec")
+
+    questions = [
+        {
+            "id": index,
+            **question,
+            # 난이도별 조정은 스펙 2장이 남긴 여지이지 MVP 요구가 아니다. 균일하게 채운다.
+            "countdown_sec": countdown_sec,
+        }
+        # `sorted`는 안정 정렬이므로 같은 난이도 안에서는 모델이 낸 순서가 유지된다.
+        for index, question in enumerate(_by_difficulty(data["questions"]), start=1)
+    ]
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "type": TYPE,
+        "category": CATEGORY,
+        "language": LANGUAGE,
+        "hook": data["hook"],
+        "cta": data["cta"],
+        "questions": questions,
+    }
+
+
+def _by_difficulty(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """난이도 오름차순. 순서는 스키마의 `DIFFICULTIES` 선언에서 나온다."""
+    return sorted(questions, key=lambda question: DIFFICULTIES.index(question["difficulty"]))
+
+
+def _check_lengths(
+    content: dict[str, Any], *, answer_max_len: int, explanation_max_len: int
+) -> None:
+    """길이 상한을 넘겼는지 확인한다.
+
+    **재생성하지 않고 멈춘다.** 상한은 JSON Schema로도 넘어가 CLI가 강제하므로(스파이크
+    4.3) 여기까지 온 초과는 모델이 못 맞춘 것이 아니라 상한 자체가 그 주제에 맞지
+    않는다는 신호에 가깝다. 다시 부르면 같은 이유로 같은 결과가 나오고 호출 비용만
+    늘어난다 — `llm.max_retries`가 타임아웃을 재시도하지 않는 것과 같은 판단이다.
+    """
+    violations = [
+        f"questions[{index}].{field}: {limit}자 이하여야 한다 "
+        f"(quiz.{field}_max_len). 받은 값: {len(question[field])}자 — {question[field]!r}"
+        for index, question in enumerate(content["questions"])
+        for field, limit in (("answer", answer_max_len), ("explanation", explanation_max_len))
+        if len(question[field]) > limit
+    ]
+    if violations:
+        # 호출자(공통 파이프라인)는 퀴즈 타입을 모르므로 타입 전용 예외를 만들지 않는다.
+        raise LLMError(
+            "생성된 문제가 길이 상한을 넘었다. 상한을 올리거나 주제를 좁힌다:\n"
+            + "\n".join(violations),
+            retryable=False,
+        )
