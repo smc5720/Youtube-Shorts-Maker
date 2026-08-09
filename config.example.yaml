@@ -24,6 +24,9 @@ llm:
 tts:
   provider: edge_tts              # 음성 합성 provider (현재 edge_tts만 등록돼 있다)
   voice: ko-KR-SunHiNeural        # provider가 쓰는 음성 이름을 그대로 넘긴다
+  timeout_sec: 60                 # 문장 1개 합성 타임아웃(초). 넘기면 재시도하지 않는다
+  max_retries: 2                  # 재시도 횟수. 타임아웃·모듈 부재는 재시도하지 않는다
+  cache_dir: .cache/tts           # 세그먼트 캐시 위치. run 디렉터리 밖이다. null이면 캐시를 끈다
 
 # 낭독 장면의 길이 확정 공식 (PRD 7.5.1)
 #   duration = max(lead_in_sec + 실측_오디오_길이 + tail_sec, min_duration_sec)

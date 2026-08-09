@@ -41,6 +41,7 @@ from .shorts_types import (
     available_types,
     get_type,
 )
+from .tts import TTSError, validate_tts_provider
 
 DEFAULT_OUTPUT_ROOT = Path("outputs")
 
@@ -260,6 +261,15 @@ def main(argv: list[str] | None = None) -> int:
         validate_providers(config)
     except LLMError as error:
         print(f"LLM provider 오류:\n{error}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    # TTS는 아직 파이프라인에 붙지 않았지만(#15) 이름 검증은 지금부터 여기 있다. 합성이
+    # 붙는 순간 오타의 대가가 "빈 run 디렉터리"에서 "콘텐츠 생성까지 마친 뒤 버려지는
+    # run 디렉터리"로 커지고, 그때 자리를 옮기면 옮긴 이유가 기록에 남지 않는다.
+    try:
+        validate_tts_provider(config)
+    except TTSError as error:
+        print(f"TTS provider 오류:\n{error}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
     try:
