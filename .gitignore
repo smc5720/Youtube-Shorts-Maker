@@ -10,3 +10,6 @@ venv/
 
 # 로컬 설정 — 스키마와 기본값은 #6에서 정의한다.
 /config.yaml
+
+# TTS 세그먼트 캐시 (tts.cache_dir 기본값, #14). run 디렉터리 밖이라 여기 있다.
+/.cache/

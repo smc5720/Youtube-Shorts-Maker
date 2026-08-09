@@ -85,6 +85,16 @@ SPEC: dict[str, Any] = {
         # 음성 이름은 provider 문자열을 그대로 통과시킨다. 자체 어휘로 매핑하면
         # Azure 승격이 "같은 음성 이름"이라 싸다는 이득이 사라진다 (스파이크 #2 §5.3).
         "voice": Setting("ko-KR-SunHiNeural", "str"),
+        # LLM보다 훨씬 짧다. 문장당 0.3~1.4초로 측정됐고(스파이크 #2 §4.5), 60초를
+        # 넘겼다면 기다릴 것이 아니라 네트워크나 엔드포인트를 의심할 상황이다.
+        "timeout_sec": Setting(60, "int"),
+        "max_retries": Setting(2, "int"),
+        # 세그먼트 캐시. **run 디렉터리 밖이다** — run마다 새 디렉터리이므로 안에 두면
+        # 반복 실행 비용이 줄지 않는다 (PRD 13). null이면 캐시를 끈다.
+        # 재합성이 결정적이라 적중과 미적중이 다른 결과를 내지 않는다 (스파이크 #2 §4.2).
+        "cache_dir": Setting(".cache/tts", "str", nullable=True),
+        # `tts.providers` 섹션은 없다. edge_tts가 여는 키가 없어 빈 섹션을 미리 만들면
+        # "알 수 없는 설정 키" 검출과 충돌한다 — 키를 여는 adapter가 추가될 때 만든다.
     },
     # 낭독 장면의 duration 확정 공식에 쓰는 값 (PRD 7.5.1).
     "timing": {

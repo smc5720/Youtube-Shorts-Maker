@@ -9,9 +9,12 @@ description = "세로형 쇼츠 자동 생성 엔진"
 readme = "README.md"
 requires-python = ">=3.11"
 
-# TTS provider가 합성 라이브러리를(#14), 렌더러가 FFmpeg 호출 도구를(#19) 추가한다.
+# 렌더러가 FFmpeg 호출 도구를(#19) 추가한다.
 dependencies = [
     "pyyaml>=6.0",  # config.yaml 파싱 (#6)
+    # 기본 TTS provider (#14). 비공식 엔드포인트를 쓰므로 예고 없이 깨질 수 있다 —
+    # 승격 경로는 스파이크 #2 5.2에 있다. 하한은 실측에 쓴 버전이다.
+    "edge-tts>=7.2.8",
 ]
 
 [project.optional-dependencies]
