@@ -117,7 +117,7 @@ def test_cli_override_applies_without_config_file(tmp_path: Path) -> None:
     config = load_config(search_from=tmp_path, overrides={"quiz.question_count": 5})
 
     assert config.get("quiz.question_count") == 5
-    assert config.get("quiz.countdown_sec") == 4
+    assert config.get("quiz.countdown_sec") == 3
 
 
 def test_cli_override_is_validated_like_the_file(tmp_path: Path) -> None:
@@ -271,6 +271,8 @@ def test_every_documented_key_has_a_default() -> None:
         "metadata.tag_max_count",
         "render.font_path",
         "render.background",
+        "render.cta_punch",
+        "render.cta_tail",
     }
 
     assert set(flat_keys(config)) == expected
@@ -286,6 +288,19 @@ def test_wave1_decisions_are_the_defaults() -> None:
     assert config.get("timing.lead_in_sec") == pytest.approx(0.30)
     assert config.get("timing.tail_sec") == pytest.approx(0.50)
     assert config.get("timing.min_duration_sec") == pytest.approx(1.20)
+
+
+def test_d1_design_decisions_are_the_defaults() -> None:
+    """D1 확정 스펙 3장·5.5가 정한 값 (PRD 14.1의 "D1 영상 디자인" 결정).
+
+    `countdown_sec` 3은 시안의 3 → 2 → 1과 대응한다. 4로 돌아가면 렌더러가 시안이 검증하지
+    않은 4자리를 그린다.
+    """
+    config = Config(data=defaults())
+
+    assert config.get("quiz.countdown_sec") == 3
+    assert config.get("render.cta_punch") == "구독 · 좋아요"
+    assert config.get("render.cta_tail") == "매일 새 상식 퀴즈"
 
 
 def test_get_reports_the_missing_segment() -> None:

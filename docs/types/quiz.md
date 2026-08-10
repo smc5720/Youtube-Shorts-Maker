@@ -144,12 +144,16 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
   "schema_version": 1,
   "type": "quiz",
   "scenes": [
-    { "role": "hook", "text": "이 상식 4개, 다 맞히면 상위 1%", "duration": 2.5 },
-    { "role": "question", "question_id": 1, "text": "세계에서 가장 긴 강은?",
+    { "role": "hook", "kicker": "상식 퀴즈",
+      "text": "이 상식 4개, 다 맞히면 상위 1%", "duration": 2.5 },
+    { "role": "question", "question_id": 1, "heading": "세계에서 가장 긴 강은?",
+      "text": "세계에서 가장 긴 강은?",
       "narrate": true, "target_duration": 3.0, "duration": 2.94,
       "audio": "audio/seg-001.mp3", "audio_duration": 2.14, "narration_offset": 2.8 },
-    { "role": "countdown", "question_id": 1, "seconds": 3, "duration": 3.0, "sfx": "beep" },
-    { "role": "answer", "question_id": 1, "text": "나일강", "caption": "약 6,650km로 세계 최장",
+    { "role": "countdown", "question_id": 1, "heading": "세계에서 가장 긴 강은?",
+      "seconds": 3, "duration": 3.0, "sfx": "beep" },
+    { "role": "answer", "question_id": 1, "heading": "세계에서 가장 긴 강은?",
+      "text": "나일강", "caption": "약 6,650km로 세계 최장",
       "narrate": true, "target_duration": 3.0, "duration": 2.733,
       "audio": "audio/seg-003.mp3", "audio_duration": 0.92, "narration_offset": 8.74,
       "sfx": "correct" },
@@ -166,12 +170,19 @@ PRD 쪽 서술은 [PRD 7.4.1](../PRD.md#741-scenesjson-단일-계약).
   장면 번호는 비어 있다 (위 예시에서 `seg-000`·`seg-002`·`seg-004`가 없다).
 - `narration_offset`: `voice.mp3` 안에서 이 세그먼트가 시작하는 시각. 자막 타임코드의 기준이다.
 - `audio` / `audio_duration` / `narration_offset`은 TTS 단계가 채운다. 장면 템플릿은 비워 둔다.
-- **`heading` / `kicker`는 아직 없다 — #55가 넣는다.** D1 시안이 countdown·answer 장면에도
-  질문을 띄우고 hook에 카테고리 라벨을 붙이는데, 지금 스키마에는 그 문구를 담을 자리가 없다.
-  `heading`(질문을 question·countdown·answer 세 장면에 같은 값으로)과 `kicker`(hook 위 라벨)를
-  통과 필드로 추가하고 위 예시도 그때 함께 갱신한다
+- `heading`: 블록 내내 상단에 유지되는 문구. 장면 템플릿이 질문을 question·countdown·answer
+  세 장면에 같은 값으로 넣는다. 질문 장면에서는 `text`와 값이 같아 중복이지만, 정답 장면에서는
+  `text`가 정답이고 `heading`이 질문이라 두 필드가 반드시 갈라져야 한다 — 렌더러 규칙을
+  **"`heading`이 있으면 상단에 그린다"** 하나로 두는 편이 싸다
   ([D1 확정 스펙](../design/d1-video-design-spec.md) 8장).
-  **위 예시는 이 문서가 아니라 코드가 검증한다** — `tests/test_schemas.py`가 이 JSON 블록을
+- `kicker`: 본문 위 작은 라벨. hook 장면에만 있고, 장면 템플릿이 `quiz.json`의 `category`를
+  한국어 라벨로 옮긴다(`general_knowledge` → `상식 퀴즈`). **매핑은 타입 패키지가 소유한다** —
+  카테고리 어휘를 아는 것은 퀴즈 타입이다 (1.1). 매핑에 없는 카테고리를 만나면 장면 템플릿이
+  오류로 멈춘다. 화면에 영어 이름을 내거나 라벨 자리를 비우면 어느 쪽이든 렌더 결과를 보고서야
+  알아채게 되고, 고칠 것은 라벨 한 줄이다.
+- 두 이름을 `question_text` / `category_label`로 하지 않은 것은 `explanation`을 `caption`으로
+  옮긴 것과 같은 이유다 — 통과 필드는 타입 중립 어휘를 쓴다 (1.1).
+- **위 예시는 이 문서가 아니라 코드가 검증한다** — `tests/test_schemas.py`가 이 JSON 블록을
   읽어 `validate_scenes_final()`에 넣으므로, 스키마에 없는 필드를 예시에만 먼저 적으면 깨진다.
 
 > **필드명은 위 이름으로 확정됐다.** 스키마 정의는 `src/shorts_maker/schemas/scenes.py`에

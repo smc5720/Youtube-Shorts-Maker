@@ -8,9 +8,9 @@
   넣는다. TTS는 `narrate: true` 장면만 건드리므로, 비워 두면 채워 줄 주체가 없어
   `validate_scenes_final`이 실패한다.
 - **타입 전용 정보를 통과 필드로 옮겨 담는 자리가 여기다.** `countdown_sec` → `seconds`,
-  `explanation` → `caption`, 문제 `id` → `question_id`. 렌더러가 `quiz.json`을 직접 읽지
-  않게 하는 유일한 지점이며, 이 경계가 깨지면 두 번째 타입을 추가할 때 공통 파이프라인
-  전체를 고쳐야 한다 (퀴즈 스펙 1.1).
+  `explanation` → `caption`, 문제 `id` → `question_id`, `question` → `heading`,
+  `category` → `kicker`. 렌더러가 `quiz.json`을 직접 읽지 않게 하는 유일한 지점이며, 이
+  경계가 깨지면 두 번째 타입을 추가할 때 공통 파이프라인 전체를 고쳐야 한다 (퀴즈 스펙 1.1).
 - **장면 순서가 오디오 세그먼트 번호를 정한다.** 파일명이 장면 배열 위치로 매겨지므로
   (`audio/seg-003.mp3`, PRD 7.5.2) 순서를 바꾸면 세그먼트 번호가 전부 바뀐다. 이 모듈이
   그 순서를 확정하고, 앱에서 순서를 편집할 때의 재계산은 #29가 다룬다.
@@ -29,13 +29,16 @@ from ...schemas.scenes import SCHEMA_VERSION, validate_scenes
 if TYPE_CHECKING:
     from ...config import Config
 
-HOOK_DURATION = 3.0
-CTA_DURATION = 4.0
+HOOK_DURATION = 2.5
+CTA_DURATION = 3.0
 """낭독이 없는 앞뒤 장면의 고정 길이 (퀴즈 스펙 2장 표).
 
 현재 TTS 범위가 질문·정답뿐이라 이 둘에는 실측할 오디오가 없다. **config 키를 새로 열지
 않는다** — 바꿔야 할 이유가 생기면 그때 연다. 낭독을 추가하기로 결정하면 두 장면은
 `narrate: true`가 되고 길이 규칙은 `narrate` 하나로 갈린다 (PRD 7.5.1).
+
+두 값은 3.0 / 4.0에서 내려왔다. D1 시안이 이 길이로 프레임 레이아웃을 검증했고, 4문제
+예산에 여유가 생긴다 (D1 확정 스펙 3장).
 """
 
 NARRATION_TARGET = 3.0
@@ -50,6 +53,13 @@ COUNTDOWN_SFX = "beep"
 ANSWER_SFX = "correct"
 """효과음 이름 (퀴즈 스펙 2장). 라이선스가 명확한 에셋 파일 번들은 #18이 붙인다."""
 
+CATEGORY_LABELS = {"general_knowledge": "상식 퀴즈"}
+"""`quiz.json`의 `category` → 화면에 뜨는 `kicker` 문구 (D1 확정 스펙 5.1, 8장).
+
+**이 매핑은 타입 패키지가 소유한다.** 카테고리 어휘를 아는 것은 퀴즈 타입이고, 공통
+파이프라인이 이 표를 들면 두 번째 타입이 자기 라벨을 넣을 자리가 없다 (퀴즈 스펙 1.1).
+"""
+
 
 def build(content: Mapping[str, Any], *, config: Config) -> dict[str, Any]:
     """퀴즈 콘텐츠를 후킹 → (질문·카운트다운·정답) × N → CTA 장면으로 편다.
@@ -63,9 +73,17 @@ def build(content: Mapping[str, Any], *, config: Config) -> dict[str, Any]:
 
     Raises:
         SchemaError: 조립한 결과가 `scenes.json` 초안 스키마를 만족하지 않을 때.
+        ValueError: `category`의 한국어 라벨이 `CATEGORY_LABELS`에 없을 때. 화면에
+            영어 카테고리 이름을 내거나 라벨 자리를 비우는 대신 멈춘다 — 사람이 고칠
+            것이 한 줄이고, 어느 쪽이든 렌더 결과를 보고서야 알아채게 된다.
     """
     scenes: list[dict[str, Any]] = [
-        {"role": "hook", "text": content["hook"], "duration": HOOK_DURATION}
+        {
+            "role": "hook",
+            "kicker": _kicker(content["category"]),
+            "text": content["hook"],
+            "duration": HOOK_DURATION,
+        }
     ]
     for question in content["questions"]:
         scenes.extend(_question_block(question))
@@ -78,25 +96,44 @@ def build(content: Mapping[str, Any], *, config: Config) -> dict[str, Any]:
     return data
 
 
+def _kicker(category: str) -> str:
+    """카테고리를 화면 문구로 옮긴다. 매핑이 없으면 멈춘다 (`build`의 Raises 참고)."""
+    try:
+        return CATEGORY_LABELS[category]
+    except KeyError:
+        known = ", ".join(sorted(CATEGORY_LABELS))
+        raise ValueError(
+            f"카테고리 {category!r}의 kicker 라벨이 없다. "
+            f"scene_template.CATEGORY_LABELS에 추가한다. 아는 카테고리: {known}"
+        ) from None
+
+
 def _question_block(question: Mapping[str, Any]) -> list[dict[str, Any]]:
     """문제 하나 → 인접한 세 장면. 순서가 곧 화면 순서다 (퀴즈 스펙 2장).
 
     `countdown`의 `duration`은 `seconds`와 정확히 같다. 숫자 전환이 정수 초에 맞아야
     하므로 실측 보정 대상이 아니고, 확정 검증이 이 일치를 강제한다 (PRD 7.5.1).
+
+    **질문 문장은 세 장면 모두의 `heading`에 같은 값으로 들어간다.** 시안이 카운트다운과
+    정답 장면에도 질문을 띄우고, 그 문구는 `text`로 담을 수 없다 — 정답 장면의 `text`는
+    정답이다 (D1 확정 스펙 5.2~5.4, 8장).
     """
     question_id = question["id"]
     seconds = question["countdown_sec"]
+    heading = question["question"]
     return [
         {
             "role": "question",
             "question_id": question_id,
-            "text": question["question"],
+            "heading": heading,
+            "text": heading,
             "narrate": True,
             "target_duration": NARRATION_TARGET,
         },
         {
             "role": "countdown",
             "question_id": question_id,
+            "heading": heading,
             "seconds": seconds,
             "duration": float(seconds),
             "sfx": COUNTDOWN_SFX,
@@ -104,6 +141,7 @@ def _question_block(question: Mapping[str, Any]) -> list[dict[str, Any]]:
         {
             "role": "answer",
             "question_id": question_id,
+            "heading": heading,
             "text": question["answer"],
             # 해설은 낭독하지 않고 자막으로만 낸다 (퀴즈 스펙 0장의 TTS 범위).
             "caption": question["explanation"],

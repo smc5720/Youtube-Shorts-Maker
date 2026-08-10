@@ -83,6 +83,13 @@ _SCENE = Object(
         # 새 타입이 자기 통과 필드를 추가할 때는 여기 선언을 함께 추가한다.
         "question_id": integer(required=False, minimum=1),
         "caption": text(required=False),
+        # 블록 내내 상단에 유지되는 문구. `text`와 별개다 — 정답 장면에서는 `text`가 정답,
+        # `heading`이 질문이라 두 값이 갈린다. 렌더러 규칙은 "있으면 상단에 그린다" 하나다
+        # (D1 확정 스펙 8장). 질문 장면에서는 `text`와 값이 같고, 그 중복이 규칙을 하나로
+        # 유지하는 값이다.
+        "heading": text(required=False),
+        # 본문 위에 붙는 작은 라벨. 퀴즈에서는 카테고리 라벨이지만 이름은 타입 중립이다.
+        "kicker": text(required=False),
         "seconds": integer(required=False, minimum=1),
         "sfx": text(required=False),
     }

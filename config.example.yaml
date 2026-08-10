@@ -47,7 +47,7 @@ captions:
 
 quiz:
   question_count: 4               # 한 영상에 담을 문제 수 (3~5. 벗어나면 실행 시작 시점에 오류)
-  countdown_sec: 4                # 카운트다운 장면 기본 길이(초)
+  countdown_sec: 3                # 카운트다운 장면 기본 길이(초). 4로 올리면 4 → 1을 센다
   answer_max_len: 20              # 정답 글자 수 상한. 넘으면 생성 실패로 멈춘다
   explanation_max_len: 60         # 한 줄 해설 글자 수 상한. 정답 장면 자막에 들어간다
 
@@ -60,3 +60,6 @@ metadata:
 render:
   font_path: null                 # 자막·오버레이 폰트 경로. null이면 번들 폰트를 찾는다
   background: gradient_default    # 배경 프리셋 이름
+  # CTA 화면의 고정 두 줄 (D1 확정 스펙 5.5). 채널 브랜딩이라 LLM이 짓지 않는다.
+  cta_punch: "구독 · 좋아요"      # CTA 강조 줄. 1줄 9자까지
+  cta_tail: "매일 새 상식 퀴즈"    # CTA 마지막 줄. 1줄 21자까지

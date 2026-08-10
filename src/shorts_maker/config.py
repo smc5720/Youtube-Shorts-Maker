@@ -120,7 +120,9 @@ SPEC: dict[str, Any] = {
         # 허용 범위(퀴즈 스펙 0장의 3~5)는 여기서 강제하지 않는다. 범위를 아는 것은
         # 퀴즈 타입이고, 타입이 자기 설정을 확인하는 자리가 `ShortsType.check_config`다.
         "question_count": Setting(4, "int"),
-        "countdown_sec": Setting(4, "int"),
+        # 3은 시안의 3 → 2 → 1 배치와 대응한다 (D1 확정 스펙 3장). **설정값 그대로
+        # 남는다** — 4로 올리면 렌더러가 `seconds` 값만큼 세므로 4자리가 나온다.
+        "countdown_sec": Setting(3, "int"),
         # 낭독·자막 길이 상한. 화면에 들어가는 글자 수 문제이므로 모델이 아니라 여기서
         # 정하고, 생성기가 JSON Schema와 프롬프트 양쪽에 실어 보낸다 (#9).
         "answer_max_len": Setting(20, "int"),
@@ -138,6 +140,12 @@ SPEC: dict[str, Any] = {
         # 프리셋 목록과의 대조는 프리셋이 생기는 #38에서 붙인다. 장면 템플릿(#12)은
         # 이 값을 읽지 않는다 — 배경은 장면별 값이 아니라 `project.json`의 필드다.
         "background": Setting("gradient_default", "str"),
+        # CTA 화면의 고정 두 줄 (D1 확정 스펙 5.5). **채널 브랜딩이라 config에 있다** —
+        # 타입 전용 정보가 아니므로 `scenes.json`에도 `quiz.json`에도 넣지 않고, 채널마다
+        # 바꾸는 값을 LLM이 매번 새로 짓게 하지도 않는다. LLM이 짓는 줄은 `scenes[-1].text`
+        # 하나다. 줄당 글자 수 상한(punch 9자 / tail 21자) 확인은 렌더러(#20)가 한다.
+        "cta_punch": Setting("구독 · 좋아요", "str"),
+        "cta_tail": Setting("매일 새 상식 퀴즈", "str"),
     },
 }
 
