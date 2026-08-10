@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from ...config import ConfigError
@@ -37,6 +38,17 @@ MAX_QUESTIONS = 5
 
 `config.SPEC`이 아니라 여기 있다. 설정 로더는 타입별 허용 범위를 알 수 없고, 이 값은
 길이 가이드(3문제 ≈ 38초 / 5문제 ≈ 58초)와 PRD 6.3의 45~60초에서 나온 퀴즈의 규칙이다.
+"""
+
+CAPPED_FIELDS = ("hook", "cta", "question", "answer", "explanation")
+"""글자 수 상한이 걸리는 생성 필드. 상한값은 `quiz.<필드>_max_len`에서 온다 (#9, #56).
+
+**이름에서 config 키를 만든다.** 필드마다 키 이름을 따로 적으면 둘이 갈릴 수 있고, 갈리면
+스키마에 얹히는 상한과 사람이 설정한 값이 달라진다. 상한이 없는 필드(`difficulty`)는
+여기 없다.
+
+전부 D1 확정 스펙의 레이아웃 티어에서 나온 값이라 **넘으면 렌더가 아니라 생성이 멈춘다** —
+렌더 단계에서 자르면 화면에서 말이 안 되는 문장이 남고 사람이 검수할 원문이 사라진다.
 """
 
 CATEGORY = "general_knowledge"
@@ -87,13 +99,20 @@ def check_config(config: Config) -> None:
         raise ConfigError(errors)
 
 
-def build_prompt(
-    *, topic: str, question_count: int, answer_max_len: int, explanation_max_len: int
-) -> str:
+def length_caps(config: Config) -> dict[str, int]:
+    """필드 이름 → 글자 수 상한. 스키마·프롬프트·사후 확인이 같은 값을 본다 (#56)."""
+    return {field: config.get(f"quiz.{field}_max_len") for field in CAPPED_FIELDS}
+
+
+def build_prompt(*, topic: str, question_count: int, caps: Mapping[str, int]) -> str:
     """생성 프롬프트. 스파이크의 프롬프트에 주제와 다양성 요구를 더한 것이다.
 
     다양성 요구는 스파이크 4.1의 후속 과제다 — `sonnet`이 동일 프롬프트 3회에서 같은
     문제를 반복 출제했고, 그것이 프롬프트로 완화되는 성질인지가 확인 대상이다.
+
+    **글자 수 상한을 스키마와 여기 양쪽에 싣는다.** 스키마의 `maxLength`만으로는 모델이
+    상한을 모르는 채로 쓰다가 끝에서 끊기고, 그러면 문장이 어색하게 잘린 채 상한 안에
+    들어온다 — 검증을 통과하므로 아무도 못 잡는다 (#56).
     """
     return (
         f"주제: {topic}\n"
@@ -104,11 +123,13 @@ def build_prompt(
         f"첫 문제는 easy, 마지막 문제는 hard로 한다.\n"
         f"- 교과서 대표 예시로 굳어진 소재(예: 세종대왕의 한글 창제, 물의 화학식)는 피하라. "
         f"같은 주제로 다시 실행했을 때 다른 문제가 나와야 한다.\n"
-        f"- 질문은 40자 이내로 하고, 정답은 {answer_max_len}자, "
-        f"해설은 {explanation_max_len}자를 넘기지 마라.\n"
+        f"- 질문은 {caps['question']}자, 정답은 {caps['answer']}자, "
+        f"해설은 {caps['explanation']}자를 넘기지 마라. "
+        f"상한에 맞춰 끊지 말고 그 안에서 끝나는 문장으로 써라.\n"
         f"- 정답이 여러 개로 갈릴 수 있는 문제는 내지 마라. "
         f"'최초', '최대'처럼 기준에 따라 답이 달라지는 표현은 조건을 질문에 명시하라.\n"
-        f"- hook은 시청을 붙잡는 첫 문장, cta는 댓글·구독을 유도하는 마지막 문장이다.\n"
+        f"- hook은 시청을 붙잡는 첫 문장으로 {caps['hook']}자, "
+        f"cta는 댓글·구독을 유도하는 마지막 문장으로 {caps['cta']}자를 넘기지 마라.\n"
     )
 
 
@@ -130,29 +151,17 @@ def generate(*, topic: str, config: Config) -> dict[str, Any]:
     check_config(config)
 
     question_count = config.get("quiz.question_count")
-    answer_max_len = config.get("quiz.answer_max_len")
-    explanation_max_len = config.get("quiz.explanation_max_len")
+    caps = length_caps(config)
 
     generator = provider_for_role("generator", config=config)
     result = generator.complete_json(
         system=SYSTEM,
-        prompt=build_prompt(
-            topic=topic,
-            question_count=question_count,
-            answer_max_len=answer_max_len,
-            explanation_max_len=explanation_max_len,
-        ),
-        schema=content_json_schema(
-            question_count=question_count,
-            answer_max_len=answer_max_len,
-            explanation_max_len=explanation_max_len,
-        ),
+        prompt=build_prompt(topic=topic, question_count=question_count, caps=caps),
+        schema=content_json_schema(question_count=question_count, caps=caps),
     )
 
     content = _assemble(result.data, config=config)
-    _check_lengths(
-        content, answer_max_len=answer_max_len, explanation_max_len=explanation_max_len
-    )
+    _check_lengths(content, caps=caps)
     # 초안을 먼저 검증한다. 모양이 깨진 초안을 그대로 검증기에 넘기면 재답변·모호성 프로브
     # 호출 비용을 쓰고 나서 같은 이유로 실패한다. 이 시점의 초안에는 `verify`가 없고,
     # 스키마가 그것을 선택 필드로 둔 이유가 이 호출이다.
@@ -196,9 +205,7 @@ def _by_difficulty(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(questions, key=lambda question: DIFFICULTIES.index(question["difficulty"]))
 
 
-def _check_lengths(
-    content: dict[str, Any], *, answer_max_len: int, explanation_max_len: int
-) -> None:
+def _check_lengths(content: dict[str, Any], *, caps: Mapping[str, int]) -> None:
     """길이 상한을 넘겼는지 확인한다.
 
     **재생성하지 않고 멈춘다.** 상한은 JSON Schema로도 넘어가 CLI가 강제하므로(스파이크
@@ -206,12 +213,23 @@ def _check_lengths(
     않는다는 신호에 가깝다. 다시 부르면 같은 이유로 같은 결과가 나오고 호출 비용만
     늘어난다 — `llm.max_retries`가 타임아웃을 재시도하지 않는 것과 같은 판단이다.
     """
-    violations = [
-        f"questions[{index}].{field}: {limit}자 이하여야 한다 "
-        f"(quiz.{field}_max_len). 받은 값: {len(question[field])}자 — {question[field]!r}"
+    # 어느 필드가 어느 층에 있는지는 `CAPPED_FIELDS`에서 읽어 낸다. 여기 목록을 따로
+    # 적으면 상한을 하나 추가할 때 고칠 곳이 늘고, 빠뜨린 필드는 조용히 통과한다.
+    targets: list[tuple[str, str, str]] = [
+        (field, field, content[field]) for field in CAPPED_FIELDS if field in content
+    ]
+    targets += [
+        (f"questions[{index}].{field}", field, question[field])
         for index, question in enumerate(content["questions"])
-        for field, limit in (("answer", answer_max_len), ("explanation", explanation_max_len))
-        if len(question[field]) > limit
+        for field in CAPPED_FIELDS
+        if field in question
+    ]
+
+    violations = [
+        f"{path}: {caps[field]}자 이하여야 한다 (quiz.{field}_max_len). "
+        f"받은 값: {len(value)}자 — {value!r}"
+        for path, field, value in targets
+        if len(value) > caps[field]
     ]
     if violations:
         # 호출자(공통 파이프라인)는 퀴즈 타입을 모르므로 타입 전용 예외를 만들지 않는다.

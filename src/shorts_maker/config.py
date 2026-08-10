@@ -123,10 +123,19 @@ SPEC: dict[str, Any] = {
         # 3은 시안의 3 → 2 → 1 배치와 대응한다 (D1 확정 스펙 3장). **설정값 그대로
         # 남는다** — 4로 올리면 렌더러가 `seconds` 값만큼 세므로 4자리가 나온다.
         "countdown_sec": Setting(3, "int"),
-        # 낭독·자막 길이 상한. 화면에 들어가는 글자 수 문제이므로 모델이 아니라 여기서
-        # 정하고, 생성기가 JSON Schema와 프롬프트 양쪽에 실어 보낸다 (#9).
-        "answer_max_len": Setting(20, "int"),
-        "explanation_max_len": Setting(60, "int"),
+        # 생성 텍스트의 글자 수 상한. 화면에 들어가는 글자 수 문제이므로 모델이 아니라
+        # 여기서 정하고, 생성기가 JSON Schema와 프롬프트 양쪽에 실어 보낸다 (#9, #56).
+        # 키 이름이 `quiz.<필드>_max_len`인 것은 규약이다 — 생성기가 필드 이름에서 키를
+        # 만든다 (`quiz_generator.CAPPED_FIELDS`).
+        #
+        # 다섯 값 전부 D1 확정 스펙의 레이아웃에서 나왔다 — 그 요소의 **가장 작은 폰트
+        # 티어가 담는 최대 글자 수**다. 넘으면 텍스트가 안전 영역을 벗어나므로 렌더에서
+        # 자르는 대신 생성 단계에서 막는다 (#56).
+        "hook_max_len": Setting(36, "int"),  # 64px 3줄 (확정 스펙 5.1)
+        "question_max_len": Setting(45, "int"),  # 56px 3줄 = floor(840/56)×3 (5.2)
+        "answer_max_len": Setting(20, "int"),  # T2 2줄 (5.4)
+        "cta_max_len": Setting(24, "int"),  # 68px 2줄 (5.5)
+        "explanation_max_len": Setting(60, "int"),  # 36px 3줄 안 (5.4)
     },
     # 업로드용 메타데이터 (#13). 상한이 config에 있는 이유는 YouTube의 하드 리밋이 아니라
     # 운영 기준이기 때문이다 — 제목 100자는 허용되지만 모바일 검색 결과에서 잘린다.

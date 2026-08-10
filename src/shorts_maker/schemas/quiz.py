@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +96,7 @@ _MODEL_OMITS_QUESTION = ("id", "countdown_sec", "verify")
 
 
 def content_json_schema(
-    *, question_count: int, answer_max_len: int, explanation_max_len: int
+    *, question_count: int, caps: Mapping[str, int]
 ) -> dict[str, Any]:
     """`quiz_generator`가 `--json-schema`로 넘길 JSON Schema.
 
@@ -105,6 +106,11 @@ def content_json_schema(
 
     길이·개수 상한은 스키마가 아니라 config가 정하므로 여기서 받아 얹는다. CLI가
     `--json-schema`를 강제하므로(스파이크 4.3) 상한 위반은 대개 모델 쪽에서 걸러진다.
+
+    Args:
+        caps: 필드 이름 → 글자 수 상한. 상한이 없는 필드는 빼도 된다. 어느 필드가
+            상한을 갖는지는 config가 정하므로(`quiz.<필드>_max_len`) 여기 목록을 두지
+            않는다 — 두면 키를 추가할 때 고칠 곳이 하나 늘어난다.
     """
     schema = _ROOT.without(*_MODEL_OMITS_ROOT).to_json_schema()
 
@@ -115,9 +121,20 @@ def content_json_schema(
     questions["minItems"] = question_count
     questions["maxItems"] = question_count
 
-    fields = questions["items"]["properties"]
-    fields["answer"]["maxLength"] = answer_max_len
-    fields["explanation"]["maxLength"] = explanation_max_len
+    applied = set()
+    for properties in (schema["properties"], questions["items"]["properties"]):
+        for field, limit in caps.items():
+            if field in properties:
+                properties[field]["maxLength"] = limit
+                applied.add(field)
+
+    # 얹을 자리가 없는 이름은 오타다. 조용히 넘기면 config에 값을 넣은 사람은 상한이
+    # 걸렸다고 믿는데 모델은 그 제약을 받지 않는다.
+    unknown = sorted(set(caps) - applied)
+    if unknown:
+        raise ValueError(
+            f"모델에게 묻는 필드가 아니라 글자 수 상한을 얹을 수 없다: {', '.join(unknown)}"
+        )
     return schema
 
 

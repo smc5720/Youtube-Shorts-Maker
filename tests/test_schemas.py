@@ -753,7 +753,7 @@ def test_without_rejects_a_name_that_is_not_in_the_schema() -> None:
 
 def test_quiz_content_schema_matches_the_artifact_schema_field_by_field() -> None:
     """생성기가 넘기는 스키마는 `quiz.json` 스키마에서 파생된 것이어야 한다 (#9)."""
-    derived = content_json_schema(question_count=4, answer_max_len=20, explanation_max_len=60)
+    derived = content_json_schema(question_count=4, caps={"answer": 20, "explanation": 60})
     full = QUIZ_SCHEMA.root.to_json_schema()
 
     question = derived["properties"]["questions"]["items"]["properties"]

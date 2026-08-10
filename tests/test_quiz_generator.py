@@ -17,6 +17,7 @@ from shorts_maker.llm import LLMError
 from shorts_maker.schemas import DIFFICULTIES, SchemaError, validate_quiz
 from shorts_maker.schemas.quiz import VERIFY_STATUSES, content_json_schema
 from shorts_maker.types.quiz.quiz_generator import (
+    CAPPED_FIELDS,
     CATEGORY,
     LANGUAGE,
     MAX_QUESTIONS,
@@ -24,6 +25,7 @@ from shorts_maker.types.quiz.quiz_generator import (
     SYSTEM,
     check_config,
     generate,
+    length_caps,
 )
 
 from conftest import StubLLM, from_schema
@@ -35,6 +37,9 @@ DEFAULT_VERIFY_CALLS = 3
 것이 아래 `test_call_count_does_not_scale_with_question_count`가 확인하는 성질이다.
 """
 
+DEFAULT_CAPS = length_caps(Config(data=defaults()))
+"""기본 설정의 글자 수 상한. 값을 여기 적지 않는 이유는 `config.SPEC`이 정하기 때문이다."""
+
 
 def config_with(**overrides: Any) -> Config:
     return load_config(overrides=overrides) if overrides else Config(data=defaults())
@@ -42,9 +47,7 @@ def config_with(**overrides: Any) -> Config:
 
 def model_output(count: int = 4, **overrides: Any) -> dict[str, Any]:
     """모델이 낼 법한 응답. 생성기가 실제로 넘기는 스키마에서 만든다."""
-    payload = from_schema(
-        content_json_schema(question_count=count, answer_max_len=20, explanation_max_len=60)
-    )
+    payload = from_schema(content_json_schema(question_count=count, caps=DEFAULT_CAPS))
     payload.update(overrides)
     return payload
 
@@ -245,12 +248,12 @@ def test_schema_is_derived_from_the_artifact_schema(stub_llm: StubLLM) -> None:
     generate(topic="주제", config=config_with())
 
     assert sent_schema(stub_llm) == content_json_schema(
-        question_count=4, answer_max_len=20, explanation_max_len=60
+        question_count=4, caps=DEFAULT_CAPS
     )
 
 
 def test_schema_asks_only_for_what_the_model_decides() -> None:
-    schema = content_json_schema(question_count=4, answer_max_len=20, explanation_max_len=60)
+    schema = content_json_schema(question_count=4, caps=DEFAULT_CAPS)
 
     assert set(schema["properties"]) == {"hook", "cta", "questions"}
     assert set(schema["properties"]["questions"]["items"]["properties"]) == {
@@ -262,7 +265,7 @@ def test_schema_asks_only_for_what_the_model_decides() -> None:
 
 
 def test_schema_pins_the_question_count() -> None:
-    schema = content_json_schema(question_count=5, answer_max_len=20, explanation_max_len=60)
+    schema = content_json_schema(question_count=5, caps=DEFAULT_CAPS)
 
     questions = schema["properties"]["questions"]
     assert questions["minItems"] == 5
@@ -270,22 +273,43 @@ def test_schema_pins_the_question_count() -> None:
 
 
 def test_schema_carries_the_configured_length_caps() -> None:
-    schema = content_json_schema(question_count=4, answer_max_len=15, explanation_max_len=45)
+    """다섯 필드 전부 config 값이 `maxLength`로 파생돼 들어간다 (#56).
 
-    fields = schema["properties"]["questions"]["items"]["properties"]
+    프롬프트 쪽에 숫자를 손으로 적으면 계약이 두 곳에 생긴다 (PRD 14.1).
+    """
+    caps = {"hook": 30, "cta": 21, "question": 40, "answer": 15, "explanation": 45}
+
+    schema = content_json_schema(question_count=4, caps=caps)
+
+    root = schema["properties"]
+    fields = root["questions"]["items"]["properties"]
+    assert root["hook"]["maxLength"] == 30
+    assert root["cta"]["maxLength"] == 21
+    assert fields["question"]["maxLength"] == 40
     assert fields["answer"]["maxLength"] == 15
     assert fields["explanation"]["maxLength"] == 45
 
 
+def test_every_capped_field_finds_a_place_in_the_schema() -> None:
+    """`CAPPED_FIELDS`와 스키마가 갈리면 상한이 조용히 사라진다 — 그때 오류가 나야 한다.
+
+    `id`는 `quiz.json`에는 있지만 모델에게 묻지 않는 필드다. 얹을 자리가 없는 이름의 예다.
+    """
+    content_json_schema(question_count=4, caps=DEFAULT_CAPS)  # 위반이면 ValueError
+
+    with pytest.raises(ValueError, match="상한을 얹을 수 없다: id"):
+        content_json_schema(question_count=4, caps={"id": 5})
+
+
 def test_schema_keeps_the_difficulty_vocabulary_of_the_artifact_schema() -> None:
-    schema = content_json_schema(question_count=4, answer_max_len=20, explanation_max_len=60)
+    schema = content_json_schema(question_count=4, caps=DEFAULT_CAPS)
 
     fields = schema["properties"]["questions"]["items"]["properties"]
     assert fields["difficulty"]["enum"] == list(DIFFICULTIES)
 
 
 def test_schema_rejects_fields_the_model_invents() -> None:
-    schema = content_json_schema(question_count=4, answer_max_len=20, explanation_max_len=60)
+    schema = content_json_schema(question_count=4, caps=DEFAULT_CAPS)
 
     assert schema["additionalProperties"] is False
     assert schema["properties"]["questions"]["items"]["additionalProperties"] is False
@@ -300,6 +324,20 @@ def test_prompt_carries_the_topic_and_the_requested_count(stub_llm: StubLLM) -> 
     prompt = stub_llm.calls[0]["prompt"]
     assert "한국사 상식" in prompt
     assert "5문제" in prompt
+
+
+def test_prompt_carries_every_length_cap(stub_llm: StubLLM) -> None:
+    """스키마의 `maxLength`만으로는 모델이 상한 직전에서 문장을 끊는다 (#56).
+
+    숫자는 config에서 온다 — 프롬프트에 상수로 적혀 있으면 설정을 바꿔도 따라오지 않는다.
+    """
+    caps = {"hook": 30, "cta": 21, "question": 40, "answer": 15, "explanation": 45}
+    config = config_with(**{f"quiz.{field}_max_len": limit for field, limit in caps.items()})
+
+    generate(topic="주제", config=config)
+
+    prompt = stub_llm.calls[0]["prompt"]
+    assert all(f"{limit}자" in prompt for limit in caps.values())
 
 
 def test_prompt_asks_for_ascending_difficulty_and_variety(stub_llm: StubLLM) -> None:
@@ -351,27 +389,56 @@ def test_final_failure_reports_the_attempts_and_the_cause(stub_llm: StubLLM) -> 
     assert "structured_output" in str(error.value)
 
 
-@pytest.mark.parametrize(
-    ("field", "setting", "value"),
-    [
-        ("answer", "quiz.answer_max_len", "가" * 21),
-        ("explanation", "quiz.explanation_max_len", "가" * 61),
-    ],
-)
-def test_length_overrun_stops_instead_of_regenerating(
-    stub_llm: StubLLM, field: str, setting: str, value: str
-) -> None:
-    """상한은 스키마로도 넘어간다. 그래도 넘긴 값은 주제·상한이 안 맞는다는 신호에 가깝고,
-    다시 불러도 같은 이유로 같은 결과가 나온다."""
+def overrun_payload(field: str) -> dict[str, Any]:
+    """`field`만 기본 상한을 1자 넘긴 응답. 넘기는 자리는 필드가 사는 층을 따른다."""
     payload = model_output(count=3)
-    payload["questions"] = [question(**{field: value}) for _ in range(3)]
-    stub_llm.reply(payload)
+    payload["questions"] = [question() for _ in range(3)]
+    value = "가" * (DEFAULT_CAPS[field] + 1)
+
+    if field in payload:
+        payload[field] = value
+    else:
+        payload["questions"][0][field] = value
+    return payload
+
+
+@pytest.mark.parametrize("field", CAPPED_FIELDS)
+def test_length_overrun_stops_instead_of_regenerating(stub_llm: StubLLM, field: str) -> None:
+    """상한은 스키마로도 넘어간다. 그래도 넘긴 값은 주제·상한이 안 맞는다는 신호에 가깝고,
+    다시 불러도 같은 이유로 같은 결과가 나온다 (#9, #56)."""
+    stub_llm.reply(overrun_payload(field))
 
     with pytest.raises(LLMError) as error:
         generate(topic="주제", config=config_with(**{"quiz.question_count": 3}))
 
     assert stub_llm.call_count == 1  # 재생성하지 않는다
-    assert setting in str(error.value)
+    assert f"quiz.{field}_max_len" in str(error.value)
+
+
+def test_length_overrun_names_the_field_and_the_actual_count(stub_llm: StubLLM) -> None:
+    """어느 필드가 몇 자인지 밝힌다 — 상한을 올릴지 주제를 좁힐지는 사람이 정한다 (#56)."""
+    stub_llm.reply(overrun_payload("question"))
+
+    with pytest.raises(LLMError) as error:
+        generate(topic="주제", config=config_with(**{"quiz.question_count": 3}))
+
+    message = str(error.value)
+    assert "questions[0].question" in message
+    assert f"{DEFAULT_CAPS['question'] + 1}자" in message
+
+
+def test_every_overrun_is_reported_at_once(stub_llm: StubLLM) -> None:
+    """하나 고치고 다시 돌려서 다음 위반을 보는 왕복을 줄인다 — 설정 오류와 같은 판단이다."""
+    payload = overrun_payload("hook")
+    payload["questions"][1]["answer"] = "가" * (DEFAULT_CAPS["answer"] + 1)
+    stub_llm.reply(payload)
+
+    with pytest.raises(LLMError) as error:
+        generate(topic="주제", config=config_with(**{"quiz.question_count": 3}))
+
+    message = str(error.value)
+    assert "hook:" in message
+    assert "questions[1].answer" in message
 
 
 @pytest.mark.parametrize(("cap", "accepted"), [(12, True), (11, False)])
