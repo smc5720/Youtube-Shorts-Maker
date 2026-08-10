@@ -29,11 +29,15 @@ tts:
   cache_dir: .cache/tts           # 세그먼트 캐시 위치. run 디렉터리 밖이다. null이면 캐시를 끈다
 
 # 낭독 장면의 길이 확정 공식 (PRD 7.5.1)
-#   duration = max(lead_in_sec + 실측_오디오_길이 + tail_sec, min_duration_sec)
+#   duration = max(lead_in_sec + 실측_오디오_길이 + tail_sec,
+#                  min_duration_sec,
+#                  caption_onset_sec + 자막_글자수 / reading_cps + tail_sec)  # caption이 있을 때
 timing:
   lead_in_sec: 0.3                # 장면 시작부터 낭독이 시작되기까지의 여백(초)
   tail_sec: 0.5                   # 낭독이 끝난 뒤 컷까지의 여백(초)
   min_duration_sec: 1.2           # 낭독이 짧아도 이보다 짧은 장면은 만들지 않는다(초)
+  caption_onset_sec: 0.9          # 화면에 자막이 뜨는 시각(초). 렌더러(#22)와 같은 값을 읽는다
+  reading_cps: 12.0               # 자막의 초당 읽기 글자 수. 0보다 커야 한다
 
 quiz:
   question_count: 4               # 한 영상에 담을 문제 수 (3~5. 벗어나면 실행 시작 시점에 오류)

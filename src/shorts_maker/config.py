@@ -101,6 +101,11 @@ SPEC: dict[str, Any] = {
         "lead_in_sec": Setting(0.30, "float"),
         "tail_sec": Setting(0.50, "float"),
         "min_duration_sec": Setting(1.20, "float"),
+        # 자막 읽기 하한의 두 값. `caption`이 있는 장면에만 걸린다 (#16).
+        # `caption_onset_sec`는 하한 계산과 렌더러(#22)가 **같은 값을 읽는다** — 화면에
+        # 자막이 뜨는 시각이 하한의 시작점이므로, 갈리면 표시 시간이 계산보다 짧아진다.
+        "caption_onset_sec": Setting(0.90, "float"),
+        "reading_cps": Setting(12.0, "float"),
     },
     "quiz": {
         # 허용 범위(퀴즈 스펙 0장의 3~5)는 여기서 강제하지 않는다. 범위를 아는 것은

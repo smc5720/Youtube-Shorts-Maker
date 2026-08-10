@@ -27,7 +27,13 @@ from pathlib import Path
 from typing import Any
 
 from . import PACKAGE_LOGGER
-from .schemas.scenes import AUDIO_FIELDS, SEGMENT_DIR, segment_path, validate_scenes
+from .schemas.scenes import (
+    AUDIO_FIELDS,
+    DURATION_DIGITS,
+    SEGMENT_DIR,
+    segment_path,
+    validate_scenes,
+)
 from .tts import SpeechSynthesizer, TTSError
 
 LOGGER = logging.getLogger(f"{PACKAGE_LOGGER}.narration")
@@ -38,10 +44,6 @@ MANIFEST_NAME = "segments.json"
 여기뿐이고, 지우면 다음 실행이 전부 다시 합성한다(캐시가 살아 있으면 합성 없이 복사한다)."""
 
 MANIFEST_VERSION = 1
-
-DURATION_DIGITS = 3
-"""밀리초 자리까지 기록한다. `duration`을 소수 3자리로 반올림하는 것과 같은 기준이며
-(PRD 7.5.1), #16은 실측값이 아니라 여기 기록된 값을 읽어 `duration`을 확정한다."""
 
 
 def synthesize_segments(
@@ -117,7 +119,8 @@ def _rounded(duration_sec: float, relative: str) -> float:
     """기록할 실측 길이. 0초로 반올림되는 값은 합성이 깨진 것이다.
 
     스키마가 `audio_duration > 0`을 요구하므로 그대로 두면 이 단계의 실패가 스키마 위반
-    으로 둔갑해 원인이 가려진다.
+    으로 둔갑해 원인이 가려진다. **#16은 다시 재지 않고 여기 기록된 값을 읽어 `duration`을
+    확정하므로** 반올림 자리는 계약 쪽(`schemas.scenes.DURATION_DIGITS`)에서 온다.
     """
     value = round(duration_sec, DURATION_DIGITS)
     if value <= 0:

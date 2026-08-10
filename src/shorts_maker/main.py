@@ -2,8 +2,9 @@
 
 이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
 불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고한 뒤, 타입의 장면 템플릿으로 `scenes.json`
-초안을 쓰고, 그 초안에서 `metadata.json`을 만들고, 낭독 장면의 세그먼트 오디오를 합성해
-`scenes.json`을 갱신하는 것**까지다. 자막부터 렌더까지는 아직 붙지 않았다.
+초안을 쓰고, 그 초안에서 `metadata.json`을 만들고, 낭독 장면의 세그먼트 오디오를 합성한 뒤
+그 실측 길이로 타임라인을 확정해 `voice.mp3`까지 만드는 것**이다. 자막부터 렌더까지는 아직
+붙지 않았다.
 
 - 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더(#19–#24)가
   붙으면 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
@@ -28,7 +29,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, metadata_generator, narration
+from . import __version__, metadata_generator, narration, timeline
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .llm import LLMError, validate_providers
 from .run_context import RunContext, run_logging, start_run, write_artifact
@@ -41,6 +42,7 @@ from .shorts_types import (
     available_types,
     get_type,
 )
+from .timeline import TimelineError
 from .tts import TTSError, create_synthesizer, validate_tts_provider
 
 DEFAULT_OUTPUT_ROOT = Path("outputs")
@@ -205,8 +207,9 @@ def run(
         logger.info("%s 생성 완료", metadata_path.name)
 
         # 낭독 세그먼트. 여기서 채우는 것은 `audio`·`audio_duration`뿐이고, 그 실측값으로
-        # `duration`과 `narration_offset`을 확정하는 것은 #16이다. 메타데이터보다 뒤에
-        # 두는 이유는 위와 같다 — 합성이 실패해도 남아야 하는 산출물이 앞에 있어야 한다.
+        # `duration`과 `narration_offset`을 확정하는 것은 바로 아래 타임라인 단계다.
+        # 메타데이터보다 뒤에 두는 이유는 위와 같다 — 합성이 실패해도 남아야 하는 산출물이
+        # 앞에 있어야 한다.
         logger.info("낭독 세그먼트 합성 중 — 낭독 장면마다 오디오 파일 하나를 만든다")
         try:
             scenes = narration.synthesize_segments(
@@ -228,8 +231,24 @@ def run(
                 scenes_path.name,
             )
         else:
-            # 낭독 장면이 없으면 세그먼트도 없고 갱신할 필드도 없다 (PRD 6.2 표).
+            # 낭독 장면이 없으면 세그먼트도 없다 (PRD 6.2 표). 길이 확정은 그래도 해야
+            # 하므로 아래 단계를 건너뛰지 않는다.
             logger.info("낭독 장면이 없어 세그먼트를 만들지 않았다")
+
+        # 타임라인 확정. 여기서 `scenes.json`이 확정 상태가 되고, 이후 단계(자막·렌더)는
+        # 확정 상태만 입력으로 받는다 (퀴즈 스펙 4장).
+        logger.info("타임라인 확정 중 — 실측 길이로 duration과 낭독 오프셋을 정한다")
+        try:
+            scenes = timeline.finalize(scenes, run_dir=context.run_dir, config=config)
+        except (TimelineError, SchemaError) as error:
+            logger.error("타임라인 확정 실패 — %s", error)
+            raise
+        write_artifact(context.run_dir, SCENES_SCHEMA.name, scenes)
+        logger.info(
+            "%s 확정 완료 — 총 %.2f초",
+            scenes_path.name,
+            sum(scene["duration"] for scene in scenes["scenes"]),
+        )
 
         logger.info("이후 단계(자막·렌더)는 아직 연결되지 않았다")
 
@@ -304,7 +323,7 @@ def main(argv: list[str] | None = None) -> int:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
         print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
-    except (LLMError, SchemaError, TTSError) as error:
+    except (LLMError, SchemaError, TTSError, TimelineError) as error:
         # run 디렉터리는 남긴다 — run.log에 어느 단계에서 무슨 이유로 멈췄는지와 그때의
         # 설정이 들어 있다. 콘솔 문구가 단계를 특정하지 않는 이유가 그것이다 — 콘텐츠
         # 생성과 장면 구성이 같은 예외를 던지고, 구분은 run.log에 이미 있다.

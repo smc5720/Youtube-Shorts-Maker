@@ -1,8 +1,8 @@
-"""CLI 동작 검증 — 이슈 #5의 완료 조건, 그리고 #9·#12·#15가 붙인 산출물 배선.
+"""CLI 동작 검증 — 이슈 #5의 완료 조건, 그리고 #9·#12·#15·#16이 붙인 산출물 배선.
 
 **모든 테스트가 `stub_llm`과 `stub_tts`를 쓴다.** run이 콘텐츠 생성기와 TTS provider를
-부르므로, 픽스처가 없으면 테스트마다 실제 claude CLI와 edge-tts 엔드포인트가 돈다
-(`conftest.py`).
+부르므로, 픽스처가 없으면 테스트마다 실제 claude CLI와 edge-tts 엔드포인트가 돈다. `stub_tts`가
+끌어오는 `stub_ffmpeg`가 길이 측정과 합성 트랙 생성까지 대신한다 (`conftest.py`).
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import STUB_SEGMENT_SEC, StubLLM, StubTTS
+from conftest import STUB_SEGMENT_SEC, StubFFmpeg, StubLLM, StubTTS
 
 from shorts_maker.llm import LLMError
 from shorts_maker.main import (
@@ -27,7 +27,6 @@ from shorts_maker.run_context import LOG_FILENAME
 from shorts_maker.schemas import (
     METADATA_SCHEMA,
     SCENES_SCHEMA,
-    SchemaError,
     load_metadata,
     load_scenes,
 )
@@ -336,12 +335,20 @@ def test_the_written_scene_draft_passes_validation(tmp_path: Path) -> None:
     load_scenes(run_dirs(tmp_path)[0] / SCENES_SCHEMA.name)
 
 
-def test_the_scene_draft_is_not_finalized_yet(tmp_path: Path) -> None:
-    """낭독 장면의 `duration`은 TTS(#16)가 채운다. 여기서 확정 상태가 되면 실측이 무의미해진다."""
+def test_the_scene_template_leaves_the_narrated_durations_to_the_measurement(
+    tmp_path: Path,
+) -> None:
+    """장면 템플릿은 낭독 장면의 목표치만 넣는다 (#12). 확정값은 실측에서 온다.
+
+    파일에 남는 것은 타임라인 확정을 지난 상태이므로, 초안 상태를 보려면 템플릿 출력을
+    직접 봐야 한다 — 여기서는 목표치가 확정값과 별개로 남아 있는 것으로 확인한다.
+    """
     main(["--topic", "주제", "--out", str(tmp_path)])
 
-    with pytest.raises(SchemaError):
-        load_scenes(run_dirs(tmp_path)[0] / SCENES_SCHEMA.name, finalized=True)
+    for scene in scenes_artifact(run_dirs(tmp_path)[0])["scenes"]:
+        if scene.get("narrate"):
+            assert scene["target_duration"] == 3.0
+            assert scene["duration"] != scene["target_duration"]
 
 
 def test_run_log_records_the_scene_artifact(tmp_path: Path) -> None:
@@ -408,12 +415,19 @@ QUESTION = "세계에서 가장 긴 강은?"
 ANSWER = "나일강"
 
 
-def fixed_run(stub_llm: StubLLM, *, given: str = ANSWER, certainty: float = 1.0) -> None:
+def fixed_run(
+    stub_llm: StubLLM,
+    *,
+    given: str = ANSWER,
+    certainty: float = 1.0,
+    explanation: str = "해설입니다.",
+) -> None:
     """문제 하나짜리 고정 응답 세트 — 생성 1회 + 재답변 2회 + 모호성 프로브 1회.
 
     기본값은 전원 일치·확신도 1.0이라 `verified`로 통과한다. `given`을 바꾸면 재답변이
     갈려 검증기가 `flagged`를 만들고, `certainty`를 낮추면 임계값이 자른다 — **#11의
-    두 경로를 같은 입력에서 갈라 볼 수 있다.**
+    두 경로를 같은 입력에서 갈라 볼 수 있다.** `explanation`은 정답 장면의 자막이 되므로
+    길이가 읽기 하한을 통해 확정 길이로 이어진다 (#16).
     """
     reply = {
         "answers": [{"id": 1, "answer": given, "certainty": certainty, "basis": "근거"}]
@@ -426,7 +440,7 @@ def fixed_run(stub_llm: StubLLM, *, given: str = ANSWER, certainty: float = 1.0)
                 {
                     "question": QUESTION,
                     "answer": ANSWER,
-                    "explanation": "해설입니다.",
+                    "explanation": explanation,
                     "difficulty": "easy",
                 }
             ],
@@ -598,18 +612,6 @@ def test_scenes_without_narration_get_no_audio_fields(tmp_path: Path) -> None:
             assert "audio" not in scene and "audio_duration" not in scene
 
 
-def test_the_updated_scenes_pass_validation_but_are_not_finalized_yet(
-    tmp_path: Path,
-) -> None:
-    """`duration`과 `narration_offset`은 #16의 몫이다."""
-    main(["--topic", "주제", "--out", str(tmp_path)])
-
-    path = run_dirs(tmp_path)[0] / SCENES_SCHEMA.name
-    load_scenes(path)
-    with pytest.raises(SchemaError):
-        load_scenes(path, finalized=True)
-
-
 def test_run_log_records_the_segment_count_and_total_narration(tmp_path: Path) -> None:
     main(["--topic", "주제", "--out", str(tmp_path)])
 
@@ -632,6 +634,108 @@ def test_synthesis_failure_exits_nonzero_and_names_the_stage_in_the_log(
     run_dir = run_dirs(tmp_path)[0]
     assert "세그먼트 합성 실패" in (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
     assert (run_dir / METADATA_SCHEMA.name).exists()
+
+
+# --- 확정 타임라인과 합성 트랙 (#16) ----------------------------------------
+
+
+def test_the_written_scenes_are_finalized(tmp_path: Path) -> None:
+    """자막·렌더는 확정 상태만 입력으로 받는다 (퀴즈 스펙 4장). 파일에서 받는 것을 본다."""
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    load_scenes(run_dirs(tmp_path)[0] / SCENES_SCHEMA.name, finalized=True)
+
+
+def test_narrated_scenes_get_a_measured_duration_and_an_offset(tmp_path: Path) -> None:
+    """확정값이 앞선 장면 duration 누계 + lead_in과 맞아야 한다 (PRD 7.5.1)."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    scenes = scenes_artifact(run_dirs(tmp_path)[0])["scenes"]
+    running = 0.0
+    for scene in scenes:
+        if scene.get("narrate"):
+            assert scene["duration"] == pytest.approx(0.3 + STUB_SEGMENT_SEC + 0.5)
+            assert scene["narration_offset"] == pytest.approx(running + 0.3)
+        running += scene["duration"]
+
+
+def test_fixed_length_scenes_keep_the_template_values(tmp_path: Path) -> None:
+    """실측할 오디오가 없는 장면은 보정 대상이 아니다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    for scene in scenes_artifact(run_dirs(tmp_path)[0])["scenes"]:
+        if scene["role"] == "countdown":
+            assert scene["duration"] == scene["seconds"]
+        elif not scene.get("narrate"):
+            assert "narration_offset" not in scene
+
+
+def test_run_writes_the_voice_track(tmp_path: Path, stub_ffmpeg: StubFFmpeg) -> None:
+    """세그먼트가 1개 이상일 때의 산출물이다 (PRD 6.2 표)."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert (run_dirs(tmp_path)[0] / "voice.mp3").is_file()
+    assert stub_ffmpeg.mix_count == 1
+
+
+def test_a_scene_far_over_its_target_warns_and_still_exits_zero(
+    tmp_path: Path, stub_llm: StubLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """60자 해설이 읽기 하한에 걸려 목표 3.0초의 2배를 넘는 경우 (PRD 7.5.1)."""
+    fixed_run(stub_llm, explanation="가" * 60)
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    console = capsys.readouterr().err
+    assert "목표 3.00초" in console
+    scenes = scenes_artifact(run_dirs(tmp_path)[0])["scenes"]
+    answers = [scene for scene in scenes if scene["role"] == "answer"]
+    assert answers[0]["duration"] == pytest.approx(0.9 + 60 / 12.0 + 0.5)
+
+
+def test_run_log_records_the_finalized_total(tmp_path: Path) -> None:
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    scenes = scenes_artifact(run_dirs(tmp_path)[0])["scenes"]
+    total = sum(scene["duration"] for scene in scenes)
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert f"{SCENES_SCHEMA.name} 확정 완료 — 총 {total:.2f}초" in log_text
+
+
+def test_a_total_outside_the_range_warns_and_still_finishes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """3문제면 총합이 45초 미만이다. 경고는 나오고 종료 코드는 0이다 (PRD 6.3)."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("quiz:\n  question_count: 3\n", encoding="utf-8")
+    output_root = tmp_path / "out"
+
+    exit_code = main(
+        ["--topic", "주제", "--out", str(output_root), "--config", str(config_path)]
+    )
+
+    assert exit_code == 0
+    assert "목표 범위 45~60초" in capsys.readouterr().err
+    assert (run_dirs(output_root)[0] / "voice.mp3").is_file()
+
+
+def test_a_voice_track_failure_names_the_stage_in_the_log(
+    tmp_path: Path, stub_ffmpeg: StubFFmpeg, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """세그먼트와 메타데이터는 이미 남았다 — 합성 트랙 실패가 그것을 지우지 않는다."""
+    stub_ffmpeg.mix_returncode = 1
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    assert "생성 실패" in capsys.readouterr().err
+    run_dir = run_dirs(tmp_path)[0]
+    assert "타임라인 확정 실패" in (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
+    assert (run_dir / METADATA_SCHEMA.name).exists()
+    assert segment_files(run_dir)
 
 
 def test_unknown_tts_provider_stops_before_spending_llm_calls(

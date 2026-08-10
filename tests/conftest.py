@@ -162,9 +162,11 @@ class StubTTS:
 
 @pytest.fixture
 def stub_tts(
-    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+    stub_ffmpeg: StubFFmpeg,
 ) -> Iterator[StubTTS]:
-    """등록된 TTS provider와 길이 측정을 가짜로 바꾼다.
+    """등록된 TTS provider를 가짜로 바꾼다. 길이 측정은 `stub_ffmpeg`가 맡는다.
 
     캐시 경로도 함께 옮긴다. 기본값 `.cache/tts`는 **실행 디렉터리 기준 상대 경로**라
     (PRD 7.5.2) 그대로 두면 테스트가 저장소에 가짜 오디오를 쌓는다. `tmp_path` 밑에
@@ -173,7 +175,6 @@ def stub_tts(
     """
     stub = StubTTS()
     monkeypatch.setitem(tts_registry.BUILTIN_PROVIDERS, TTS_PROVIDER_NAME, stub.factory)  # type: ignore[arg-type]
-    monkeypatch.setattr(speech_module.subprocess, "run", _fake_ffprobe)
     monkeypatch.setitem(
         SPEC["tts"],
         "cache_dir",
@@ -182,5 +183,50 @@ def stub_tts(
     yield stub
 
 
-def _fake_ffprobe(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(command, 0, f"{STUB_SEGMENT_SEC}\n", "")
+class StubFFmpeg:
+    """FFmpeg 도구 호출 대역 — 길이 측정(`ffprobe`)과 합성 트랙(`ffmpeg`) 둘 다 받는다.
+
+    **하나로 묶여 있는 이유는 `subprocess.run` 하나를 바꾸기 때문이다.** `tts/speech.py`와
+    `timeline.py`는 같은 `subprocess` 모듈을 부르므로 모듈 속성을 갈라 끼울 수 없고, 대신
+    명령 이름으로 분기한다.
+
+    가짜 오디오 바이트를 진짜 FFmpeg에 넘길 수 없다는 것이 두 대역의 공통 이유다 —
+    `StubTTS`가 쓰는 것은 오디오가 아니다.
+    """
+
+    def __init__(self) -> None:
+        self.mix_commands: list[list[str]] = []
+        """`voice.mp3`를 만든 명령. 어떤 오프셋으로 불렸는지 이 목록이 답한다."""
+
+        self.mix_returncode = 0
+        """0이 아니면 합성 트랙 생성이 실패한다."""
+
+    def __call__(
+        self, command: list[str], **kwargs: Any
+    ) -> subprocess.CompletedProcess[str]:
+        tool = Path(command[0]).stem
+        if tool == "ffprobe":
+            return subprocess.CompletedProcess(command, 0, f"{STUB_SEGMENT_SEC}\n", "")
+        if tool == "ffmpeg":
+            self.mix_commands.append(command)
+            if self.mix_returncode != 0:
+                return subprocess.CompletedProcess(
+                    command, self.mix_returncode, "", "가짜 FFmpeg 실패"
+                )
+            # 목적지는 FFmpeg 명령의 마지막 인자다 (`timeline.mix_voice_track`).
+            Path(command[-1]).write_bytes(b"stub-voice")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        raise AssertionError(f"대역이 모르는 외부 명령이다: {command[0]}")
+
+    @property
+    def mix_count(self) -> int:
+        return len(self.mix_commands)
+
+
+@pytest.fixture
+def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> Iterator[StubFFmpeg]:
+    """`ffprobe`·`ffmpeg` 호출을 가짜로 바꾼다."""
+    stub = StubFFmpeg()
+    # `speech_module.subprocess`와 `timeline_module.subprocess`는 같은 모듈 객체다.
+    monkeypatch.setattr(speech_module.subprocess, "run", stub)
+    yield stub

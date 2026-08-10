@@ -39,8 +39,17 @@ SEGMENT_PATTERN = r"audio/seg-\d{3,}\.mp3"
 AUDIO_FIELDS = ("audio", "audio_duration", "narration_offset")
 """TTS 단계가 채우는 필드. 초안에는 없고, 확정 검증이 낭독 장면에만 요구한다."""
 
-# duration이 audio_duration보다 짧은지 비교할 때의 허용 오차. `duration`은 소수 3자리로
-# 반올림해 기록하므로(PRD 7.5.1) 같은 값이 부동소수점 비교에서 어긋날 수 있다.
+DURATION_DIGITS = 3
+"""시간 필드를 기록하는 소수 자리 — 밀리초 자리다 (PRD 7.5.1).
+
+`audio_duration`을 재는 단계(#15)와 `duration`·`narration_offset`을 확정하는 단계(#16)가
+같은 값으로 반올림해야 하므로 계약 쪽에 둔다. 단계마다 자기 상수를 들면 두 필드의 정밀도가
+갈리고, 아래 허용 오차는 그 갈림을 덮을 만큼 크지 않다. 30fps 프레임 경계 정렬은 여기가
+아니라 렌더러가 한다.
+"""
+
+# duration이 audio_duration보다 짧은지 비교할 때의 허용 오차. 두 값 모두 위 자리수로
+# 반올림해 기록하므로 같은 값이 부동소수점 비교에서 어긋날 수 있다.
 _TOLERANCE = 1e-6
 
 
