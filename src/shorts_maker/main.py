@@ -3,8 +3,8 @@
 이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
 불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고한 뒤, 타입의 장면 템플릿으로 `scenes.json`
 초안을 쓰고, 그 초안에서 `metadata.json`을 만들고, 낭독 장면의 세그먼트 오디오를 합성한 뒤
-그 실측 길이로 타임라인을 확정해 `voice.mp3`까지 만드는 것**이다. 자막부터 렌더까지는 아직
-붙지 않았다.
+그 실측 길이로 타임라인을 확정해 `voice.mp3`와 `captions.srt`까지 만드는 것**이다. 렌더는
+아직 붙지 않았다.
 
 - 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더(#19–#24)가
   붙으면 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
@@ -29,10 +29,17 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, metadata_generator, narration, timeline
+from . import __version__, captions, metadata_generator, narration, timeline
+from .captions import CaptionError
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .llm import LLMError, validate_providers
-from .run_context import RunContext, run_logging, start_run, write_artifact
+from .run_context import (
+    RunContext,
+    run_logging,
+    start_run,
+    write_artifact,
+    write_text_artifact,
+)
 from .schemas import METADATA_SCHEMA, SCENES_SCHEMA, SchemaError
 from .shorts_types import (
     DEFAULT_TYPE,
@@ -250,7 +257,19 @@ def run(
             sum(scene["duration"] for scene in scenes["scenes"]),
         )
 
-        logger.info("이후 단계(자막·렌더)는 아직 연결되지 않았다")
+        # 자막. 여기부터는 확정 상태만 읽는다 — `captions.build`가 입구에서 확정 검증을
+        # 다시 하므로, 확정을 거치지 않은 장면 목록이 타임코드로 새어 들어갈 길이 없다.
+        try:
+            cues = captions.build(scenes, config=config)
+        except (CaptionError, SchemaError) as error:
+            logger.error("자막 생성 실패 — %s", error)
+            raise
+        captions_path = write_text_artifact(
+            context.run_dir, captions.CAPTIONS_NAME, captions.render(cues)
+        )
+        logger.info("%s 생성 완료 — 큐 %d개", captions_path.name, len(cues))
+
+        logger.info("이후 단계(렌더)는 아직 연결되지 않았다")
 
     return context, issues
 
@@ -323,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
         print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
-    except (LLMError, SchemaError, TTSError, TimelineError) as error:
+    except (LLMError, SchemaError, TTSError, TimelineError, CaptionError) as error:
         # run 디렉터리는 남긴다 — run.log에 어느 단계에서 무슨 이유로 멈췄는지와 그때의
         # 설정이 들어 있다. 콘솔 문구가 단계를 특정하지 않는 이유가 그것이다 — 콘텐츠
         # 생성과 장면 구성이 같은 예외를 던지고, 구분은 run.log에 이미 있다.

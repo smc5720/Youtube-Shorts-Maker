@@ -107,6 +107,15 @@ SPEC: dict[str, Any] = {
         "caption_onset_sec": Setting(0.90, "float"),
         "reading_cps": Setting(12.0, "float"),
     },
+    # `captions.srt`의 줄바꿈 (#17). **번인 줄바꿈과 다른 층이다** — D1 확정 스펙 5장은
+    # 줄당 글자 수를 요소별로 정하고(폰트 크기가 달라서 갈린다), 렌더러(#20)가
+    # `floor(840 / font_size)`로 자기 몫을 계산한다. 외부 재생기가 여는 SRT에는 폰트
+    # 크기라는 개념이 없으므로 트랙 전체에 하나의 값을 쓴다.
+    "captions": {
+        "max_chars_per_line": Setting(18, "int"),
+        # 넘으면 자르지 않고 경고한다 (#17). 원문을 잃는 쪽이 더 나쁘다.
+        "max_lines": Setting(4, "int"),
+    },
     "quiz": {
         # 허용 범위(퀴즈 스펙 0장의 3~5)는 여기서 강제하지 않는다. 범위를 아는 것은
         # 퀴즈 타입이고, 타입이 자기 설정을 확인하는 자리가 `ShortsType.check_config`다.
