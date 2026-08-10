@@ -19,9 +19,10 @@ LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9,
 템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15),
 타임라인 확정(#16), 자막 생성(#17)까지 있고 `app/`은 아직 없다. CLI 한 번에 `verify`가
 확정된 `quiz.json`, flagged 경고, `scenes.json`, `metadata.json`, 낭독 장면별
-`audio/seg-*.mp3`, `voice.mp3`, 그리고 `captions.srt`까지 나온다. **Phase 1이 끝났고
-Phase 2가 진행 중이다** — `scenes.json`은 `validate_scenes_final()`을 통과하는 확정
-상태이므로 자막과 렌더러(#19~)가 그대로 입력으로 받는다.
+`audio/seg-*.mp3`, `voice.mp3`, 그리고 `captions.srt`까지 나온다. `assets/sfx/`에는 번들
+효과음(#18)이 있다. **Phase 2가 끝났고 Phase 3이 남았다** — `scenes.json`은
+`validate_scenes_final()`을 통과하는 확정 상태이므로 자막과 렌더러(#19~)가 그대로 입력으로
+받는다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
 
