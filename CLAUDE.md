@@ -16,11 +16,12 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 `src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리(Phase 0 완료)에
 LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
-템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15)까지 있고
-`app/`은 아직 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`,
-`metadata.json`, 그리고 낭독 장면별 `audio/seg-*.mp3`까지 나온다. **Phase 1이 끝났고 Phase 2가
-진행 중이다** — `scenes.json`에 `audio`·`audio_duration`은 채워지지만 `duration`과
-`narration_offset`은 비어 있어 아직 확정 상태가 아니다(#16이 채운다).
+템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15),
+타임라인 확정(#16)까지 있고 `app/`은 아직 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`,
+flagged 경고, `scenes.json`, `metadata.json`, 낭독 장면별 `audio/seg-*.mp3`, 그리고
+`voice.mp3`까지 나온다. **Phase 1이 끝났고 Phase 2가 진행 중이다** — `scenes.json`은
+`validate_scenes_final()`을 통과하는 확정 상태이므로 자막(#17)과 렌더러(#19~)가 그대로
+입력으로 받는다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
 
@@ -129,6 +130,11 @@ CSS로 그려졌고 렌더는 FFmpeg `drawtext`라서 같은 숫자가 같은 �
 - **`drawtext`의 `fontsize`가 시간 표현식을 받는다**(`T` 플래그). 정답 강조 스케일 애니메이션에
   PNG 시퀀스 사전 렌더링이나 ASS가 필요 없다. 예: `fontsize='min(180, 60+400*(t-t0))'` (#22)
 - **카운트다운은 `drawtext` + `%{eif}` + `enable='between(t,a,b)'`로 구현된다.** (#21)
+- **`voice.mp3`는 무음 바닥 + `adelay` + `amix`로 만들고, 길이가 요청값과 정확히 일치한다.**
+  `anullsrc`에 `-t`로 총 길이를 주고 세그먼트를 `adelay`로 밀어 `amix=normalize=0`으로 얹는
+  방식이다. **MP3 프레임 패딩이 길이를 밀지 않는지 확인했다** — 요청 10.000초에 실측
+  10.000000초, 세그먼트 시작도 지정 오프셋과 1ms 안에서 일치했다. 30fps 한 프레임(0.033초)
+  허용 오차를 걱정하지 않아도 된다. (#16, `timeline.mix_voice_track`)
 - **한국어 자막**은 `C:/Windows/Fonts/malgun.ttf`로 정상 렌더된다. `fontfile`에 Windows 경로를
   줄 때 콜론을 이스케이프해야 한다 (`C\:/Windows/...`).
 - 개발 환경 FFmpeg 빌드에 libass와 `--enable-whisper`가 포함되어 있다. PRD 7.6의 word-level
