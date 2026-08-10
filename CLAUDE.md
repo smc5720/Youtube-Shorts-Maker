@@ -16,11 +16,11 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 `src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리(Phase 0 완료)에
 LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
-템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14)까지 있고 `app/`은 아직 없다.
-CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, 낭독 장면의 `duration`이 비어 있는
-`scenes.json` 초안, 그리고 그 초안에서 만든 `metadata.json`까지 나온다. **Phase 1이 끝났고
-Phase 2가 시작됐다** — `tts/`는 있지만 파이프라인에는 아직 붙지 않았다(#15가 붙인다).
-`main`이 하는 것은 provider 이름 검증뿐이다.
+템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15)까지 있고
+`app/`은 아직 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`,
+`metadata.json`, 그리고 낭독 장면별 `audio/seg-*.mp3`까지 나온다. **Phase 1이 끝났고 Phase 2가
+진행 중이다** — `scenes.json`에 `audio`·`audio_duration`은 채워지지만 `duration`과
+`narration_offset`은 비어 있어 아직 확정 상태가 아니다(#16이 채운다).
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
 
@@ -78,6 +78,10 @@ Phase 2가 시작됐다** — `tts/`는 있지만 파이프라인에는 아직 �
   #16이 흔들린다. 캐시도 같은 층에 있고 **run 디렉터리 밖**(`.cache/tts`)이다 — run마다 새
   디렉터리라 안에 두면 반복 실행이 매번 전부 재합성한다. 단어 타이밍의 `None`(기능 없음)과
   빈 목록(이번엔 없음)은 다른 값이다. (#14, PRD 7.5·7.5.2·14.1)
+- **세그먼트 재사용은 캐시와 다른 층이다.** 캐시(`.cache/tts`)는 run 사이에 합성을 아끼고,
+  `audio/segments.json`은 **같은 run 디렉터리 안에서** 사람이 교체한 세그먼트를 지킨다.
+  그래서 재사용 경로는 기록된 길이를 믿지 않고 파일을 다시 잰다 — `SpeechSynthesizer.measure`
+  로 재는 이유는 측정 경계가 하나여야 하기 때문이다. (#15, PRD 7.5.2)
 - **공통 파이프라인은 `scenes.json`만 읽는다.** TTS·자막·렌더러·메타데이터가 `quiz.json`을
   직접 열면 타입 경계 위반이며 두 번째 타입 추가가 막힌다. → PRD 7.4.1, 퀴즈 스펙 1.1
 - **산출물 JSON의 필드명·열거값은 `src/shorts_maker/schemas/`가 확정한다.** 문서(퀴즈 스펙 3장,
