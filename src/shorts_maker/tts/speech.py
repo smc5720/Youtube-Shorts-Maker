@@ -196,6 +196,18 @@ class SpeechSynthesizer:
         self.cache = cache
         self._measure = measure
 
+    def measure(self, path: Path) -> float:
+        """이미 있는 오디오의 실측 길이.
+
+        재실행이 세그먼트를 다시 쓸 때 쓴다 (#15). **측정 경계를 하나로 유지하기 위한
+        것이다** — 재사용 경로가 자기 `ffprobe` 호출을 따로 들면 합성 경로와 다른 값을
+        낼 수 있고, `duration`은 자막·오버레이·효과음이 전부 매달리는 값이다.
+
+        Raises:
+            TTSError: 길이를 재지 못했을 때.
+        """
+        return self._measure(path)
+
     def synthesize(self, text: str, destination: Path) -> Speech:
         """`text`를 합성해 `destination`에 놓고 실측 길이와 함께 돌려준다.
 

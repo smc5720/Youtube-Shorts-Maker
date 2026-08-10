@@ -1,7 +1,8 @@
-"""CLI 동작 검증 — 이슈 #5의 완료 조건, 그리고 #9·#12가 붙인 산출물 배선.
+"""CLI 동작 검증 — 이슈 #5의 완료 조건, 그리고 #9·#12·#15가 붙인 산출물 배선.
 
-**모든 테스트가 `stub_llm`을 쓴다.** run이 콘텐츠 생성기를 부르므로, 픽스처가 없으면
-테스트마다 실제 claude CLI가 돈다 (`conftest.py`).
+**모든 테스트가 `stub_llm`과 `stub_tts`를 쓴다.** run이 콘텐츠 생성기와 TTS provider를
+부르므로, 픽스처가 없으면 테스트마다 실제 claude CLI와 edge-tts 엔드포인트가 돈다
+(`conftest.py`).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import StubLLM
+from conftest import STUB_SEGMENT_SEC, StubLLM, StubTTS
 
 from shorts_maker.llm import LLMError
 from shorts_maker.main import (
@@ -31,8 +32,9 @@ from shorts_maker.schemas import (
     load_scenes,
 )
 from shorts_maker.shorts_types import DEFAULT_TYPE, available_types, get_type
+from shorts_maker.tts import TTSError
 
-pytestmark = pytest.mark.usefixtures("stub_llm")
+pytestmark = pytest.mark.usefixtures("stub_llm", "stub_tts")
 
 
 def run_dirs(output_root: Path) -> list[Path]:
@@ -534,6 +536,16 @@ def test_flagged_content_still_produces_the_scene_draft(
     assert len(scenes_artifact(run_dirs(tmp_path)[0])["scenes"]) == 5
 
 
+def test_flagged_content_still_produces_the_segments(
+    tmp_path: Path, stub_llm: StubLLM, stub_tts: StubTTS
+) -> None:
+    """검수 경고는 진행을 멈추지 않는다 (#11). 합성은 그 경고 **뒤에** 있다."""
+    fixed_run(stub_llm, given="아마존강")
+
+    assert main(["--topic", "주제", "--out", str(tmp_path)]) == 0
+    assert stub_tts.call_count == 2  # 낭독 장면 2개(문제 하나짜리 응답 세트)
+
+
 def test_fail_on_flagged_still_leaves_this_runs_artifacts(
     tmp_path: Path, stub_llm: StubLLM
 ) -> None:
@@ -548,3 +560,92 @@ def test_fail_on_flagged_still_leaves_this_runs_artifacts(
 
     assert exit_code == EXIT_FLAGGED
     assert scenes_artifact(run_dirs(tmp_path)[0])["scenes"]
+
+
+# --- 낭독 세그먼트 (#15) -----------------------------------------------------
+
+
+def segment_files(run_dir: Path) -> list[str]:
+    return sorted(path.name for path in (run_dir / "audio").glob("seg-*.mp3"))
+
+
+def test_run_writes_one_segment_per_narrated_scene(tmp_path: Path) -> None:
+    """개수와 번호가 곧 계약이다 (PRD 7.5.2). 번호는 장면 배열 인덱스다.
+
+    **파일 수를 provider 호출 수로 세지 않는다.** 같은 문장이 두 번 나오면 두 번째는
+    캐시에서 복사되므로 호출은 한 번이고 파일은 둘이다.
+    """
+    exit_code = main(["--topic", "세계 지리 상식", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    run_dir = run_dirs(tmp_path)[0]
+    scenes = scenes_artifact(run_dir)["scenes"]
+    narrated = [index for index, scene in enumerate(scenes) if scene.get("narrate")]
+
+    assert len(narrated) == 8  # 기본 4문제 → 질문·정답 각 4개
+    assert segment_files(run_dir) == [f"seg-{index:03d}.mp3" for index in narrated]
+    for index in narrated:
+        assert scenes[index]["audio"] == f"audio/seg-{index:03d}.mp3"
+        assert scenes[index]["audio_duration"] == STUB_SEGMENT_SEC
+
+
+def test_scenes_without_narration_get_no_audio_fields(tmp_path: Path) -> None:
+    """카운트다운 구간에 낭독 오디오가 붙으면 확정 검증이 반려한다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    for scene in scenes_artifact(run_dirs(tmp_path)[0])["scenes"]:
+        if not scene.get("narrate"):
+            assert "audio" not in scene and "audio_duration" not in scene
+
+
+def test_the_updated_scenes_pass_validation_but_are_not_finalized_yet(
+    tmp_path: Path,
+) -> None:
+    """`duration`과 `narration_offset`은 #16의 몫이다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    path = run_dirs(tmp_path)[0] / SCENES_SCHEMA.name
+    load_scenes(path)
+    with pytest.raises(SchemaError):
+        load_scenes(path, finalized=True)
+
+
+def test_run_log_records_the_segment_count_and_total_narration(tmp_path: Path) -> None:
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert "세그먼트 8개 생성 완료" in log_text  # 기본 4문제 → 질문·정답 각 4개
+    assert f"총 낭독 {8 * STUB_SEGMENT_SEC:.2f}초" in log_text
+
+
+def test_synthesis_failure_exits_nonzero_and_names_the_stage_in_the_log(
+    tmp_path: Path, stub_tts: StubTTS, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """메타데이터는 이미 남았다 — 합성 실패가 그 산출물을 지우지 않는다 (PRD 6.2 표)."""
+    stub_tts.error = TTSError("엔드포인트가 응답하지 않는다")
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    assert "생성 실패" in capsys.readouterr().err
+    run_dir = run_dirs(tmp_path)[0]
+    assert "세그먼트 합성 실패" in (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
+    assert (run_dir / METADATA_SCHEMA.name).exists()
+
+
+def test_unknown_tts_provider_stops_before_spending_llm_calls(
+    tmp_path: Path, stub_llm: StubLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """이름 검증이 run 디렉터리보다 앞에 있다. 합성은 LLM 호출을 다 쓴 뒤에 시작한다."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("tts:\n  provider: azure_speech\n", encoding="utf-8")
+    output_root = tmp_path / "out"
+
+    exit_code = main(
+        ["--topic", "주제", "--out", str(output_root), "--config", str(config_path)]
+    )
+
+    assert exit_code == EXIT_CONFIG_ERROR
+    assert stub_llm.call_count == 0
+    assert not output_root.exists()
