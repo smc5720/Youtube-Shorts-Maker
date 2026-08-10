@@ -261,6 +261,8 @@ def test_every_documented_key_has_a_default() -> None:
         "timing.min_duration_sec",
         "timing.caption_onset_sec",
         "timing.reading_cps",
+        "captions.max_chars_per_line",
+        "captions.max_lines",
         "quiz.question_count",
         "quiz.countdown_sec",
         "quiz.answer_max_len",

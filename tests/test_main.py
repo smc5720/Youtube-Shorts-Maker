@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -16,6 +17,7 @@ import pytest
 
 from conftest import STUB_SEGMENT_SEC, StubFFmpeg, StubLLM, StubTTS
 
+from shorts_maker.captions import CAPTIONS_NAME, timecode
 from shorts_maker.llm import LLMError
 from shorts_maker.main import (
     EXIT_CONFIG_ERROR,
@@ -753,3 +755,91 @@ def test_unknown_tts_provider_stops_before_spending_llm_calls(
     assert exit_code == EXIT_CONFIG_ERROR
     assert stub_llm.call_count == 0
     assert not output_root.exists()
+
+
+# --- 자막 (#17) --------------------------------------------------------------
+
+
+def captions_artifact(run_dir: Path) -> str:
+    """이번 run이 만든 `captions.srt`. 항상 생성되는 공통 산출물이다 (PRD 6.2 표)."""
+    return (run_dir / CAPTIONS_NAME).read_text(encoding="utf-8")
+
+
+def test_run_writes_the_captions(tmp_path: Path) -> None:
+    exit_code = main(["--topic", "세계 지리 상식", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    srt = captions_artifact(run_dirs(tmp_path)[0])
+    # 기본 4문제 → 후킹 1 + (질문·정답) × 4 + CTA 1. 카운트다운에는 문구가 없다.
+    assert srt.count(" --> ") == 10
+
+
+def test_the_captions_match_the_finalized_timeline(tmp_path: Path) -> None:
+    """장면 템플릿의 목표치가 아니라 확정값에서 나와야 한다 (PRD 7.6)."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    run_dir = run_dirs(tmp_path)[0]
+    scenes = scenes_artifact(run_dir)["scenes"]
+    total = sum(scene["duration"] for scene in scenes)
+    starts = [scene["narration_offset"] for scene in scenes if scene.get("narrate")]
+
+    spans = re.findall(r"(\S+) --> (\S+)", captions_artifact(run_dir))
+    # 낭독 장면의 큐는 오프셋에서 열고, 마지막 큐는 확정 총 길이에서 닫힌다 (cta가 마지막
+    # 장면이고 문구가 있다).
+    assert [start for start, _ in spans[1:]][: len(starts)] == [
+        timecode(offset) for offset in starts
+    ]
+    assert spans[-1][1] == timecode(total)
+
+
+def test_the_captions_carry_the_answer_and_its_explanation(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """해설은 낭독이 없어 자막이 유일한 전달 경로다 (D1 발주서 1장)."""
+    fixed_run(stub_llm, explanation="세계에서 가장 긴 강이다.")
+
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    srt = captions_artifact(run_dirs(tmp_path)[0])
+    assert "나일강\n세계에서 가장 긴 강이다." in srt
+
+
+def test_run_log_records_the_caption_artifact(tmp_path: Path) -> None:
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert f"{CAPTIONS_NAME} 생성 완료 — 큐 10개" in log_text
+
+
+def test_an_over_long_caption_line_warns_and_still_exits_zero(
+    tmp_path: Path, stub_llm: StubLLM, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """자르면 원문을 잃는다. 경고만 하고 산출물은 그대로 남긴다 (#17)."""
+    fixed_run(stub_llm, explanation="가" * 60)
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    assert "captions.max_lines" in capsys.readouterr().err
+    assert "가" * 60 in captions_artifact(run_dirs(tmp_path)[0]).replace("\n", "")
+
+
+def test_a_caption_failure_names_the_stage_in_the_log(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """앞 단계 산출물은 이미 남았다 — 자막 실패가 그것을 지우지 않는다."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("captions:\n  max_chars_per_line: 0\n", encoding="utf-8")
+    output_root = tmp_path / "out"
+
+    exit_code = main(
+        ["--topic", "주제", "--out", str(output_root), "--config", str(config_path)]
+    )
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    assert "생성 실패" in capsys.readouterr().err
+    run_dir = run_dirs(output_root)[0]
+    assert "자막 생성 실패" in (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
+    assert (run_dir / "voice.mp3").is_file()
+    assert not (run_dir / CAPTIONS_NAME).exists()
