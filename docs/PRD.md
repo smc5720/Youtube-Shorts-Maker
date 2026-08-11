@@ -314,9 +314,29 @@ outputs/run-{timestamp}/
 ### 7.7 영상 합성
 
 - FFmpeg를 기본 렌더링 엔진으로 사용한다.
-- 배경 이미지 또는 영상을 `1080x1920` 캔버스에 맞춘다.
+- 배경 이미지 또는 영상을 `1080x1920` 캔버스에 맞춘다. **비율을 유지한 채 넘치는 쪽을
+  잘라 채운다** — 빈 영역을 남기지 않는다.
 - 자막은 모바일에서 읽기 쉬운 크기와 위치로 번인한다.
 - 장면 전환은 MVP에서 단순 컷 또는 약한 zoom/pan만 사용한다.
+- 오디오 스트림은 **낭독이 없어도 항상 정확히 하나**다. 낭독 장면이 없는 입력에서는 무음
+  트랙을 넣는다 — 효과음을 얹는 단계(#23)가 스트림 하나를 전제할 수 있어야 한다.
+
+#### 프레임 경계 정렬 (#19)
+
+`duration`은 밀리초 자리 실수이고 30fps 한 프레임은 33.33ms라, 정렬 규칙이 없으면 장면
+경계가 프레임 사이에 떨어진다. 규칙은 아래 하나이고 **`video_renderer.align()` 함수 하나가
+소유한다.**
+
+```text
+frames_i     = round(duration_i * fps)
+start_i      = sum(frames_0..i-1) / fps
+total_frames = sum(frames_i)
+```
+
+- 오버레이(#20~#22)가 `enable='between(t,a,b)'`에 쓸 장면 시작 시각을 각자 `duration`으로
+  다시 누적하면 요소마다 다른 경계를 갖게 된다. 그 값은 이 함수에서만 받는다.
+- 영상 총 길이는 `total_frames / fps`다. `voice.mp3`의 길이(`sum(duration)`)와 최대 반
+  프레임 차이가 나므로 오디오를 무음으로 패딩한다.
 
 ### 7.8 메타데이터 생성
 
@@ -385,7 +405,7 @@ outputs/run-{timestamp}/
   "type": "quiz",
   "language": "ko",
   "scenes": "scenes.json",
-  "background": { "kind": "preset", "value": "gradient_default" },
+  "background": { "kind": "preset", "value": "deep_navy" },
   "audio": { "voice": "voice.mp3", "music": null },
   "render": { "width": 1080, "height": 1920, "fps": 30, "output": "final_short.mp4" }
 }
@@ -400,6 +420,13 @@ outputs/run-{timestamp}/
 | `render` | 6.3의 영상 규격과 출력 파일명 |
 
 - 경로 값은 모두 **run 디렉터리 기준 상대 경로**다. 디렉터리를 옮겨도 프로젝트가 열려야 한다.
+- **초기 상태를 쓰는 것은 `project.py`이고, 렌더보다 먼저 쓴다** (#19). `project.json`은 항상
+  생성되고 `final_short.mp4`는 렌더 성공 시에만 생성되므로(6.2 표), 렌더가 실패한 run에도
+  값을 고쳐 다시 돌릴 파일이 남는다.
+- **렌더러의 입력 계약이다.** 배경·오디오·출력 규격을 렌더러가 config에서 다시 읽지 않는다 —
+  값을 정하는 경로가 둘이 되면 앱이 편집한 프로젝트와 CLI 렌더가 갈린다. `render.background`
+  설정이 만드는 `background.kind`는 `preset` 하나이고, 나머지 세 종류는 사람이나 앱(#29)이
+  이 파일을 편집해 넣는다.
 - **편집 상태 필드는 아직 없다.** 텍스트 오버레이 편집 이력, 자막 스타일 선택, 트랙별 볼륨은
   앱 프레임워크가 정해진 뒤 추가한다 — 지금 정하면 프레임워크 결정에 따라 다시 쓴다. 초기
   상태만 먼저 정하는 이유는 `project.json`이 6.2에서 항상 생성되는 산출물이기 때문이다.

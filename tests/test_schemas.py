@@ -164,7 +164,7 @@ def project(**overrides: Any) -> dict[str, Any]:
         "type": "quiz",
         "language": "ko",
         "scenes": "scenes.json",
-        "background": {"kind": "preset", "value": "gradient_default"},
+        "background": {"kind": "preset", "value": "deep_navy"},
         "audio": {"voice": "voice.mp3", "music": None},
         "render": {"width": 1080, "height": 1920, "fps": 30, "output": "final_short.mp4"},
     }

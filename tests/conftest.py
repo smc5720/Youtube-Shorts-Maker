@@ -184,22 +184,29 @@ def stub_tts(
 
 
 class StubFFmpeg:
-    """FFmpeg 도구 호출 대역 — 길이 측정(`ffprobe`)과 합성 트랙(`ffmpeg`) 둘 다 받는다.
+    """FFmpeg 도구 호출 대역 — 길이 측정(`ffprobe`), 합성 트랙과 최종 렌더(`ffmpeg`)를 받는다.
 
     **하나로 묶여 있는 이유는 `subprocess.run` 하나를 바꾸기 때문이다.** `tts/speech.py`와
-    `timeline.py`는 같은 `subprocess` 모듈을 부르므로 모듈 속성을 갈라 끼울 수 없고, 대신
-    명령 이름으로 분기한다.
+    `timeline.py`, `video_renderer.py`는 같은 `subprocess` 모듈을 부르므로 모듈 속성을 갈라
+    끼울 수 없고, 대신 명령 이름과 목적지 확장자로 분기한다.
 
     가짜 오디오 바이트를 진짜 FFmpeg에 넘길 수 없다는 것이 두 대역의 공통 이유다 —
-    `StubTTS`가 쓰는 것은 오디오가 아니다.
+    `StubTTS`가 쓰는 것은 오디오가 아니다. 실제 인코딩을 확인하는 것은 진짜 FFmpeg를 쓰는
+    `tests/test_video_renderer.py`의 렌더 테스트다.
     """
 
     def __init__(self) -> None:
         self.mix_commands: list[list[str]] = []
         """`voice.mp3`를 만든 명령. 어떤 오프셋으로 불렸는지 이 목록이 답한다."""
 
+        self.render_commands: list[list[str]] = []
+        """`final_short.mp4`를 만든 명령."""
+
         self.mix_returncode = 0
         """0이 아니면 합성 트랙 생성이 실패한다."""
+
+        self.render_returncode = 0
+        """0이 아니면 최종 렌더가 실패한다."""
 
     def __call__(
         self, command: list[str], **kwargs: Any
@@ -208,13 +215,18 @@ class StubFFmpeg:
         if tool == "ffprobe":
             return subprocess.CompletedProcess(command, 0, f"{STUB_SEGMENT_SEC}\n", "")
         if tool == "ffmpeg":
-            self.mix_commands.append(command)
-            if self.mix_returncode != 0:
+            # 목적지는 FFmpeg 명령의 마지막 인자다 (`timeline.mix_voice_track`,
+            # `video_renderer.build_command`). 확장자가 어느 단계인지 말해 준다.
+            destination = Path(command[-1])
+            rendering = destination.suffix == ".mp4"
+            commands = self.render_commands if rendering else self.mix_commands
+            commands.append(command)
+            returncode = self.render_returncode if rendering else self.mix_returncode
+            if returncode != 0:
                 return subprocess.CompletedProcess(
-                    command, self.mix_returncode, "", "가짜 FFmpeg 실패"
+                    command, returncode, "", "가짜 FFmpeg 실패"
                 )
-            # 목적지는 FFmpeg 명령의 마지막 인자다 (`timeline.mix_voice_track`).
-            Path(command[-1]).write_bytes(b"stub-voice")
+            destination.write_bytes(b"stub-video" if rendering else b"stub-voice")
             return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(f"대역이 모르는 외부 명령이다: {command[0]}")
 
@@ -222,11 +234,16 @@ class StubFFmpeg:
     def mix_count(self) -> int:
         return len(self.mix_commands)
 
+    @property
+    def render_count(self) -> int:
+        return len(self.render_commands)
+
 
 @pytest.fixture
 def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> Iterator[StubFFmpeg]:
     """`ffprobe`·`ffmpeg` 호출을 가짜로 바꾼다."""
     stub = StubFFmpeg()
-    # `speech_module.subprocess`와 `timeline_module.subprocess`는 같은 모듈 객체다.
+    # `speech_module.subprocess`와 `timeline_module.subprocess`,
+    # `video_renderer.subprocess`는 같은 모듈 객체다.
     monkeypatch.setattr(speech_module.subprocess, "run", stub)
     yield stub

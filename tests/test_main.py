@@ -28,12 +28,15 @@ from shorts_maker.main import (
 from shorts_maker.run_context import LOG_FILENAME
 from shorts_maker.schemas import (
     METADATA_SCHEMA,
+    PROJECT_SCHEMA,
     SCENES_SCHEMA,
     load_metadata,
+    load_project,
     load_scenes,
 )
 from shorts_maker.shorts_types import DEFAULT_TYPE, available_types, get_type
 from shorts_maker.tts import TTSError
+from shorts_maker.video_renderer import OUTPUT_NAME, align
 
 pytestmark = pytest.mark.usefixtures("stub_llm", "stub_tts")
 
@@ -843,3 +846,102 @@ def test_a_caption_failure_names_the_stage_in_the_log(
     assert "자막 생성 실패" in (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
     assert (run_dir / "voice.mp3").is_file()
     assert not (run_dir / CAPTIONS_NAME).exists()
+
+
+# --- 프로젝트 파일과 렌더 (#19) ----------------------------------------------
+
+
+def project_artifact(run_dir: Path) -> dict:
+    """이번 run이 만든 `project.json`. 항상 생성되는 공통 산출물이다 (PRD 6.2 표)."""
+    return json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+
+
+def test_run_writes_the_project_file(tmp_path: Path) -> None:
+    exit_code = main(["--topic", "세계 지리 상식", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    run_dir = run_dirs(tmp_path)[0]
+    project = load_project(run_dir / PROJECT_SCHEMA.name)
+    assert project["render"] == {
+        "width": 1080,
+        "height": 1920,
+        "fps": 30,
+        "output": OUTPUT_NAME,
+    }
+    # 기본 4문제 → 낭독 장면이 있으므로 합성 트랙을 가리킨다.
+    assert project["audio"]["voice"] == "voice.mp3"
+    assert project["background"] == {"kind": "preset", "value": "deep_navy"}
+
+
+def test_the_project_file_points_at_the_finalized_scenes(tmp_path: Path) -> None:
+    """장면 배열을 복사하지 않는다 (PRD 7.4.1). 가리키는 파일은 확정 상태여야 한다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    run_dir = run_dirs(tmp_path)[0]
+    load_scenes(run_dir / project_artifact(run_dir)["scenes"], finalized=True)
+
+
+def test_run_writes_the_final_video(tmp_path: Path, stub_ffmpeg: StubFFmpeg) -> None:
+    """렌더 성공 시의 산출물이다 (PRD 6.2 표). 인코딩 자체는 test_video_renderer.py가 본다."""
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == 0
+    assert (run_dirs(tmp_path)[0] / OUTPUT_NAME).is_file()
+    assert stub_ffmpeg.render_count == 1
+
+
+def test_the_render_length_comes_from_the_finalized_durations(
+    tmp_path: Path, stub_ffmpeg: StubFFmpeg
+) -> None:
+    """장면 템플릿의 목표치가 아니라 확정값에서 나와야 한다 (PRD 7.5.1)."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    scenes = scenes_artifact(run_dirs(tmp_path)[0])
+    expected = align(scenes).total_sec
+    command = stub_ffmpeg.render_commands[0]
+    lengths = [command[index + 1] for index, item in enumerate(command) if item == "-t"]
+    assert lengths[-1] == f"{expected:.3f}"
+
+
+def test_run_log_records_the_project_artifact_and_the_render_command(
+    tmp_path: Path,
+) -> None:
+    """명령 전문이 run.log에 있어야 실패한 렌더를 손으로 재현할 수 있다."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    log_text = (run_dirs(tmp_path)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert f"{PROJECT_SCHEMA.name} 생성 완료" in log_text
+    assert f"{OUTPUT_NAME} 생성 완료" in log_text
+    assert "렌더 명령 ffmpeg" in log_text
+
+
+def test_a_render_failure_keeps_the_project_file_and_names_the_stage(
+    tmp_path: Path, stub_ffmpeg: StubFFmpeg, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`project.json`은 항상, `final_short.mp4`는 렌더 성공 시다 (PRD 6.2 표).
+    렌더가 실패한 run에도 값을 고쳐 다시 돌릴 파일이 남아야 한다."""
+    stub_ffmpeg.render_returncode = 1
+
+    exit_code = main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    assert "생성 실패" in capsys.readouterr().err
+    run_dir = run_dirs(tmp_path)[0]
+    log_text = (run_dir / LOG_FILENAME).read_text(encoding="utf-8")
+    assert "렌더 실패" in log_text
+    # 명령 전문과 stderr가 짝으로 남아야 손으로 재현할 수 있다.
+    assert "렌더 명령 ffmpeg" in log_text
+    assert "가짜 FFmpeg 실패" in log_text
+    assert (run_dir / PROJECT_SCHEMA.name).is_file()
+    assert (run_dir / CAPTIONS_NAME).is_file()
+
+
+def test_flagged_content_still_gets_rendered(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """검수 경고는 진행을 멈추지 않는다 (#11). 렌더는 그 경고 **뒤에** 있다."""
+    fixed_run(stub_llm, given="아마존강")
+
+    assert main(["--topic", "주제", "--out", str(tmp_path)]) == 0
+    assert (run_dirs(tmp_path)[0] / OUTPUT_NAME).is_file()
