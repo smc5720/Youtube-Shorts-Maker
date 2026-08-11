@@ -18,13 +18,15 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
 템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15),
 타임라인 확정(#16), 자막 생성(#17), 렌더 골격(#19), 번인 오버레이(#20), 카운트다운(#21),
-정답 강조 애니메이션(#22), 효과음 믹싱(#23)까지 있고 `app/`은 아직
+정답 강조 애니메이션(#22), 효과음 믹싱(#23), 전 구간 스모크 테스트(#24)까지 있고 `app/`은 아직
 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`, `metadata.json`,
 낭독 장면별 `audio/seg-*.mp3`, `voice.mp3`, `captions.srt`, `project.json`, 그리고 규격에 맞는
 `final_short.mp4`까지 나온다 — **화면에는 hook·질문·카운트다운·정답 확대·해설·cta가 나오고
-비프와 정답 효과음이 들리며, 남은 것은 전 구간 스모크 테스트(#24)다.** `assets/`에는 효과음(#18)과
+비프와 정답 효과음이 들린다.** `assets/`에는 효과음(#18)과
 폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는 `assets.py` 하나다 — `sfx_path()` /
-`caption_styles()` / `background_presets()` / `font_path(weight)`. **Phase 2가 끝났고 Phase 3이 진행 중이다** — `scenes.json`은
+`caption_styles()` / `background_presets()` / `font_path(weight)`. **Phase 3이 끝났고 수직
+슬라이스가 완성됐다 — 다음은 Phase 4이며 #25 결정과 D2 앱 UI 시안 수령이 그 게이트다.**
+`scenes.json`은
 `validate_scenes_final()`을 통과하는 확정 상태이므로 자막과 렌더러가 그대로 입력으로 받는다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
@@ -113,6 +115,12 @@ LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9,
   타입 전용 정보가 렌더에 필요하면 장면 템플릿이 `scenes.json` 필드로 옮겨 담는다. (#8)
 - **산출물은 타입·입력 경로에 따라 다르다.** `script.txt`·`summary.json`·`source.json`은
   퀴즈 + `--topic` 경로에서 생성되지 않고, 없는 것이 실패가 아니다. → PRD 6.2 표
+- **전 구간 스모크(`tests/test_e2e_smoke.py`)는 `conftest`의 `stub_tts`·`stub_ffmpeg`를
+  쓰지 않는다.** `StubTTS`가 쓰는 `b"stub-audio"`는 오디오가 아니라 진짜 FFmpeg가 디코드하지
+  못하고, `stub_ffmpeg`는 `ffprobe`까지 가짜 길이(2.5초)로 답해 duration 확정이 실측 경로를
+  지나지 않는다. 그 파일의 `ToneTTS`가 문장 길이에 비례한 실제 오디오를 내고 대역은 LLM
+  하나뿐이다. **파이프라인 실행은 모듈 스코프 픽스처의 3회뿐이다** — 테스트마다 돌리면
+  1080x1920 인코딩이 그만큼 붙는다 (현재 렌더 3회에 약 25초). (#24)
 
 ## D1 영상 디자인
 
