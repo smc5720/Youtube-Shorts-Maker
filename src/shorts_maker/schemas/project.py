@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ..shorts_types import available_types
-from .core import Object, Schema, choices_from, integer, section, text
+from .core import Object, Schema, choices_from, integer, number, section, text
 
 SCHEMA_VERSION = 1
 KNOWN_VERSIONS = (1,)
@@ -54,6 +54,11 @@ _RENDER_FIELDS = {
     # 채널 브랜딩이라 콘텐츠가 아니라 프로젝트가 들고 있다 (확정 스펙 5.5).
     "cta_punch": text(),
     "cta_tail": text(),
+    # 해설이 뜨는 시각 (장면 시작 기준 초, #22). **`timing.caption_onset_sec`의 사본이
+    # 아니라 렌더러가 읽는 유일한 자리다** — 장면 길이 하한(#16)은 config에서 같은 값을
+    # 읽고 이미 확정된 `duration`에 반영했다. 앱(#29)이 이 값을 키우면 렌더는 따라오지만
+    # 장면 길이는 그대로이므로, 늘릴 수 있는 폭은 그 장면의 여유만큼이다.
+    "caption_onset_sec": number(minimum=0),
 }
 
 _ROOT = Object(

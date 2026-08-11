@@ -253,6 +253,7 @@ def build_overlays(
             fonts=overlay.resolve_fonts(render_section.get("font_path")),
             cta_punch=_text_field(project, "cta_punch"),
             cta_tail=_text_field(project, "cta_tail"),
+            caption_onset=_number_field(project, "caption_onset_sec"),
         )
     except OverlayError as error:
         # 오버레이 실패도 렌더 실패다. 부르는 쪽(main)이 잡는 예외를 하나로 유지한다.
@@ -461,6 +462,17 @@ def _text_field(project: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str):
         raise RenderError(f"render.{key}는 문자열이어야 한다. 받은 값: {value!r}")
     return value
+
+
+def _number_field(project: Mapping[str, Any], key: str) -> float:
+    """`render` 섹션의 실수 값. 정수도 받는다 — `caption_onset_sec: 1`은 1.0이다."""
+    try:
+        value = project["render"][key]
+    except (KeyError, TypeError):
+        raise RenderError(f"project.json의 render.{key}가 없다") from None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise RenderError(f"render.{key}는 0 이상의 수여야 한다. 받은 값: {value!r}")
+    return float(value)
 
 
 def _int_field(project: Mapping[str, Any], key: str) -> int:
