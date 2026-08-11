@@ -43,6 +43,7 @@ shorts-maker --topic "세계 지리 상식 퀴즈"
 | `--type` | `quiz` | 쇼츠 타입 |
 | `--out` | `outputs` | run 디렉터리를 만들 상위 경로 |
 | `--config` | `./config.yaml` | 설정 파일 경로. 없으면 기본값으로 동작 |
+| `--fail-on-flagged` | off | 검수 필요 항목이 있으면 종료 코드 4로 멈춤 (산출물은 그대로 남음) |
 | `-v`, `--verbose` | off | 디버그 로그를 콘솔에도 출력 (`run.log`에는 항상 남음) |
 
 ### 설정
@@ -68,11 +69,41 @@ cp config.example.yaml config.yaml
 > `--url` / `--text-file` 입력입니다. 설정 키 일부는 값을 읽어 둘 뿐 아직 소비하는 단계가
 > 없습니다.
 
-테스트:
+### 전 구간 확인
+
+테스트에는 주제 하나로 `final_short.mp4`까지 지나는 **전 구간 스모크
+테스트**(`tests/test_e2e_smoke.py`)가 들어 있습니다. LLM과 TTS만 픽스처로 바꾸고 FFmpeg와
+`ffprobe`는 진짜를 쓰므로 네트워크 없이 돌고, FFmpeg가 없는 환경에서는 그 파일만
+건너뜁니다.
 
 ```bash
-pytest
+pytest                          # 전체
+pytest tests/test_e2e_smoke.py  # 전 구간만 (약 30초, 렌더 3회)
 ```
+
+#### 로컬 실전 모드
+
+픽스처 모드가 지나지 않는 것 — **모델이 낸 문제의 품질, 실제 음성, 화면에 그려진 결과** —
+은 사람이 봅니다. 실제 provider로 한 번 돌립니다.
+
+- `claude` CLI가 PATH에 있고 로그인되어 있어야 합니다 (`llm.providers.claude_cli.binary`).
+- Edge TTS는 네트워크로 나갑니다.
+
+```bash
+shorts-maker --topic "세계 지리 상식" --verbose
+```
+
+| 대상 | 확인할 것 |
+| --- | --- |
+| 산출물 | `quiz.json`·`scenes.json`·`metadata.json`·`audio/seg-*.mp3`·`audio/segments.json`·`voice.mp3`·`captions.srt`·`project.json`·`final_short.mp4`가 모두 있는가. `script.txt`·`summary.json`·`source.json`은 이 경로에서 **생기지 않아야** 합니다 |
+| 규격 | `ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate,pix_fmt -of default=nw=1 outputs/run-*/final_short.mp4` → 1080×1920 / `h264` / `yuv420p` / `30/1`, 오디오는 `aac` 한 스트림 |
+| 화면 | 후킹 → 질문(`Q1/N`) → 카운트다운 숫자와 진행 바 → 정답 확대·색 전환 → 해설 자막 → CTA 두 줄이 순서대로 나오는가. 글자가 안전 영역을 벗어나거나 줄바꿈이 어색하지 않은가 |
+| 소리 | 낭독이 질문·정답 장면 시작과 맞는가, 카운트다운 비프가 초마다 들리는가, 정답 효과음이 정답 장면 앞머리에 오는가, 음량이 튀지 않는가 |
+| 자막 | `captions.srt`를 재생기에 얹었을 때 타임코드가 화면과 맞는가 |
+| 검수 | 콘솔의 `검수 필요` 경고와 `quiz.json`의 `verify.status`·`source`. **flagged가 있어도 영상은 나오고 종료 코드는 0입니다** — 멈추려면 `--fail-on-flagged`(종료 코드 4)를 붙입니다 |
+
+내용이 마음에 들지 않으면 같은 명령을 다시 실행합니다. 새 run 디렉터리가 생기고 이전
+결과는 그대로 남습니다.
 
 ## 문서
 
