@@ -15,12 +15,14 @@ run 디렉터리에 반쪽짜리 산출물이 남는다. 그래서 `load_config(
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .assets import AssetError, background_preset_names, caption_style_names
 
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 
@@ -44,6 +46,10 @@ class Setting:
     default: Any
     kind: str  # "str" | "int" | "float" | "bool"
     nullable: bool = False
+    choices: Callable[[], Sequence[str]] | None = None
+    """허용 값 목록을 돌려주는 호출체. 값이 아니라 호출체인 이유는 번들 프리셋 이름이
+    `assets/`의 파일에서 오기 때문이다 — import 시점에 파일을 열지 않고 검증할 때 읽는다.
+    `schemas.core`의 `choices_from`이 같은 이유로 같은 모양이다 (#38)."""
 
 
 _TYPE_LABELS = {"str": "문자열", "int": "정수", "float": "실수", "bool": "참/거짓"}
@@ -144,11 +150,17 @@ SPEC: dict[str, Any] = {
         "tag_max_count": Setting(10, "int"),
     },
     "render": {
-        # null이면 번들 폰트를 찾는다. 실제 탐색과 파일 존재 확인은 #20/#38이 한다.
+        # null이면 번들 폰트(`assets/fonts/`, #38)를 쓴다. 사용자 지정 폰트와 번들 사이의
+        # 선택 로직은 렌더러(#20)가 소유한다 — 여기는 값만 받는다.
         "font_path": Setting(None, "str", nullable=True),
-        # 프리셋 목록과의 대조는 프리셋이 생기는 #38에서 붙인다. 장면 템플릿(#12)은
-        # 이 값을 읽지 않는다 — 배경은 장면별 값이 아니라 `project.json`의 필드다.
-        "background": Setting("gradient_default", "str"),
+        # 이름은 `assets/backgrounds/presets.json`이 정한다 (#38). 장면 템플릿(#12)은 이 값을
+        # 읽지 않는다 — 배경은 장면별 값이 아니라 `project.json`의 필드다.
+        # 기본값은 D1 확정 스펙 6.3에서 기본 자막 스타일과 ◎로 짝지어진 배경이다.
+        "background": Setting("deep_navy", "str", choices=background_preset_names),
+        # 자막 스타일 프리셋 이름 (`assets/caption-styles/presets.json`, #38). 프리셋이
+        # 바꾸는 것은 색과 그림자뿐이고 레이아웃은 3종이 공통이다 (확정 스펙 6.1).
+        # 앱에서 스타일을 바꾸는 경로는 `project.json`의 편집 상태이고 #26/#29가 붙인다.
+        "caption_style": Setting("impact_yellow", "str", choices=caption_style_names),
         # CTA 화면의 고정 두 줄 (D1 확정 스펙 5.5). **채널 브랜딩이라 config에 있다** —
         # 타입 전용 정보가 아니므로 `scenes.json`에도 `quiz.json`에도 넣지 않고, 채널마다
         # 바꾸는 값을 LLM이 매번 새로 짓게 하지도 않는다. LLM이 짓는 줄은 `scenes[-1].text`
@@ -313,6 +325,10 @@ def _validate(node: Any, spec: dict[str, Any], path: str, errors: list[str]) -> 
             errors.append(
                 f"{child_path}: {_expected(child_spec)} 값이 필요하다. 받은 값: {_describe(value)}"
             )
+        else:
+            violation = _off_the_list(value, child_spec)
+            if violation is not None:
+                errors.append(f"{child_path}: {violation}")
 
 
 def _accepts(value: Any, setting: Setting) -> bool:
@@ -329,6 +345,26 @@ def _accepts(value: Any, setting: Setting) -> bool:
     if setting.kind == "float":
         return isinstance(value, (int, float))  # `lead_in_sec: 1`을 받아 준다
     return False
+
+
+def _off_the_list(value: Any, setting: Setting) -> str | None:
+    """`choices`가 있으면 목록 안의 값인지 본다. 위반 문구를 돌려주고 없으면 `None`.
+
+    **목록을 읽다 실패한 것도 설정 오류로 보고한다.** 번들 프리셋 파일이 깨져 있으면
+    `AssetError`가 나는데, 그것을 그대로 올려보내면 `load_config`가 `ConfigError` 하나만
+    던진다는 계약이 깨지고 `main`이 스택트레이스를 낸다.
+    """
+    if setting.choices is None or value is None:
+        return None
+
+    try:
+        allowed = tuple(setting.choices())
+    except AssetError as error:
+        return f"허용 값 목록을 읽을 수 없다 — {error}"
+
+    if value in allowed:
+        return None
+    return f"목록에 없는 이름이다: {value!r}. 쓸 수 있는 이름: {', '.join(allowed)}"
 
 
 def _expected(setting: Setting) -> str:

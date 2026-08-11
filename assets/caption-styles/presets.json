@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "presets": {
+    "impact_yellow": {
+      "label": "임팩트 옐로",
+      "background": "deep_navy",
+      "colors": {
+        "body": "#FFFFFF",
+        "dimmed": "#7C87A3",
+        "accent": "#FFE400",
+        "answer_onset": "#FFFFFF",
+        "secondary": "#DCE3F2",
+        "border": "#0A0F1E",
+        "answer_border": "#0A0F1E"
+      },
+      "shadow_alpha": 0.5,
+      "answer_border_bonus": 0
+    },
+    "neon_mint": {
+      "label": "네온 민트",
+      "background": "purple_gradient",
+      "colors": {
+        "body": "#F2FFFB",
+        "dimmed": "#9B8AAE",
+        "accent": "#35F5C0",
+        "answer_onset": "#F2FFFB",
+        "secondary": "#F2FFFB",
+        "border": "#10041C",
+        "answer_border": "#10041C"
+      },
+      "shadow_alpha": null,
+      "answer_border_bonus": 1
+    },
+    "orange_card": {
+      "label": "오렌지 카드",
+      "background": "deep_teal_gradient",
+      "colors": {
+        "body": "#EAF7F1",
+        "dimmed": "#7E9A8E",
+        "accent": "#FF7A45",
+        "answer_onset": "#FFFFFF",
+        "secondary": "#EAF7F1",
+        "border": "#02120F",
+        "answer_border": "#2B0B0B"
+      },
+      "shadow_alpha": 0.55,
+      "answer_border_bonus": 0
+    }
+  }
+}
