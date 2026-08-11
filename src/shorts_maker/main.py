@@ -3,11 +3,12 @@
 이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
 불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고한 뒤, 타입의 장면 템플릿으로 `scenes.json`
 초안을 쓰고, 그 초안에서 `metadata.json`을 만들고, 낭독 장면의 세그먼트 오디오를 합성한 뒤
-그 실측 길이로 타임라인을 확정해 `voice.mp3`와 `captions.srt`까지 만드는 것**이다. 렌더는
-아직 붙지 않았다.
+그 실측 길이로 타임라인을 확정해 `voice.mp3`와 `captions.srt`를 만들고, `project.json`을
+남긴 다음 `final_short.mp4`까지 렌더하는 것**이다. 화면에 그리는 오버레이는 #20~#23이
+붙인다.
 
-- 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더(#19–#24)가
-  붙으면 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
+- 검수 경고는 "콘텐츠 검증이 끝나고 파이프라인이 계속 진행하는 지점"에 있다. 렌더가 뒤에
+  붙어도 그 앞자리에 그대로 남는다. **기본 동작은 경고 후 진행이다** — MVP의 검수 주체는
   사람이고 사람은 산출물이 있어야 검수한다 (PRD 2장). 멈추는 것은 `--fail-on-flagged`를
   지정한 쪽(배치 실행, 이후의 앱 자동화)의 선택이다.
 - 무엇이 검수 대상인지는 타입이 정한다. 파이프라인은 `ContentIssue` 세 칸을 읽어 옮길 뿐
@@ -29,7 +30,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, captions, metadata_generator, narration, timeline
+from . import (
+    __version__,
+    captions,
+    metadata_generator,
+    narration,
+    project,
+    timeline,
+    video_renderer,
+)
 from .captions import CaptionError
 from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
 from .llm import LLMError, validate_providers
@@ -40,7 +49,7 @@ from .run_context import (
     write_artifact,
     write_text_artifact,
 )
-from .schemas import METADATA_SCHEMA, SCENES_SCHEMA, SchemaError
+from .schemas import METADATA_SCHEMA, PROJECT_SCHEMA, SCENES_SCHEMA, SchemaError
 from .shorts_types import (
     DEFAULT_TYPE,
     ContentIssue,
@@ -51,6 +60,7 @@ from .shorts_types import (
 )
 from .timeline import TimelineError
 from .tts import TTSError, create_synthesizer, validate_tts_provider
+from .video_renderer import RenderError
 
 DEFAULT_OUTPUT_ROOT = Path("outputs")
 
@@ -186,7 +196,7 @@ def run(
         path = write_artifact(context.run_dir, shorts_type.content_artifact, content)
         logger.info("%s 생성 완료", path.name)
 
-        # 게이트 자리. 렌더(#19–#24)가 붙으면 그 앞에 그대로 남는다 (#24가 확인한다).
+        # 게이트 자리. 렌더는 이 뒤에 있고, 경고가 그것을 막지 않는다 (#24가 확인한다).
         _warn_about(logger, issues, artifact=path.name)
 
         # 장면 분할. 여기부터 뒤는 타입을 모른다 — 공통 파이프라인이 읽는 것은
@@ -269,7 +279,32 @@ def run(
         )
         logger.info("%s 생성 완료 — 큐 %d개", captions_path.name, len(cues))
 
-        logger.info("이후 단계(렌더)는 아직 연결되지 않았다")
+        # 렌더러의 입력 계약이다 (PRD 7.10). **렌더보다 먼저 쓴다** — `project.json`은 항상
+        # 생성되고 `final_short.mp4`는 렌더 성공 시에만 생성되므로(PRD 6.2 표), 렌더가
+        # 실패한 run에도 값을 고쳐 다시 돌릴 파일이 남아야 한다.
+        try:
+            project_data = project.build(
+                scenes, config=config, run_dir=context.run_dir
+            )
+        except SchemaError as error:
+            logger.error("프로젝트 파일 생성 실패 — %s", error)
+            raise
+        project_path = write_artifact(context.run_dir, PROJECT_SCHEMA.name, project_data)
+        logger.info(
+            "%s 생성 완료 — 배경 %s",
+            project_path.name,
+            project_data["background"]["value"],
+        )
+
+        logger.info("렌더 중 — 1080x1920 30fps 인코딩은 수십 초가 걸린다")
+        try:
+            output = video_renderer.render(
+                project_data, scenes, run_dir=context.run_dir
+            )
+        except (RenderError, SchemaError) as error:
+            logger.error("렌더 실패 — %s", error)
+            raise
+        logger.info("%s 생성 완료", output.name)
 
     return context, issues
 
@@ -342,7 +377,14 @@ def main(argv: list[str] | None = None) -> int:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
         print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
         return EXIT_RUNTIME_ERROR
-    except (LLMError, SchemaError, TTSError, TimelineError, CaptionError) as error:
+    except (
+        LLMError,
+        SchemaError,
+        TTSError,
+        TimelineError,
+        CaptionError,
+        RenderError,
+    ) as error:
         # run 디렉터리는 남긴다 — run.log에 어느 단계에서 무슨 이유로 멈췄는지와 그때의
         # 설정이 들어 있다. 콘솔 문구가 단계를 특정하지 않는 이유가 그것이다 — 콘텐츠
         # 생성과 장면 구성이 같은 예외를 던지고, 구분은 run.log에 이미 있다.

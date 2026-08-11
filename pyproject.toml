@@ -9,7 +9,9 @@ description = "세로형 쇼츠 자동 생성 엔진"
 readme = "README.md"
 requires-python = ">=3.11"
 
-# 렌더러가 FFmpeg 호출 도구를(#19) 추가한다.
+# **렌더러도 파이썬 의존성을 추가하지 않는다** (#19). FFmpeg 명령을 직접 만들어
+# `subprocess`로 부르므로(PRD 14.1) 래퍼 라이브러리가 필요 없다. 대신 `ffmpeg`·`ffprobe`가
+# PATH에 있어야 하고, 없으면 렌더 단계가 그 사실을 말하며 멈춘다.
 dependencies = [
     "pyyaml>=6.0",  # config.yaml 파싱 (#6)
     # 기본 TTS provider (#14). 비공식 엔드포인트를 쓰므로 예고 없이 깨질 수 있다 —
