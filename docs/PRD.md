@@ -412,6 +412,10 @@ outputs/run-{timestamp}/
     FFmpeg 합성으로 만들었다 (`assets/sfx/CREDITS.md`, #18). 자체 생성이 어려운 종류
     (폰트·배경 등, #38)는 재배포와 앱 동봉을 허용하는 라이선스만 채택하고, 그 근거 문장과
     표기 문구를 에셋 디렉터리의 `CREDITS.md`에 남긴다.
+  - **#38에서 세 종류가 들어왔다.** 폰트는 Pretendard(SIL OFL 1.1 — 동봉 재배포·임베딩 허용,
+    라이선스 원문 동봉이 조건), 배경과 자막 스타일은 D1 확정 스펙에서 옮긴 이 저장소의
+    정의값이라 조건이 없다. **Windows 동봉 폰트(`malgun.ttf`)에 의존하지 않는다** — 재배포가
+    금지되어 저장소에도 앱에도 담을 수 없다.
 - 링크 입력은 본문 요약과 변환 용도로 사용하되, 원문을 그대로 긴 분량 복제하지 않는다.
 - 기사 기반 콘텐츠는 출처를 기록하고, 사실 여부가 중요한 내용은 검수 단계를 거친다.
 - 업로드 자동화는 YouTube Data API v3 정책과 OAuth 설정을 별도 문서로 검토한 뒤 구현한다.
@@ -465,7 +469,9 @@ Youtube-Shorts-Maker/
     source.txt
     urls.txt
   assets/
-    backgrounds/
+    fonts/                # 번들 폰트 + OFL.txt + CREDITS.md (#38)
+    backgrounds/          # presets.json — 단색·그라디언트 정의값 (#38)
+    caption-styles/       # presets.json — 자막 색 프리셋 (#38)
     sfx/
     music/
   outputs/
@@ -475,6 +481,7 @@ Youtube-Shorts-Maker/
       run_context.py      # run 디렉터리 생성, 실행 로그
       shorts_types.py     # 지원 타입 목록 (이후 플러그인 레지스트리)
       config.py
+      assets.py           # 번들 에셋 조회 — 폰트 경로, 배경·자막 스타일 프리셋 (#38)
       source_loader.py
       article_extractor.py
       summarizer.py
@@ -599,6 +606,12 @@ MVP는 단색과 그라디언트 배경을 기본 제공하고, 사용자가 자
 배경은 **장면별 값이 아니라 프로젝트 단위 값으로 정해졌다.** `project.json`의 `background`
 섹션(`kind` / `value`)이 그것이고, `scenes.json`에는 배경 필드가 없다 — 장면 템플릿(#12)이
 채울 것도 없다. 장면마다 다른 배경이 필요해지면 프리셋 이름을 정하는 #38이 함께 정한다.
+
+**프리셋은 #38에서 확정됐다** — `deep_navy`(단색) / `purple_gradient` / `deep_teal_gradient`
+(수직 2스톱). 값은 `assets/backgrounds/presets.json`에 있고 D1 확정 스펙 6.2가 근거다.
+`render.background` 기본값이 `deep_navy`이며, 이름 → 정의값 조회는 `shorts_maker.assets`
+하나다. 이미지·영상 배경은 프리셋과 다른 층이다 — `kind`가 `image`/`video`일 때 `value`가
+사용자 파일 경로이고, 라이선스는 사용자가 확인하며 저장소에 들어오지 않는다.
 
 #### 언어 타깃: 한국어 1차, `language` 필드로 확장 여지 유지
 

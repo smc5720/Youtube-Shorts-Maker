@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from shorts_maker.assets import AssetError
 from shorts_maker.config import (
     DEFAULT_CONFIG_FILENAME,
     SPEC,
     Config,
     ConfigError,
+    Setting,
     defaults,
     load_config,
 )
@@ -187,6 +189,38 @@ def test_nullable_key_accepts_null_and_string(tmp_path: Path) -> None:
     assert load_config(search_from=tmp_path).get("render.font_path") == "assets/fonts/x.ttf"
 
 
+def test_a_choice_key_rejects_a_name_off_the_list(tmp_path: Path) -> None:
+    """허용 목록이 있는 키는 목록 밖 값을 실행 시작 시점에 잡는다. 목록 자체는 번들
+    프리셋(#38)에서 오고, 이름별 검증은 `test_visual_assets.py`가 본다."""
+    write_config(tmp_path, "render:\n  caption_style: 없는_스타일\n")
+
+    with pytest.raises(ConfigError) as error_info:
+        load_config(search_from=tmp_path)
+
+    assert "render.caption_style" in str(error_info.value)
+
+
+def test_a_broken_choice_list_is_still_a_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """번들 프리셋 파일이 깨져 있어도 `load_config`는 `ConfigError`만 던진다.
+
+    `AssetError`를 그대로 올려보내면 `main`이 잡지 못해 스택트레이스가 나고, 사용자는
+    설정 오류와 구분할 수 없다 (#38).
+    """
+
+    def broken() -> tuple[str, ...]:
+        raise AssetError("프리셋 파일이 없다: assets/backgrounds/presets.json")
+
+    monkeypatch.setitem(SPEC["render"], "background", Setting("x", "str", choices=broken))
+    write_config(tmp_path, "render:\n  background: deep_navy\n")
+
+    with pytest.raises(ConfigError) as error_info:
+        load_config(search_from=tmp_path)
+
+    assert "presets.json" in str(error_info.value)
+
+
 def test_non_nullable_key_rejects_null(tmp_path: Path) -> None:
     write_config(tmp_path, "tts:\n  voice: null\n")
 
@@ -274,6 +308,7 @@ def test_every_documented_key_has_a_default() -> None:
         "metadata.tag_max_count",
         "render.font_path",
         "render.background",
+        "render.caption_style",
         "render.cta_punch",
         "render.cta_tail",
     }

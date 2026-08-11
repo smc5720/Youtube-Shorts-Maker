@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "presets": {
+    "deep_navy": {
+      "label": "딥 네이비",
+      "stops": ["#101A33"]
+    },
+    "purple_gradient": {
+      "label": "퍼플 그라디언트",
+      "stops": ["#1B0B2E", "#4A1052"]
+    },
+    "deep_teal_gradient": {
+      "label": "딥 틸 그라디언트",
+      "stops": ["#06231F", "#0B3A2C"]
+    }
+  }
+}

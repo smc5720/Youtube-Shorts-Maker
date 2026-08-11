@@ -64,8 +64,10 @@ metadata:
   tag_max_count: 10               # 태그 개수 상한. 1개 이상이어야 한다
 
 render:
-  font_path: null                 # 자막·오버레이 폰트 경로. null이면 번들 폰트를 찾는다
-  background: gradient_default    # 배경 프리셋 이름
+  font_path: null                 # 자막·오버레이 폰트 경로. null이면 번들 폰트(assets/fonts/)를 쓴다
+  # 프리셋 이름은 assets/의 presets.json이 정한다. 없는 이름을 쓰면 쓸 수 있는 이름을 나열한다.
+  background: deep_navy           # 배경. deep_navy / purple_gradient / deep_teal_gradient
+  caption_style: impact_yellow    # 자막 색 프리셋. impact_yellow / neon_mint / orange_card
   # CTA 화면의 고정 두 줄 (D1 확정 스펙 5.5). 채널 브랜딩이라 LLM이 짓지 않는다.
   cta_punch: "구독 · 좋아요"      # CTA 강조 줄. 1줄 9자까지
   cta_tail: "매일 새 상식 퀴즈"    # CTA 마지막 줄. 1줄 21자까지
