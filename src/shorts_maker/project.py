@@ -51,7 +51,7 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
     Args:
         scenes: `scenes.json` 내용. **확정 상태여야 한다** — 이 파일이 가리키는 장면 목록이
             렌더 입력이므로, 초안을 가리키는 `project.json`은 열 수 없는 프로젝트다.
-        config: `render.background`를 읽는다.
+        config: `render` 섹션과 `timing.caption_onset_sec`를 읽는다.
         run_dir: 이번 run의 출력 디렉터리. 합성 트랙의 존재 여부를 여기서 본다.
 
     Raises:
@@ -89,6 +89,10 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
             "font_path": _optional(config.get("render.font_path")),
             "cta_punch": str(config.get("render.cta_punch")),
             "cta_tail": str(config.get("render.cta_tail")),
+            # **`timing` 섹션에서 온다** (#22). 장면 길이 하한을 계산한 #16이 읽은 값과
+            # 같아야 해설을 다 읽기 전에 장면이 끝나지 않는다 — 그래서 렌더러가 자기
+            # 상수를 갖지 않고 이 자리를 지난다 (확정 스펙 4장).
+            "caption_onset_sec": float(config.get("timing.caption_onset_sec")),
         },
     }
 

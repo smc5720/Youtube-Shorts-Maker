@@ -322,6 +322,7 @@ def test_scenes_and_project_schemas_accept_a_newly_registered_type(
                 "font_path": None,
                 "cta_punch": "구독 · 좋아요",
                 "cta_tail": "매일 새 상식 퀴즈",
+                "caption_onset_sec": 0.90,
             },
         }
     )

@@ -17,12 +17,12 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 `src/shorts_maker/`와 `tests/`는 CLI 골격·설정·스키마·타입 레지스트리(Phase 0 완료)에
 LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
 템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15),
-타임라인 확정(#16), 자막 생성(#17), 렌더 골격(#19), 번인 오버레이(#20), 카운트다운(#21)까지
-있고 `app/`은 아직
+타임라인 확정(#16), 자막 생성(#17), 렌더 골격(#19), 번인 오버레이(#20), 카운트다운(#21),
+정답 강조 애니메이션(#22)까지 있고 `app/`은 아직
 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`, `metadata.json`,
 낭독 장면별 `audio/seg-*.mp3`, `voice.mp3`, `captions.srt`, `project.json`, 그리고 규격에 맞는
-`final_short.mp4`까지 나온다 — **화면에는 hook·질문·카운트다운·정답·해설·cta가 나오고, 남은
-것은 정답 확대 애니메이션(#22)과 효과음(#23)이다.** `assets/`에는 효과음(#18)과 폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는
+`final_short.mp4`까지 나온다 — **화면에는 hook·질문·카운트다운·정답 확대·해설·cta가 나오고,
+남은 것은 효과음(#23)이다.** `assets/`에는 효과음(#18)과 폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는
 `assets.py` 하나다. **Phase 2가 끝났고 Phase 3이 진행 중이다** — `scenes.json`은
 `validate_scenes_final()`을 통과하는 확정 상태이므로 자막과 렌더러가 그대로 입력으로 받는다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
@@ -130,7 +130,10 @@ CSS로 그려졌고 렌더는 FFmpeg `drawtext`라서 같은 숫자가 같은 �
 - **렌더러는 config를 열지 않는다 — `project.json`만 읽는다.** 자막 스타일·폰트 경로·cta 문구도
   `render` 섹션을 지나며(#20이 필드를 열었다), 값을 정하는 경로가 둘이 되면 앱(#29)이 편집한
   프로젝트와 CLI 렌더가 갈린다. 새 렌더 설정을 추가할 때 `config.SPEC`만 여는 것은 절반이다 —
-  `schemas/project.py`와 `project.build`가 함께 움직여야 렌더에 도달한다. (PRD 7.10)
+  `schemas/project.py`와 `project.build`가 함께 움직여야 렌더에 도달한다. **config의 섹션과
+  `project.json`의 섹션이 같을 필요는 없다** — 해설 등장 시각은 `timing.caption_onset_sec`에서
+  `render.caption_onset_sec`로 간다 (#22). config는 값의 성격으로, 프로젝트는 읽는 주체로
+  나뉜다. (PRD 7.10)
 - **색과 폰트 파일을 렌더러에 적지 말 것.** 확정 스펙 6장의 프리셋은 `assets/`에 커밋돼 있고
   (#38) 조회는 `shorts_maker.assets`의 `caption_styles()` / `background_presets()` /
   `font_path(weight)`뿐이다. 확정 스펙 5장의 좌표·폰트 크기·요소별 `borderw`는 반대로 프리셋에
@@ -147,8 +150,12 @@ CSS로 그려졌고 렌더는 FFmpeg `drawtext`라서 같은 숫자가 같은 �
 
 이 저장소에서 실제 렌더로 확인했다. 다시 조사하지 않아도 된다.
 
-- **`drawtext`의 `fontsize`가 시간 표현식을 받는다**(`T` 플래그). 정답 강조 스케일 애니메이션에
-  PNG 시퀀스 사전 렌더링이나 ASS가 필요 없다. 예: `fontsize='min(180, 60+400*(t-t0))'` (#22)
+- **`drawtext`의 `fontsize`가 시간 표현식을 받고**(`T` 플래그), **그때 `text_w`·`text_h`가 매
+  프레임 갱신된다.** 그래서 정답 확대에 PNG 시퀀스나 ASS가 필요 없고, `x=(500-text_w/2)` /
+  `y=(1112-text_h/2)` 하나가 확대 내내 중심을 잡는다 — 79→132px에서 잉크 중심이 1.5px 안에
+  머물렀다. `text_h`는 em 상자가 아니라 **잉크 높이**다(132px에서 120). 색은 표현식으로 바꿀
+  수 없어 등장색·강조색이 인스턴스 두 개이고, `borderw`도 표현식을 받지 않아 확대 중 고정이다.
+  (#22, 확정 스펙 2.2)
 - **`drawbox`는 폭을 시간으로 움직일 수 없다.** 이 필터의 `t`는 시간이 아니라 **박스 두께**이고
   (`t=5:w='t*100'` → 정확히 500px), 표현식에 시간·프레임 변수가 없어 `n`·`time`은
   `Undefined constant`로 설정이 실패한다. `drawtext`의 `fontsize`가 `t`를 받는 것과 다르다.

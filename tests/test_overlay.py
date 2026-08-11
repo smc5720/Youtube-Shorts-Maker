@@ -1,4 +1,4 @@
-"""자막·텍스트 오버레이 번인 — 이슈 #20의 완료 조건.
+"""자막·텍스트 오버레이 번인 — 이슈 #20~#22의 완료 조건.
 
 **두 층으로 갈라져 있다** (`test_video_renderer.py`와 같은 이유). 필터 문자열을 만드는 층은
 FFmpeg 없이 돌고, 좌표·이스케이프·프레임 경계가 실제로 그렇게 나오는지는 진짜 렌더의 픽셀에서
@@ -34,6 +34,13 @@ SAFE_LEFT, SAFE_RIGHT = 80, 920
 
 PUNCH = "구독 · 좋아요"
 TAIL = "매일 새 상식 퀴즈"
+
+CAPTION_ONSET = 0.90
+"""`timing.caption_onset_sec` 기본값. 해설이 뜨는 시각이다 (확정 스펙 4장, #22).
+
+렌더러는 이 값을 `project.json`에서 받는다 — 여기 적힌 것은 그 값을 흘려 넣는 테스트의
+입력이지 렌더러의 기본값이 아니다.
+"""
 
 
 def scene(role: str, duration: float, **fields: Any) -> dict[str, Any]:
@@ -71,6 +78,7 @@ def filters(scenes: dict[str, Any], *, style: str = "impact_yellow", **kwargs: A
         fonts=resolve_fonts(None),
         cta_punch=kwargs.pop("cta_punch", PUNCH),
         cta_tail=kwargs.pop("cta_tail", TAIL),
+        caption_onset=kwargs.pop("caption_onset", CAPTION_ONSET),
         **kwargs,
     )
 
@@ -275,21 +283,35 @@ def test_a_countdown_without_seconds_warns_instead_of_crashing(
 # --- 길이 티어 (완료 조건: 22자에서 76→64px, 39자에서 64→56px) ----------------
 
 
+def target_size(filter_string: str) -> int:
+    """이 인스턴스가 도착하는 폰트 크기.
+
+    정답은 `min(132,79+...)` 시간 표현식이라 크기가 하나가 아니다 (#22) — `min`의 상한이
+    목표 크기다. 나머지 요소는 정수 하나뿐이라 그대로 읽는다.
+    """
+    size = option(filter_string, "fontsize")
+    grown = re.fullmatch(r"min\((\d+),.+\)", size)
+    return int(grown.group(1) if grown else size)
+
+
 def size_of(filter_list: list[str], text_start: str) -> int:
     found = next(
         item for item in drawtexts(filter_list)
         if option(item, "text").startswith(text_start)
     )
-    return int(option(found, "fontsize"))
+    return target_size(found)
 
 
 def lines_of(filter_list: list[str], size: int, *, weight: str = "") -> list[str]:
-    """그 크기로 그려진 줄들. 질문(700)과 hook(800)이 64px을 공유하므로 웨이트로 가른다."""
-    return [
+    """그 크기로 그려진 줄들. 질문(700)과 hook(800)이 64px을 공유하므로 웨이트로 가른다.
+
+    정답은 색 구간마다 인스턴스가 있어(5.4) 같은 줄이 여러 번 나온다 — 중복을 지운다.
+    """
+    return sorted({
         option(item, "text")
         for item in drawtexts(filter_list)
-        if option(item, "fontsize") == str(size) and weight in option(item, "fontfile")
-    ]
+        if target_size(item) == size and weight in option(item, "fontfile")
+    })
 
 
 def test_a_short_hook_uses_the_large_tier() -> None:
@@ -379,19 +401,178 @@ def _index_of(filter_list: list[str], start: str) -> int:
     )
 
 
-def test_the_answer_block_stays_centred_on_its_box() -> None:
-    """정답 박스는 y1000 h224 고정, 중심 (500, 1112) (확정 스펙 5.4). 티어가 갈려도 중심이
-    같아야 해설 y1300이 어떤 경우에도 안전하다."""
-    one = filters(quiz_scenes(answer="바다"))
-    two = filters(quiz_scenes(answer="아주 긴 정답 문구가 들어온 경우"))
+ANSWER_BOX = (1000, 1224)
+"""정답 박스 y1000 h224 (확정 스펙 5.4). 티어가 갈려도 같은 박스라 해설 y1300이 안전하다."""
 
-    single = int(option(one[_index_of(one, "바다")], "y"))
-    assert single + 132 // 2 == 1112
+ANSWER_CENTRE_Y = 1112
 
-    tops = sorted(
-        int(option(item, "y")) for item in drawtexts(two) if option(item, "fontsize") == "84"
+
+def evaluate(expression: str, *, t: float, text_h: float) -> float:
+    """`drawtext`의 `y`·`fontsize` 표현식을 계산한다.
+
+    산술과 `min`뿐이라 파이썬 문법과 같다. 표현식을 문자열로 비교하면 같은 배치를 다르게
+    적기만 해도 테스트가 깨지므로, 실제로 어디에 서는지를 본다.
+    """
+    return eval(  # noqa: S307 — 테스트가 방금 만든 문자열이다
+        expression, {"__builtins__": {}}, {"t": t, "text_h": text_h, "min": min}
     )
-    assert (tops[0] + (tops[-1] + 84)) // 2 == 1112
+
+
+def window(filter_string: str) -> tuple[int, int]:
+    """`enable`이 여는 (시작 프레임, 끝 프레임)."""
+    match = re.fullmatch(
+        r"gte\(t,(\d+)/30\)\*lt\(t,(\d+)/30\)", option(filter_string, "enable")
+    )
+    assert match is not None, f"프레임 구간이 아니다: {filter_string}"
+    return int(match.group(1)), int(match.group(2))
+
+
+def answer_lines(filter_list: list[str]) -> list[str]:
+    """정답 인스턴스들. 800 웨이트에 표현식 크기를 가진 것이 정답뿐이다 (#22)."""
+    return [
+        item for item in drawtexts(filter_list) if option(item, "fontsize").startswith("min(")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("answer", "size", "lines"),
+    [("바다", 132, 1), ("아주 긴 정답 문구가 들어온 경우", 84, 2)],
+    ids=["T1", "T2"],
+)
+def test_the_answer_block_stays_centred_on_its_box(
+    answer: str, size: int, lines: int
+) -> None:
+    """정답 박스는 y1000 h224 고정, 중심 (500, 1112) (확정 스펙 5.4).
+
+    **좌표가 표현식이라 잉크 높이를 넣고 계산한다** (#22). 목표 크기에서 잉크가 글자 크기를
+    꽉 채우는 최악의 경우로 재면 박스를 벗어나는지가 드러난다.
+    """
+    drawn = answer_lines(filters(quiz_scenes(answer=answer)))
+    grown = 10.0  # 확대가 끝나고도 남는 시각. `min`이 목표 크기로 묶는다.
+
+    tops = {
+        evaluate(option(item, "y"), t=grown, text_h=size) for item in drawn
+    }
+    assert len(tops) == lines, "줄 수만큼 서로 다른 y가 나와야 한다"
+
+    block_top, block_bottom = min(tops), max(tops) + size
+    assert (block_top + block_bottom) / 2 == pytest.approx(ANSWER_CENTRE_Y)
+    assert ANSWER_BOX[0] <= block_top and block_bottom <= ANSWER_BOX[1]
+
+
+def test_the_answer_keeps_its_centre_while_it_grows() -> None:
+    """확대 중에도 중심이 (500, 1112)다 (확정 스펙 2.2, #22).
+
+    `text_h`가 매 프레임 갱신되는 것이 실측됐으므로 좌표를 티어별로 미리 고정하지 않는다.
+    잉크 높이가 크기에 비례한다고 보면, 어느 시점에서 재도 중심이 같아야 한다.
+    """
+    drawn = answer_lines(filters(quiz_scenes(answer="바다")))
+    assert len(drawn) == 2, "등장색·강조색 두 구간이다 (5.4)"
+
+    for item in drawn:
+        for t in (0.2, 0.3, 0.4, 0.5, 3.0):
+            size = evaluate(option(item, "fontsize"), t=t, text_h=0)
+            # 잉크가 글자 크기를 꽉 채운다고 두고 잰다. 실제 비율이 얼마든 중심은 같다.
+            top = evaluate(option(item, "y"), t=t, text_h=size)
+            assert top + size / 2 == pytest.approx(ANSWER_CENTRE_Y)
+
+
+def test_the_answer_reaches_its_tier_size_and_stops() -> None:
+    """0.15초 시작 크기 → 0.50초 목표 크기, 그 뒤 고정 (확정 스펙 5.4의 타임라인).
+
+    **시각은 프레임 경계로 읽는다.** 0.15초는 30fps에서 프레임 4.5에 떨어지므로 스펙의 초를
+    그대로 넣으면 시작 크기가 나오지 않는다 — 구간과 램프가 같은 프레임에서 시작하는지가
+    확인할 값이다 (`overlay._frames`).
+    """
+    scenes = quiz_scenes(answer="바다")
+    start = align(scenes).frame_spans[3][0] / 30
+    item = answer_lines(filters(scenes))[0]
+
+    def size(seconds: float) -> float:
+        frame = round(seconds * 30)
+        return evaluate(option(item, "fontsize"), t=start + frame / 30, text_h=0)
+
+    assert size(overlay.ANSWER_ONSET_SEC) == pytest.approx(79)
+    assert size(overlay.ANSWER_GROWN_SEC) == pytest.approx(132)
+    # 목표에서 멈춘다 — `min`이 없으면 장면 끝에서 화면 밖까지 자란다.
+    assert size(3.0) == 132
+    assert size(0.20) < size(0.30) < size(0.40) < size(0.50)
+
+
+def test_the_answer_switches_colour_without_a_gap_or_an_overlap() -> None:
+    """등장색 → 강조색은 1프레임 전환이라 인스턴스 교체다 (확정 스펙 5.4). 두 구간이 겹치면
+    같은 자리에 두 색이 함께 그려지고, 벌어지면 정답이 한 프레임 사라진다."""
+    scenes = quiz_scenes(answer="바다")
+    style = caption_styles()["impact_yellow"]
+    drawn = answer_lines(filters(scenes))
+    start, end = align(scenes).frame_spans[3]
+
+    windows = {option(item, "fontcolor"): window(item) for item in drawn}
+    onset = windows[style.color("answer_onset").replace("#", "0x")]
+    accent = windows[style.color("accent").replace("#", "0x")]
+
+    assert onset[0] == start + round(overlay.ANSWER_ONSET_SEC * 30)
+    assert onset[1] == accent[0], "전환 프레임에 틈도 겹침도 없다"
+    assert accent[0] == start + round(overlay.ANSWER_ACCENT_SEC * 30)
+    assert accent[1] == end
+
+
+def test_the_answer_is_not_drawn_before_its_onset() -> None:
+    """t=0.00~0.15는 미표시다 (확정 스펙 5.4). 장면이 시작하자마자 정답이 보이면 질문이
+    감쇠색으로 바뀌는 순간과 겹쳐 공개의 인상이 사라진다."""
+    scenes = quiz_scenes(answer="바다")
+    start = align(scenes).frame_spans[3][0]
+
+    for item in answer_lines(filters(scenes)):
+        assert window(item)[0] > start
+
+
+def test_a_scene_too_short_for_the_animation_falls_back_to_the_target_size(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """확정 검증을 지난 장면은 `min_duration_sec`(1.2초) 이상이라 여기 오지 않는다. 사람이
+    길이를 줄인 `scenes.json`에서 반쯤 커진 채로 끝나는 것보다 목표 크기가 낫다."""
+    scenes = quiz_scenes()
+    scenes["scenes"][3]["duration"] = 0.4
+
+    drawn = filters(scenes)
+
+    assert not answer_lines(drawn), "표현식 크기가 남아 있으면 확대를 그대로 그린 것이다"
+    assert size_of(drawn, "바다") == 132
+    assert "확대" in caplog.text
+
+
+def test_the_explanation_waits_for_the_caption_onset() -> None:
+    """해설은 장면 시작이 아니라 `caption_onset` 뒤에 뜬다 (확정 스펙 4장, #22).
+    **값이 `project.json`에서 온다** — 렌더러에 0.9가 박혀 있으면 #16의 하한 계산과 갈린다."""
+    scenes = quiz_scenes()
+    start, end = align(scenes).frame_spans[3]
+
+    for onset in (CAPTION_ONSET, 1.5):
+        drawn = filters(scenes, caption_onset=onset)
+        explanation = next(
+            item for item in drawtexts(drawn) if option(item, "text").startswith("태평양만")
+        )
+        assert option(explanation, "enable") == (
+            f"gte(t,{start + round(onset * 30)}/30)*lt(t,{end}/30)"
+        )
+
+
+def test_an_explanation_that_would_never_show_is_drawn_from_the_start(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """#16이 하한에 이 값을 넣으므로 확정된 장면에서는 일어나지 않는다. 사람이 고친 길이에서
+    해설을 통째로 잃는 것보다 일찍 띄우는 편이 낫다."""
+    scenes = quiz_scenes()
+    start, end = align(scenes).frame_spans[3]
+
+    drawn = filters(scenes, caption_onset=99.0)
+
+    explanation = next(
+        item for item in drawtexts(drawn) if option(item, "text").startswith("태평양만")
+    )
+    assert option(explanation, "enable") == f"gte(t,{start}/30)*lt(t,{end}/30)"
+    assert "해설" in caplog.text
 
 
 def test_one_instance_covers_the_question_and_countdown() -> None:
@@ -594,7 +775,8 @@ def project_with(**render: Any) -> dict[str, Any]:
         "render": {
             "width": CANVAS_WIDTH, "height": CANVAS_HEIGHT, "fps": 30,
             "output": "final_short.mp4", "caption_style": "impact_yellow",
-            "font_path": None, "cta_punch": PUNCH, "cta_tail": TAIL, **render,
+            "font_path": None, "cta_punch": PUNCH, "cta_tail": TAIL,
+            "caption_onset_sec": CAPTION_ONSET, **render,
         },
     }
 
@@ -828,3 +1010,129 @@ def test_the_background_presets_render_under_the_text(tmp_path: Path) -> None:
         # 텍스트가 없는 아래쪽 띠에서 배경이 보인다.
         assert any(value > 0 for value in frame[1700 * CANVAS_WIDTH :])
         assert ink_count(frame) > 0
+
+
+# --- 정답 강조 애니메이션의 실제 픽셀 (#22) ----------------------------------
+
+
+def band_box(frame: bytes, top: int, bottom: int) -> tuple[int, int, int, int] | None:
+    """띠 안 잉크의 (x0, y0, x1, y1). 좌표는 캔버스 기준이다. 잉크가 없으면 `None`."""
+    mask = band_mask(frame, top, bottom)
+    inked = [index for index, value in enumerate(mask) if value]
+    if not inked:
+        return None
+    columns = [index % CANVAS_WIDTH for index in inked]
+    return (
+        min(columns), top + inked[0] // CANVAS_WIDTH,
+        max(columns), top + inked[-1] // CANVAS_WIDTH,
+    )
+
+
+def colour_frame(video: Path, index: int) -> bytes:
+    """프레임 한 장을 RGB로. 등장색(흰색)과 강조색(노랑)은 회색조에서 둘 다 밝다."""
+    completed = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(video),
+         "-vf", f"select=eq(n\\,{index})", "-frames:v", "1",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True,
+    )
+    assert len(completed.stdout) == CANVAS_WIDTH * CANVAS_HEIGHT * 3
+    return completed.stdout
+
+
+def band_ink_colours(frame: bytes, top: int, bottom: int) -> tuple[int, int]:
+    """띠 안의 (흰 픽셀 수, 노란 픽셀 수). P1 임팩트 옐로 기준이다 (#FFFFFF → #FFE400)."""
+    white = yellow = 0
+    for offset in range(top * CANVAS_WIDTH, bottom * CANVAS_WIDTH):
+        red, green, blue = frame[offset * 3 : offset * 3 + 3]
+        if red > 200 and green > 200:
+            # 파랑만 갈린다 — 흰색은 255, 강조색은 0이다.
+            white += blue > 180
+            yellow += blue < 80
+    return white, yellow
+
+
+@needs_ffmpeg
+def test_the_answer_grows_from_its_centre(tmp_path: Path) -> None:
+    """완료 조건의 프레임 검사다 (확정 스펙 2.2·5.4).
+
+    확대 중 잉크의 **폭과 높이는 커지는데 중심은 안 움직인다.** 좌상단 고정점에서 자라면
+    중심이 오른쪽·아래로 흐르고, `text_w`가 매 프레임 갱신되지 않아도 마찬가지다.
+    """
+    scenes = quiz_scenes(answer="바다")
+    video = video_renderer.render(project_with(), scenes, run_dir=tmp_path)
+    start, end = align(scenes).frame_spans[3]
+
+    boxes = []
+    for seconds in (0.20, 0.30, 0.40, 0.50):
+        box = band_box(gray_frame(video, start + round(seconds * 30)), *ANSWER_BOX)
+        assert box is not None, f"{seconds}초에 정답이 없다"
+        boxes.append(box)
+
+    for (x0, y0, x1, y1), (nx0, ny0, nx1, ny1) in zip(boxes, boxes[1:], strict=False):
+        assert nx1 - nx0 > x1 - x0, "가로로 자라지 않는다"
+        assert ny1 - ny0 > y1 - y0, "세로로 자라지 않는다"
+    for x0, y0, x1, y1 in boxes:
+        assert (x0 + x1) / 2 == pytest.approx(CENTER_X, abs=4)
+        assert (y0 + y1) / 2 == pytest.approx(ANSWER_CENTRE_Y, abs=4)
+
+    # 도착한 뒤로는 멈춘다. 장면 끝의 그림이 0.50초와 같아야 한다.
+    assert band_box(gray_frame(video, end - 1), *ANSWER_BOX) == boxes[-1]
+
+
+@needs_ffmpeg
+def test_the_answer_turns_accent_at_its_transition_frame(tmp_path: Path) -> None:
+    """등장색 → 강조색이 한 프레임에 갈린다 (확정 스펙 5.4). 회색조로는 둘 다 밝아서
+    구분되지 않으므로 색으로 본다."""
+    scenes = quiz_scenes(answer="바다")
+    video = video_renderer.render(project_with(), scenes, run_dir=tmp_path)
+    start = align(scenes).frame_spans[3][0]
+    switch = start + round(overlay.ANSWER_ACCENT_SEC * 30)
+
+    before = band_ink_colours(colour_frame(video, switch - 1), *ANSWER_BOX)
+    after = band_ink_colours(colour_frame(video, switch), *ANSWER_BOX)
+
+    assert before[0] > before[1] * 4, "전환 전에 등장색(흰색)이 아니다"
+    assert after[1] > after[0] * 4, "전환 프레임에 강조색으로 바뀌지 않았다"
+
+
+@needs_ffmpeg
+def test_the_explanation_appears_at_the_caption_onset(tmp_path: Path) -> None:
+    """완료 조건: 해설이 `caption_onset_sec`에 나타난다. **`project.json`의 값이 실제로
+    화면을 움직이는지**를 본다 — 렌더러에 0.9가 박혀 있으면 아래 1.5초에서 드러난다."""
+    scenes = quiz_scenes()
+    start, _ = align(scenes).frame_spans[3]
+
+    for onset in (CAPTION_ONSET, 1.5):
+        run_dir = tmp_path / str(onset)
+        run_dir.mkdir()
+        video = video_renderer.render(
+            project_with(caption_onset_sec=onset), scenes, run_dir=run_dir
+        )
+        first = start + round(onset * 30)
+
+        # 해설 띠. 정답 박스(~1224)와 안전 영역 하단(1500) 사이다.
+        assert band_box(gray_frame(video, first - 1), 1260, 1500) is None
+        assert band_box(gray_frame(video, first), 1260, 1500) is not None
+
+
+@needs_ffmpeg
+def test_the_longest_answer_and_explanation_never_touch(tmp_path: Path) -> None:
+    """완료 조건: 20자 정답 + 60자 해설에서 겹침이 없다. 정답 박스 하단 1224와 해설 상단
+    1300 사이의 76px이 비어 있어야 한다 (확정 스펙 5.4)."""
+    scenes = quiz_scenes(
+        answer="스무 글자를 가득 채워서 쓴 정답이다",
+        explanation="예순 글자를 꽉 채운 해설을 적으면 서른여섯 픽셀 티어에서 세 줄이 되고 그 아래는 비어 있는 상태가 된다",
+    )
+    video = video_renderer.render(project_with(), scenes, run_dir=tmp_path)
+    _, end = align(scenes).frame_spans[3]
+    frame = gray_frame(video, end - 1)
+
+    answer = band_box(frame, *ANSWER_BOX)
+    explanation = band_box(frame, 1260, 1500)
+
+    assert answer is not None and explanation is not None
+    # 박스 안에 들어가고, 두 요소 사이의 띠는 비어 있다.
+    assert ANSWER_BOX[0] <= answer[1] and answer[3] <= ANSWER_BOX[1]
+    assert band_box(frame, ANSWER_BOX[1] + 1, 1300) is None
+    assert explanation[1] >= 1300

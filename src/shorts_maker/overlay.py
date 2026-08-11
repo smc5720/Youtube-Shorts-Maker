@@ -1,4 +1,4 @@
-"""확정 `scenes.json` → `drawtext`·`drawbox` 필터 목록 (D1 확정 스펙 5장, 이슈 #20·#21).
+"""확정 `scenes.json` → `drawtext`·`drawbox` 필터 목록 (D1 확정 스펙 5장, 이슈 #20~#22).
 
 렌더 골격(#19)이 배경·오디오·프레임 경계를 정하고, **이 모듈이 그 위에 무엇을 그리는지를
 정한다.** 좌표·폰트 크기·요소별 외곽선은 여기 `_ELEMENTS` 표가 소유한다 — 프리셋(`assets/`)이
@@ -18,6 +18,10 @@
 - **구간은 초가 아니라 프레임 번호로 준다.** `enable`에 `2.533`처럼 반올림한 초를 적으면 그
   값이 실제 프레임 시각보다 크게 반올림됐을 때 요소가 한 프레임 늦게 켜진다. `75/30`을 그대로
   적으면 필터의 `t`와 정확히 같은 값이 되어 경계가 어긋날 여지가 없다 (#19의 `align`).
+- **정답 확대는 `fontsize`·`y` 표현식 하나로 끝난다** (#22). `text_w`·`text_h`가 매 프레임
+  갱신되는 것이 실측됐으므로(확정 스펙 2.2) 커지는 동안에도 `x=(500-text_w/2)` /
+  `y=(1112-text_h/2)`가 중심을 잡는다 — 티어별 좌표를 미리 계산해 고정할 필요가 없다.
+  색 전환만 인스턴스 교체다 (`draw_answer`).
 """
 
 from __future__ import annotations
@@ -61,6 +65,17 @@ SHADOW_BASELINE = 0.5
 (P2 네온 민트) 그림자를 아예 넣지 않는다 — 그쪽은 외곽선을 두껍게 해서 벌충한다 (6.1).
 """
 
+ANSWER_ONSET_SEC = 0.15
+ANSWER_ACCENT_SEC = 0.35
+ANSWER_GROWN_SEC = 0.50
+"""정답 강조 애니메이션의 세 시각 (장면 시작 기준, 확정 스펙 5.4의 타임라인).
+
+**`caption_onset_sec`와 달리 여기 있다.** 해설 등장 시각은 장면 길이 하한을 계산하는 #16이
+같은 값을 읽어야 해서 config → `project.json`을 지나지만, 이 셋을 읽는 곳은 렌더러뿐이라
+좌표·폰트 크기와 같은 자리에 둔다. **`ANSWER_ONSET_SEC`은 효과음 트리거 시각이기도 하다** —
+#23이 이 값을 읽는다.
+"""
+
 CTA_PUNCH_MAX_LEN = 9
 CTA_TAIL_MAX_LEN = 21
 """cta 고정 두 줄의 글자 수 상한 (확정 스펙 5.5). 설정값이라 초과는 사람의 오타이고, 렌더를
@@ -98,6 +113,13 @@ class Tier:
     `borderw`는 픽셀 고정값이라 같은 값이 132px에서는 3.8%, 84px에서는 6.0%로 보인다.
     실측에서 정답 T1만 다른 요소들(5.3~8.3%)보다 눈에 띄게 얇았다 — 확정 스펙 2.1의
     "실제 렌더를 보고 맞춘다"가 가리킨 지점이 여기다.
+    """
+    grow_from: int | None = None
+    """확대가 시작하는 크기. `size`가 도착점이다 (확정 스펙 5.4의 `79 → 132`).
+
+    `None`이면 애니메이션이 없다 — 정답 말고는 전부 그렇다. **`borderw`는 함께 자라지
+    않는다**: 픽셀 고정값이라 시작 크기에서 비율이 커 보이지만, 0.35초 동안만이고 두께를
+    표현식으로 줄 수 없다 (`fontsize`의 `T` 플래그는 이 옵션에 없다).
     """
 
     @property
@@ -149,8 +171,9 @@ def _tier(
     line_height: int,
     max_lines: int,
     borderw: int | None = None,
+    grow_from: int | None = None,
 ) -> Tier:
-    return Tier(max_chars, size, y, line_height, max_lines, borderw)
+    return Tier(max_chars, size, y, line_height, max_lines, borderw, grow_from)
 
 
 _ELEMENTS: dict[str, Element] = {
@@ -197,8 +220,10 @@ _ELEMENTS: dict[str, Element] = {
         center_y=1112,
         tiers=(
             # T1만 7이다 — 132px에서 5는 다른 요소의 절반 비율이라 외곽선이 사라진다.
-            _tier(max_chars=6, size=132, y=1112, line_height=132, max_lines=1, borderw=7),
-            _tier(max_chars=20, size=84, y=1112, line_height=112, max_lines=2),
+            _tier(max_chars=6, size=132, y=1112, line_height=132, max_lines=1,
+                  borderw=7, grow_from=79),
+            _tier(max_chars=20, size=84, y=1112, line_height=112, max_lines=2,
+                  grow_from=50),
         ),
     ),
     "explanation": Element(
@@ -315,6 +340,7 @@ def build(
     fonts: Fonts,
     cta_punch: str,
     cta_tail: str,
+    caption_onset: float,
 ) -> list[str]:
     """장면 목록을 `drawtext` 필터 문자열 목록으로 옮긴다.
 
@@ -328,6 +354,9 @@ def build(
         fonts: 웨이트별 폰트 파일.
         cta_punch: cta의 강조 한 줄 (`render.cta_punch`).
         cta_tail: cta의 마지막 한 줄 (`render.cta_tail`).
+        caption_onset: 해설이 뜨는 시각(장면 시작 기준 초, `render.caption_onset_sec`).
+            **#16이 장면 길이 하한을 계산할 때 읽는 값과 같은 값이다** — 여기서 상수로
+            박으면 화면에 뜨는 시각과 길이 계산이 갈려 해설을 다 읽기 전에 장면이 끝난다.
 
     Returns:
         `[0:v]` 뒤에 순서대로 이을 필터 문자열. 비어 있을 수 있다 — 문구가 하나도 없는 장면
@@ -346,7 +375,7 @@ def build(
     _check_cta_setting("render.cta_punch", cta_punch, CTA_PUNCH_MAX_LEN)
     _check_cta_setting("render.cta_tail", cta_tail, CTA_TAIL_MAX_LEN)
 
-    painter = _Painter(fps=fps, style=style, fonts=fonts)
+    painter = _Painter(fps=fps, style=style, fonts=fonts, caption_onset=caption_onset)
     total_questions = len({
         scene["question_id"] for scene in scene_list if "question_id" in scene
     })
@@ -365,9 +394,12 @@ def build(
                 scene.get("seconds"), span, where=f"scenes[{index}]"
             )
         elif role == "answer":
-            painter.draw("answer", scene.get("text"), span, where=f"scenes[{index}]")
+            painter.draw_answer(scene.get("text"), span, where=f"scenes[{index}]")
             painter.draw(
-                "explanation", scene.get("caption"), span, where=f"scenes[{index}]"
+                "explanation",
+                scene.get("caption"),
+                painter.caption_span(span, where=f"scenes[{index}]"),
+                where=f"scenes[{index}]",
             )
         elif role == "cta":
             painter.draw("cta", scene.get("text"), span, where=f"scenes[{index}]")
@@ -439,10 +471,13 @@ def _headers(
 class _Painter:
     """요소 하나를 줄 단위 `drawtext`로 편다. 필터 순서가 그리는 순서다."""
 
-    def __init__(self, *, fps: int, style: CaptionStyle, fonts: Fonts) -> None:
+    def __init__(
+        self, *, fps: int, style: CaptionStyle, fonts: Fonts, caption_onset: float
+    ) -> None:
         self.fps = fps
         self.style = style
         self.fonts = fonts
+        self.caption_onset = caption_onset
         self.filters: list[str] = []
 
     def draw(
@@ -455,19 +490,10 @@ class _Painter:
         color: str | None = None,
     ) -> None:
         """요소 하나를 그린다. 문구가 없으면 아무것도 하지 않는다."""
-        if not text:
+        layout = self._layout(name, text, where=where)
+        if layout is None:
             return
-
-        element = _ELEMENTS[name]
-        tier = element.tier_for(text)
-        lines = wrap(text, tier.chars_per_line)
-        if len(lines) > tier.max_lines:
-            # 자르지 않는다 — 원문을 잃는 쪽이 더 나쁘다 (`captions._warn_about_overflow`와
-            # 같은 판단이다). 생성 단계의 상한(#56)을 지난 문구는 여기 걸리지 않는다.
-            LOGGER.warning(
-                "%s의 %s가 %d줄이다 — %dpx 티어의 상한 %d줄을 넘어 안전 영역을 벗어난다: %s",
-                where, name, len(lines), tier.size, tier.max_lines, text,
-            )
+        element, tier, lines = layout
 
         top = tier.y
         if element.center_y is not None:
@@ -482,11 +508,133 @@ class _Painter:
                     line,
                     element=element,
                     tier=tier,
-                    y=top + number * tier.line_height,
+                    y=str(top + number * tier.line_height),
                     span=span,
                     color=color or element.color,
                 )
             )
+
+    def _layout(
+        self, name: str, text: str | None, *, where: str
+    ) -> tuple[Element, Tier, list[str]] | None:
+        """요소·티어·줄. 문구가 없으면 `None`이다."""
+        if not text:
+            return None
+
+        element = _ELEMENTS[name]
+        tier = element.tier_for(text)
+        lines = wrap(text, tier.chars_per_line)
+        if len(lines) > tier.max_lines:
+            # 자르지 않는다 — 원문을 잃는 쪽이 더 나쁘다 (`captions._warn_about_overflow`와
+            # 같은 판단이다). 생성 단계의 상한(#56)을 지난 문구는 여기 걸리지 않는다.
+            LOGGER.warning(
+                "%s의 %s가 %d줄이다 — %dpx 티어의 상한 %d줄을 넘어 안전 영역을 벗어난다: %s",
+                where, name, len(lines), tier.size, tier.max_lines, text,
+            )
+        return element, tier, lines
+
+    def draw_answer(
+        self, text: str | None, span: tuple[int, int], *, where: str
+    ) -> None:
+        """정답을 확대하며 그린다 (확정 스펙 5.4의 타임라인).
+
+        **크기는 표현식 하나, 색은 인스턴스 교체다.** `fontsize`는 시간 표현식을 받으므로
+        (`T` 플래그) 확대가 필터 하나로 끝나지만, `fontcolor`에는 그런 것이 없고 스펙이
+        요구하는 것도 1프레임 전환이라 `answer_onset` 구간과 `accent` 구간을 나눈다 —
+        카운트다운 숫자를 초마다 나눈 것과 같은 방식이다. 두 인스턴스가 같은 크기 표현식을
+        쓰므로 경계에서 크기는 이어진다.
+
+        **좌표는 미리 계산하지 않는다.** `text_w`·`text_h`가 매 프레임 갱신되는 것을 #22에서
+        실측했다 (확정 스펙 2.2) — 확대 내내 잉크 중심이 (500, 1112)에 머문다. 여러 줄이면
+        줄 중심도 같은 비율로 벌어져야 블록 전체가 중심에서 자란다.
+        """
+        layout = self._layout("answer", text, where=where)
+        if layout is None:
+            return
+        element, tier, lines = layout
+        assert element.center_y is not None, "정답은 박스 중앙 정렬이다 (5.4)"
+
+        start, end = span
+        onset = start + self._frames(ANSWER_ONSET_SEC)
+        accent = start + self._frames(ANSWER_ACCENT_SEC)
+        grown = start + self._frames(ANSWER_GROWN_SEC)
+
+        if tier.grow_from is None or grown >= end:
+            # 장면이 확대를 다 담지 못한다. 확정 검증을 지난 장면은 최소 `min_duration_sec`
+            # (1.2초)이라 여기 오지 않지만, 사람이 고친 `scenes.json`은 그 경로를 지나지
+            # 않는다. 그때는 애니메이션을 버리고 정답을 목표 크기로 세운다 — 반쯤 커진
+            # 상태로 장면이 끝나는 것보다 낫다.
+            if tier.grow_from is not None:
+                LOGGER.warning(
+                    "%s: 장면이 %.2f초라 정답 확대(%.2f초)를 담지 못한다 — "
+                    "목표 크기로 고정해 그린다",
+                    where, (end - start) / self.fps, ANSWER_GROWN_SEC,
+                )
+            segments = [((start, end), "accent", str(tier.size))]
+        else:
+            size = self._grow(tier, onset, grown)
+            segments = [
+                ((onset, accent), "answer_onset", size),
+                ((accent, end), "accent", size),
+            ]
+
+        for number, line in enumerate(lines):
+            # 줄 중심의 목표 위치. 블록 중심에서 위아래로 LH씩 벌어진다 — `draw`의
+            # `(n-1)×LH + size` 블록과 같은 배치이고, 여기서는 상단이 아니라 중심을 쓴다.
+            offset = (number - (len(lines) - 1) / 2) * tier.line_height
+            for window, color, size in segments:
+                self.filters.append(
+                    self._drawtext(
+                        line,
+                        element=element,
+                        tier=tier,
+                        y=self._grown_y(element.center_y, offset, size, tier.size),
+                        span=window,
+                        color=color,
+                        size=size,
+                    )
+                )
+
+    def _grow(self, tier: Tier, onset: int, grown: int) -> str:
+        """`grow_from` → `size` 선형 확대 표현식. 도착 후에는 `min`이 목표 크기로 묶는다."""
+        assert tier.grow_from is not None
+        rate = (tier.size - tier.grow_from) * self.fps / (grown - onset)
+        return f"min({tier.size},{tier.grow_from}+{rate:.4f}*(t-{onset}/{self.fps}))"
+
+    def _grown_y(self, center: int, offset: float, size: str, target: int) -> str:
+        """줄 하나의 `y`. 잉크 높이의 절반을 빼서 줄 중심을 목표 위치에 놓는다.
+
+        `text_h`가 매 프레임 갱신되므로 커지는 동안에도 중심이 고정된다. 줄 중심의 간격도
+        크기에 비례해야 블록이 한 덩어리로 자란다 — 간격을 목표값으로 고정하면 작을 때
+        줄 사이가 벌어져 보인다.
+        """
+        if not offset:
+            return f"({center}-text_h/2)"
+        if size == str(target):
+            return f"({center + round(offset)}-text_h/2)"
+        return f"({center}{offset:+g}*({size})/{target}-text_h/2)"
+
+    def caption_span(self, span: tuple[int, int], *, where: str) -> tuple[int, int]:
+        """해설이 서 있는 구간. 장면 시작이 아니라 `caption_onset` 뒤에 뜬다 (확정 스펙 4장).
+
+        정답이 목표 크기로 고정된(0.50초) 뒤라 확대가 끝난 화면에 해설이 얹힌다.
+        """
+        start, end = span
+        onset = start + self._frames(self.caption_onset)
+        if onset >= end:
+            # #16이 이 값을 하한에 넣으므로 확정된 장면에서는 일어나지 않는다. 사람이 길이를
+            # 줄인 `scenes.json`에서 해설을 통째로 잃는 것보다 일찍 띄우는 편이 낫다.
+            LOGGER.warning(
+                "%s: 장면이 %.2f초라 해설 등장 시각(%.2f초)이 장면을 넘는다 — "
+                "장면 시작부터 그린다",
+                where, (end - start) / self.fps, self.caption_onset,
+            )
+            return span
+        return onset, end
+
+    def _frames(self, seconds: float) -> int:
+        """장면 시작 기준 초 → 프레임 수. `video_renderer.align`과 같은 반올림이다."""
+        return max(0, round(seconds * self.fps))
 
     def draw_countdown(
         self, seconds: Any, span: tuple[int, int], *, where: str
@@ -572,10 +720,12 @@ class _Painter:
         *,
         element: Element,
         tier: Tier,
-        y: int,
+        y: str,
         span: tuple[int, int],
         color: str,
+        size: str | None = None,
     ) -> str:
+        """줄 하나. `y`와 `size`는 표현식일 수 있다 (#22의 정답 확대)."""
         borderw = tier.borderw if tier.borderw is not None else element.borderw
         if element.border_color == "answer_border":
             # 그림자를 안 쓰는 프리셋이 정답만 두껍게 한다 (확정 스펙 6.1).
@@ -586,12 +736,12 @@ class _Painter:
             f"text='{_escape(line)}'",
             # `%`가 요소를 통째로 지우는 것을 막는다 (모듈 주석).
             "expansion=none",
-            f"fontsize={tier.size}",
+            f"fontsize={_value(size or str(tier.size))}",
             f"fontcolor={_color(self.style.color(color))}",
             f"bordercolor={_color(self.style.color(element.border_color))}",
             f"borderw={borderw}",
             f"x=({CENTER_X}-text_w/2)",
-            f"y={y}",
+            f"y={_value(y)}",
             f"enable='{self._enable(span)}'",
         ]
 
@@ -634,6 +784,17 @@ def _escape(text: str) -> str:
         .replace(":", "\\:")
         .replace("'", "'\\\\\\''")
     )
+
+
+def _value(expression: str) -> str:
+    """옵션 값 하나. `,`가 있으면 인용한다.
+
+    필터그래프 파서는 인용 밖의 `,`에서 **필터를 끊으므로**, `min(132,79+...)` 같은 표현식을
+    그대로 넣으면 나머지가 다음 필터로 읽힌다. `enable`이 늘 인용돼 있는 것도 같은 이유다
+    (`gte(t,4/30)`). 인용이 필요 없는 값까지 감싸지 않는 것은 #20이 만든 필터 문자열을
+    그대로 두기 위함이다.
+    """
+    return f"'{expression}'" if "," in expression else expression
 
 
 def escape_path(path: Path) -> str:

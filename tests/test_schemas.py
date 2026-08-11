@@ -169,6 +169,7 @@ def project(**overrides: Any) -> dict[str, Any]:
         "render": {
             "width": 1080, "height": 1920, "fps": 30,
             "output": "final_short.mp4", "caption_style": "impact_yellow", "font_path": None, "cta_punch": "구독 · 좋아요", "cta_tail": "매일 새 상식 퀴즈",
+            "caption_onset_sec": 0.90,
         },
     }
     data.update(overrides)

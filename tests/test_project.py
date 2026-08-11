@@ -48,6 +48,7 @@ def test_the_render_section_is_the_format_spec(tmp_path: Path) -> None:
         "font_path": None,
         "cta_punch": "구독 · 좋아요",
         "cta_tail": "매일 새 상식 퀴즈",
+        "caption_onset_sec": 0.90,
     }
     assert (content["render"]["width"], content["render"]["height"]) == (1080, 1920)
     assert content["render"]["fps"] == 30

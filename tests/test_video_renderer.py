@@ -74,6 +74,8 @@ def project_with(**overrides: Any) -> dict[str, Any]:
             "font_path": None,
             "cta_punch": "구독 · 좋아요",
             "cta_tail": "매일 새 상식 퀴즈",
+            # 해설이 뜨는 시각 (#22). `timing.caption_onset_sec`에서 온다.
+            "caption_onset_sec": 0.90,
         },
     }
     return project | overrides
