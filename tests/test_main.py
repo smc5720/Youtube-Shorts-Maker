@@ -867,6 +867,10 @@ def test_run_writes_the_project_file(tmp_path: Path) -> None:
         "height": 1920,
         "fps": 30,
         "output": OUTPUT_NAME,
+        "caption_style": "impact_yellow",
+        "font_path": None,
+        "cta_punch": "구독 · 좋아요",
+        "cta_tail": "매일 새 상식 퀴즈",
     }
     # 기본 4문제 → 낭독 장면이 있으므로 합성 트랙을 가리킨다.
     assert project["audio"]["voice"] == "voice.mp3"

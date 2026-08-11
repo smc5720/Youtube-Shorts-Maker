@@ -44,9 +44,43 @@ def test_the_render_section_is_the_format_spec(tmp_path: Path) -> None:
         "height": CANVAS_HEIGHT,
         "fps": FPS,
         "output": OUTPUT_NAME,
+        "caption_style": "impact_yellow",
+        "font_path": None,
+        "cta_punch": "구독 · 좋아요",
+        "cta_tail": "매일 새 상식 퀴즈",
     }
     assert (content["render"]["width"], content["render"]["height"]) == (1080, 1920)
     assert content["render"]["fps"] == 30
+
+
+def test_the_overlay_settings_ride_through_the_project(tmp_path: Path) -> None:
+    """**렌더러가 config를 다시 열지 않는다** (#20). 자막 스타일·폰트·cta 문구가 여기 없으면
+    앱(#29)이 편집한 프로젝트와 CLI 렌더가 갈린다 (PRD 7.10)."""
+    content = project.build(
+        FINAL_SCENES,
+        config=config_of(
+            tmp_path,
+            **{
+                "render.caption_style": "neon_mint",
+                "render.font_path": "C:/fonts/mine.otf",
+                "render.cta_punch": "구독하기",
+                "render.cta_tail": "내일도 한 문제",
+            },
+        ),
+        run_dir=tmp_path,
+    )
+
+    assert content["render"]["caption_style"] == "neon_mint"
+    assert content["render"]["font_path"] == "C:/fonts/mine.otf"
+    assert content["render"]["cta_punch"] == "구독하기"
+    assert content["render"]["cta_tail"] == "내일도 한 문제"
+
+
+def test_an_unset_font_path_stays_null(tmp_path: Path) -> None:
+    """`str(None)`이 `"None"`이 되면 렌더러가 그 이름의 파일을 찾다가 죽는다."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+
+    assert content["render"]["font_path"] is None
 
 
 def test_the_background_comes_from_the_config(tmp_path: Path) -> None:
@@ -90,7 +124,8 @@ def test_the_scene_array_is_referenced_not_copied(tmp_path: Path) -> None:
 
 
 def test_no_edit_state_fields_yet(tmp_path: Path) -> None:
-    """텍스트 오버레이 편집 이력·자막 스타일 선택·트랙별 볼륨은 #26이 붙인다 (PRD 7.10)."""
+    """텍스트 오버레이 편집 이력과 트랙별 볼륨은 #26이 붙인다 (PRD 7.10). 자막 스타일·폰트·
+    cta 문구는 편집 상태가 아니라 렌더러가 읽는 초기 상태라 `render` 안에 있다 (#20)."""
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
 
     assert set(content) == {

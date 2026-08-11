@@ -44,6 +44,16 @@ _RENDER_FIELDS = {
     "height": integer(minimum=1),
     "fps": integer(minimum=1),
     "output": text(),
+    # 번인 오버레이가 읽는 값 (#20). **config가 아니라 여기서 읽는다** — 렌더가 설정
+    # 파일을 다시 열면 앱(#29)이 편집한 프로젝트와 CLI 렌더가 갈린다 (PRD 7.10).
+    # 이름 후보는 스키마가 아니라 `assets/`가 정하므로 여기서 열거하지 않는다. 없는
+    # 이름은 렌더 시작 전에 `overlay.style_for`가 쓸 수 있는 이름을 나열하며 멈춘다.
+    "caption_style": text(),
+    # null이면 번들 Pretendard 세 웨이트를 쓴다 (확정 스펙 9장).
+    "font_path": text(nullable=True),
+    # 채널 브랜딩이라 콘텐츠가 아니라 프로젝트가 들고 있다 (확정 스펙 5.5).
+    "cta_punch": text(),
+    "cta_tail": text(),
 }
 
 _ROOT = Object(

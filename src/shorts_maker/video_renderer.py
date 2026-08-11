@@ -21,13 +21,14 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import PACKAGE_LOGGER
+from . import PACKAGE_LOGGER, overlay
 from .assets import AssetError, background_presets
+from .overlay import OverlayError
 from .schemas.project import BACKGROUND_KINDS
 from .schemas.scenes import validate_scenes_final
 
@@ -112,6 +113,21 @@ class Timeline:
         end = starts[index + 1] if index + 1 < len(starts) else self.total_sec
         return starts[index], end
 
+    @property
+    def frame_spans(self) -> tuple[tuple[int, int], ...]:
+        """장면별 (시작 프레임, 끝 프레임). 끝은 다음 장면의 시작과 같다.
+
+        **오버레이(#20~#22)가 `enable` 식에 쓰는 값이다.** 초로 반올림한 값을 적으면 그
+        반올림이 실제 프레임 시각보다 커졌을 때 요소가 한 프레임 늦게 켜진다. 프레임 번호를
+        `n/fps` 나눗셈으로 그대로 넘기면 필터의 `t`와 같은 값이 나온다 (`overlay._enable`).
+        """
+        spans: list[tuple[int, int]] = []
+        elapsed = 0
+        for count in self.frames:
+            spans.append((elapsed, elapsed + count))
+            elapsed += count
+        return tuple(spans)
+
 
 def align(scenes: Mapping[str, Any], *, fps: int = FPS) -> Timeline:
     """확정 장면 목록을 프레임 경계에 맞춘다.
@@ -166,8 +182,14 @@ def render(
     # 입구에서 확정 검증을 한다. 이 함수는 CLI 말고도 앱 백엔드와 테스트가 직접 부른다.
     validate_scenes_final(scenes)
 
-    timeline = align(scenes, fps=_int_field(project, "fps"))
-    command = build_command(project, run_dir=run_dir, total_sec=timeline.total_sec)
+    fps = _int_field(project, "fps")
+    timeline = align(scenes, fps=fps)
+    # **오버레이를 명령보다 먼저 만든다.** 폰트 경로 오타나 한글을 못 그리는 폰트는 여기서
+    # 걸리고, 그때 인코딩은 아직 시작되지 않았다 (#20의 완료 조건).
+    overlays = build_overlays(project, scenes, timeline=timeline)
+    command = build_command(
+        project, run_dir=run_dir, total_sec=timeline.total_sec, overlays=overlays
+    )
     output = run_dir / str(project["render"]["output"])
 
     # 명령 전문을 남긴다. run.log는 --verbose와 무관하게 DEBUG까지 남으므로(run_context)
@@ -209,10 +231,46 @@ def render(
     return output
 
 
+def build_overlays(
+    project: Mapping[str, Any], scenes: Mapping[str, Any], *, timeline: Timeline
+) -> list[str]:
+    """장면 위에 그릴 `drawtext` 필터 목록 (#20~#22). 수치는 `overlay`가 소유한다.
+
+    **재료를 `project.json`에서 읽는다.** 자막 스타일·폰트·cta 문구를 config에서 다시 읽으면
+    값을 정하는 경로가 둘이 되고, 앱(#29)이 프로젝트를 편집해도 CLI 렌더가 그것을 무시한다
+    (PRD 7.10, `project.py`).
+
+    Raises:
+        RenderError: 프리셋 이름·폰트 경로·cta 문구가 화면으로 옮겨지지 않을 때.
+    """
+    render_section = project.get("render", {})
+    try:
+        return overlay.build(
+            scenes,
+            timeline.frame_spans,
+            fps=timeline.fps,
+            style=overlay.style_for(_text_field(project, "caption_style")),
+            fonts=overlay.resolve_fonts(render_section.get("font_path")),
+            cta_punch=_text_field(project, "cta_punch"),
+            cta_tail=_text_field(project, "cta_tail"),
+        )
+    except OverlayError as error:
+        # 오버레이 실패도 렌더 실패다. 부르는 쪽(main)이 잡는 예외를 하나로 유지한다.
+        raise RenderError(str(error)) from error
+
+
 def build_command(
-    project: Mapping[str, Any], *, run_dir: Path, total_sec: float
+    project: Mapping[str, Any],
+    *,
+    run_dir: Path,
+    total_sec: float,
+    overlays: Sequence[str] = (),
 ) -> list[str]:
     """렌더 명령을 만든다. **FFmpeg를 부르지 않으므로 어디서나 검증할 수 있다.**
+
+    Args:
+        overlays: 배경 위에 순서대로 이을 필터 문자열 (`build_overlays`). 비어 있으면
+            배경만 그린다 — #19까지의 상태다.
 
     Raises:
         RenderError: `project.json`의 배경·규격 값을 명령으로 옮길 수 없을 때.
@@ -238,7 +296,8 @@ def build_command(
         "-filter_complex",
         ";".join(
             [
-                f"[0:v]{video_chain}[video]",
+                # 오버레이는 배경 체인 뒤에 이어 붙는다. 목록 순서가 그리는 순서다.
+                f"[0:v]{','.join([video_chain, *overlays])}[video]",
                 # 합성 트랙이 프레임 정렬 길이보다 반 프레임쯤 짧을 수 있다. `apad`가 그
                 # 차이를 무음으로 메우므로 아래 `-t`가 오디오를 기준으로 끊지 않는다.
                 f"[1:a]aformat=sample_rates={_AUDIO_SAMPLE_RATE}:"
@@ -390,6 +449,18 @@ def _color(value: str) -> str:
     if match is None:
         raise RenderError(f"색은 #RRGGBB 표기여야 한다. 받은 값: {value!r}")
     return f"0x{match.group(1).upper()}"
+
+
+def _text_field(project: Mapping[str, Any], key: str) -> str:
+    """`render` 섹션의 문자열 값. 없으면 어느 키인지 말한다 — 앱이 만든 프로젝트나 사람이
+    편집한 파일이 스키마를 지나지 않고 직접 들어올 수 있다."""
+    try:
+        value = project["render"][key]
+    except (KeyError, TypeError):
+        raise RenderError(f"project.json의 render.{key}가 없다") from None
+    if not isinstance(value, str):
+        raise RenderError(f"render.{key}는 문자열이어야 한다. 받은 값: {value!r}")
+    return value
 
 
 def _int_field(project: Mapping[str, Any], key: str) -> int:
