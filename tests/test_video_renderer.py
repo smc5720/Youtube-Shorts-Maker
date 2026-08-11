@@ -69,6 +69,11 @@ def project_with(**overrides: Any) -> dict[str, Any]:
             "height": CANVAS_HEIGHT,
             "fps": FPS,
             "output": OUTPUT_NAME,
+            # 번인 오버레이가 읽는 값 (#20). `project.build`가 config에서 옮겨 담는다.
+            "caption_style": "impact_yellow",
+            "font_path": None,
+            "cta_punch": "구독 · 좋아요",
+            "cta_tail": "매일 새 상식 퀴즈",
         },
     }
     return project | overrides
@@ -252,6 +257,49 @@ def test_the_audio_is_padded_so_a_short_track_does_not_cut_the_video(
     command = build_command(project, run_dir=tmp_path, total_sec=5.0)
 
     assert "apad" in command[command.index("-filter_complex") + 1]
+
+
+def test_overlays_ride_on_the_background_chain(tmp_path: Path) -> None:
+    """오버레이(#20~#22)는 배경 체인 뒤에 이어 붙는다. 순서가 그리는 순서다."""
+    command = build_command(
+        project_with(),
+        run_dir=tmp_path,
+        total_sec=5.0,
+        overlays=["drawtext=text='하나'", "drawtext=text='둘'"],
+    )
+
+    chain = command[command.index("-filter_complex") + 1]
+    assert "[0:v]setsar=1,drawtext=text='하나',drawtext=text='둘'[video]" in chain
+
+
+def test_without_overlays_only_the_background_is_drawn(tmp_path: Path) -> None:
+    """#19까지의 상태다. 문구가 하나도 없는 장면 목록도 정상이다."""
+    command = build_command(project_with(), run_dir=tmp_path, total_sec=5.0)
+
+    assert "[0:v]setsar=1[video]" in command[command.index("-filter_complex") + 1]
+
+
+def test_a_bad_overlay_setting_becomes_a_render_error(tmp_path: Path) -> None:
+    """**인코딩을 시작하기 전에 멈춘다.** 부르는 쪽(main)이 잡는 예외가 하나로 유지되도록
+    `OverlayError`를 `RenderError`로 옮긴다."""
+    project = project_with()
+    project["render"] = project["render"] | {"caption_style": "없는_스타일"}
+
+    with pytest.raises(RenderError, match="impact_yellow"):
+        video_renderer.build_overlays(
+            project, scenes_with(1.0), timeline=align(scenes_with(1.0))
+        )
+
+
+def test_a_missing_overlay_field_names_the_key(tmp_path: Path) -> None:
+    """앱이 만든 프로젝트나 사람이 편집한 파일이 스키마를 지나지 않고 직접 들어올 수 있다."""
+    project = project_with()
+    del project["render"]["cta_punch"]
+
+    with pytest.raises(RenderError, match="render.cta_punch"):
+        video_renderer.build_overlays(
+            project, scenes_with(1.0), timeline=align(scenes_with(1.0))
+        )
 
 
 def test_a_broken_render_section_is_rejected(tmp_path: Path) -> None:

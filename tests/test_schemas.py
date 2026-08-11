@@ -166,7 +166,10 @@ def project(**overrides: Any) -> dict[str, Any]:
         "scenes": "scenes.json",
         "background": {"kind": "preset", "value": "deep_navy"},
         "audio": {"voice": "voice.mp3", "music": None},
-        "render": {"width": 1080, "height": 1920, "fps": 30, "output": "final_short.mp4"},
+        "render": {
+            "width": 1080, "height": 1920, "fps": 30,
+            "output": "final_short.mp4", "caption_style": "impact_yellow", "font_path": None, "cta_punch": "구독 · 좋아요", "cta_tail": "매일 새 상식 퀴즈",
+        },
     }
     data.update(overrides)
     return data

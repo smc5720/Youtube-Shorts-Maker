@@ -7,8 +7,10 @@
 - **렌더보다 먼저 쓴다.** `project.json`은 항상 생성되고 `final_short.mp4`는 렌더 성공 시에만
   생성된다 (PRD 6.2 표). 렌더가 실패한 run에도 이 파일이 남아야 사람이 값을 고쳐 다시 돌릴
   수 있다.
-- **편집 상태 필드는 넣지 않는다.** 텍스트 오버레이 편집 이력·자막 스타일 선택·트랙별 볼륨은
-  앱 프레임워크가 정해진 뒤 #26이 붙인다 (PRD 7.10).
+- **편집 상태 필드는 넣지 않는다.** 텍스트 오버레이 편집 이력과 트랙별 볼륨은 앱 프레임워크가
+  정해진 뒤 #26이 붙인다 (PRD 7.10). **자막 스타일·폰트·cta 문구는 편집 상태가 아니라 초기
+  상태다** — 렌더러가 실제로 읽는 값이므로 배경과 같은 자리를 지나야 한다. 여기 없으면 렌더가
+  config를 직접 열게 되고, 그 순간 앱이 편집한 프로젝트와 CLI 렌더가 갈린다 (#20).
 - **이 단계도 타입을 모른다.** `type`은 장면 목록이 들고 있는 값을 옮길 뿐이다.
 """
 
@@ -81,6 +83,12 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
             "height": CANVAS_HEIGHT,
             "fps": FPS,
             "output": OUTPUT_NAME,
+            # 번인 오버레이가 읽는 값 (#20). 배경과 같은 이유로 여기를 지난다 — 렌더러가
+            # config를 다시 열면 앱이 편집한 프로젝트와 CLI 렌더가 갈린다.
+            "caption_style": str(config.get("render.caption_style")),
+            "font_path": _optional(config.get("render.font_path")),
+            "cta_punch": str(config.get("render.cta_punch")),
+            "cta_tail": str(config.get("render.cta_tail")),
         },
     }
 
@@ -88,3 +96,8 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
     # 원인이 드러나지 않는다.
     validate_project(project)
     return project
+
+
+def _optional(value: Any) -> str | None:
+    """nullable 설정값을 그대로 옮긴다. `str(None)`이 `"None"`이 되는 것을 막는다."""
+    return None if value is None else str(value)
