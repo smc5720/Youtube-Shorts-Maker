@@ -32,8 +32,13 @@ ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 """저장소의 `assets/` 디렉터리. `src/shorts_maker/assets.py`에서 두 단계 위다."""
 
 FONTS_DIR = ASSETS_DIR / "fonts"
+SFX_DIR = ASSETS_DIR / "sfx"
 BACKGROUNDS_FILE = ASSETS_DIR / "backgrounds" / "presets.json"
 CAPTION_STYLES_FILE = ASSETS_DIR / "caption-styles" / "presets.json"
+
+SFX_SUFFIX = ".mp3"
+"""번들 효과음의 확장자 (#18). 파일 stem이 `scenes.json`의 `sfx` 값이므로 확장자를 붙이는
+것은 조회하는 쪽의 일이다 — 장면 템플릿이 내는 값에는 확장자가 없다."""
 
 SCHEMA_VERSION = 1
 """프리셋 파일의 형식 버전. 소비하는 쪽이 늘어난 뒤 모양을 바꿀 때 쓴다."""
@@ -150,6 +155,28 @@ def font_path(weight: int) -> Path:
     if not path.is_file():
         raise AssetError(f"번들 폰트가 없다: {path}")
     return path
+
+
+def sfx_path(name: str) -> Path:
+    """번들 효과음 파일 경로. 이름은 `scenes.json`의 `sfx` 값이다 (#18, #23).
+
+    **이름에서 경로를 만드는 유일한 지점이다.** 믹싱하는 쪽(`audio_mix`)이 디렉터리와 확장자를
+    직접 조립하면 파일을 다른 이름 규칙으로 교체할 때 고칠 곳이 둘이 된다.
+
+    Raises:
+        AssetError: 번들에 없는 이름일 때. 쓸 수 있는 이름을 함께 말한다 — 장면 템플릿의
+            오타나 사람이 고친 `scenes.json`이 여기 온다.
+    """
+    path = SFX_DIR / f"{name}{SFX_SUFFIX}"
+    if not path.is_file():
+        known = ", ".join(sfx_names()) or "(없음)"
+        raise AssetError(f"번들에 없는 효과음이다: {name!r}. 있는 이름: {known}")
+    return path
+
+
+def sfx_names() -> tuple[str, ...]:
+    """번들된 효과음 이름을 정렬해 돌려준다. 오류 메시지와 테스트가 읽는다."""
+    return tuple(sorted(path.stem for path in SFX_DIR.glob(f"*{SFX_SUFFIX}")))
 
 
 @lru_cache(maxsize=1)

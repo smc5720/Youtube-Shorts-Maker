@@ -664,7 +664,12 @@ class _Painter:
             )
             return
 
-        steps = self._countdown_steps(seconds, span, where=where)
+        steps = countdown_windows(seconds, span, fps=self.fps)
+        if len(steps) < seconds:
+            LOGGER.warning(
+                "%s: 장면 길이가 seconds(%d초)보다 짧아 숫자 %d개만 그린다",
+                where, seconds, len(steps),
+            )
         if not steps:
             return
 
@@ -676,30 +681,6 @@ class _Painter:
             self.filters.append(self._drawbox(width, fill, window))
         for index, window in steps:
             self.draw("digit", str(seconds - index), window, where=where)
-
-    def _countdown_steps(
-        self, seconds: int, span: tuple[int, int], *, where: str
-    ) -> list[tuple[int, tuple[int, int]]]:
-        """숫자 하나가 서 있는 (순번, 프레임 구간). 순번 0이 가장 큰 숫자다.
-
-        각 1.0초이고, **마지막 숫자만 장면 끝까지 늘어난다.** 확정 검증이 `duration`과
-        `seconds`를 같게 묶지만(`schemas/scenes.py`) 프레임 반올림으로 한두 프레임이 남을 수
-        있고, 그 프레임에 숫자가 비면 카운트다운이 끝나기 전에 화면이 빈다.
-        """
-        start, end = span
-        steps: list[tuple[int, tuple[int, int]]] = []
-        for index in range(seconds):
-            first = start + index * self.fps
-            if first >= end:
-                # 장면이 seconds보다 짧다. 들어갈 수 있는 숫자까지만 그린다.
-                LOGGER.warning(
-                    "%s: 장면 길이가 seconds(%d초)보다 짧아 숫자 %d개만 그린다",
-                    where, seconds, index,
-                )
-                break
-            last = end if index == seconds - 1 else min(first + self.fps, end)
-            steps.append((index, (first, last)))
-        return steps
 
     def _drawbox(self, width: int, color: str, span: tuple[int, int]) -> str:
         """진행 바 한 칸. 폭 말고는 전부 고정이다 (확정 스펙 5.3)."""
@@ -763,6 +744,31 @@ class _Painter:
         """
         start, end = span
         return f"gte(t,{start}/{self.fps})*lt(t,{end}/{self.fps})"
+
+
+def countdown_windows(
+    seconds: int, span: tuple[int, int], *, fps: int
+) -> list[tuple[int, tuple[int, int]]]:
+    """숫자 하나가 서 있는 (순번, 프레임 구간). 순번 0이 가장 큰 숫자다.
+
+    각 1.0초이고, **마지막 숫자만 장면 끝까지 늘어난다.** 확정 검증이 `duration`과 `seconds`를
+    같게 묶지만(`schemas/scenes.py`) 프레임 반올림으로 한두 프레임이 남을 수 있고, 그 프레임에
+    숫자가 비면 카운트다운이 끝나기 전에 화면이 빈다.
+
+    **모듈 수준에 있는 이유는 비프가 같은 박자를 읽기 때문이다** (#23). 카운트다운 효과음은
+    숫자가 갈리는 프레임에 놓여야 하고, 두 곳에서 각자 세면 반올림 하나로 그림과 소리가
+    갈린다. 장면이 `seconds`보다 짧으면 들어갈 수 있는 숫자까지만 돌려준다 — **경고는 부르는
+    쪽이 한다.** 그리기와 믹싱이 같은 장면에 대해 같은 경고를 두 번 남기지 않게 하기 위함이다.
+    """
+    start, end = span
+    windows: list[tuple[int, tuple[int, int]]] = []
+    for index in range(seconds):
+        first = start + index * fps
+        if first >= end:
+            break
+        last = end if index == seconds - 1 else min(first + fps, end)
+        windows.append((index, (first, last)))
+    return windows
 
 
 def _escape(text: str) -> str:

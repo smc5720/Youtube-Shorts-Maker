@@ -18,12 +18,13 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
 템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15),
 타임라인 확정(#16), 자막 생성(#17), 렌더 골격(#19), 번인 오버레이(#20), 카운트다운(#21),
-정답 강조 애니메이션(#22)까지 있고 `app/`은 아직
+정답 강조 애니메이션(#22), 효과음 믹싱(#23)까지 있고 `app/`은 아직
 없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`, `metadata.json`,
 낭독 장면별 `audio/seg-*.mp3`, `voice.mp3`, `captions.srt`, `project.json`, 그리고 규격에 맞는
-`final_short.mp4`까지 나온다 — **화면에는 hook·질문·카운트다운·정답 확대·해설·cta가 나오고,
-남은 것은 효과음(#23)이다.** `assets/`에는 효과음(#18)과 폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는
-`assets.py` 하나다. **Phase 2가 끝났고 Phase 3이 진행 중이다** — `scenes.json`은
+`final_short.mp4`까지 나온다 — **화면에는 hook·질문·카운트다운·정답 확대·해설·cta가 나오고
+비프와 정답 효과음이 들리며, 남은 것은 전 구간 스모크 테스트(#24)다.** `assets/`에는 효과음(#18)과
+폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는 `assets.py` 하나다 — `sfx_path()` /
+`caption_styles()` / `background_presets()` / `font_path(weight)`. **Phase 2가 끝났고 Phase 3이 진행 중이다** — `scenes.json`은
 `validate_scenes_final()`을 통과하는 확정 상태이므로 자막과 렌더러가 그대로 입력으로 받는다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
 이슈이므로 번호가 Phase 순서를 따르지 않는다** — 소속은 아래 표를 본다.
@@ -136,7 +137,7 @@ CSS로 그려졌고 렌더는 FFmpeg `drawtext`라서 같은 숫자가 같은 �
   나뉜다. (PRD 7.10)
 - **색과 폰트 파일을 렌더러에 적지 말 것.** 확정 스펙 6장의 프리셋은 `assets/`에 커밋돼 있고
   (#38) 조회는 `shorts_maker.assets`의 `caption_styles()` / `background_presets()` /
-  `font_path(weight)`뿐이다. 확정 스펙 5장의 좌표·폰트 크기·요소별 `borderw`는 반대로 프리셋에
+  `font_path(weight)` / `sfx_path(name)`뿐이다. 확정 스펙 5장의 좌표·폰트 크기·요소별 `borderw`는 반대로 프리셋에
   없다 — 렌더러의 표다. 프리셋이 바꾸는 것은 색과 그림자뿐이라 교체해도 레이아웃이 회귀하지
   않는다.
 - **확정 스펙 6.3의 "9조합 전부 7:1 이상"은 틀렸었다.** #38에서 실측해 고쳤다 — P3 오렌지
@@ -167,6 +168,15 @@ CSS로 그려졌고 렌더는 FFmpeg `drawtext`라서 같은 숫자가 같은 �
   방식이다. **MP3 프레임 패딩이 길이를 밀지 않는지 확인했다** — 요청 10.000초에 실측
   10.000000초, 세그먼트 시작도 지정 오프셋과 1ms 안에서 일치했다. 30fps 한 프레임(0.033초)
   허용 오차를 걱정하지 않아도 된다. (#16, `timeline.mix_voice_track`)
+- **`alimiter`는 기본값 두 개가 함정이다.** `level`의 기본값 `true`가 **auto level**이라 그냥
+  걸면 최종 오디오가 0dB로 정규화되어 낭독 레벨이 달라지고(`level=disabled` 필수),
+  `latency`를 빼면 attack(5ms)만큼 **오디오 전체가 늦는다** — `latency=true`가 정확히 상쇄한다
+  (요청 1.000초 → 없이 1.005 / 있으면 1.000). `limit=0.891`(-1 dBFS)은 합이 +5 dBFS인 입력에서도
+  지켜졌다. (#23)
+- **`adelay` 배치 오차는 5ms 안이고, AAC 오버슈트는 소재에 따라 갈린다.** 리미터 출력이 정확히
+  -1.00 dBFS여도 그것을 AAC로 인코딩해 디코드하면 톤에서 0.1dB, 광대역 노이즈에서 2.6dB를
+  넘는다 — 최종 mp4의 peak로 리미터를 검증할 때 노이즈를 쓰면 인코더의 오버슈트를 재게 된다.
+  같은 이유로 `sine` lavfi 소스의 출력은 **-18 dBFS**다(꽉 찬 신호가 아니다). (#23)
 - **한국어 자막**은 번들 폰트(`assets/fonts/Pretendard-*.otf`, #38)로 정상 렌더된다.
   `C:/Windows/Fonts/malgun.ttf`도 렌더는 되지만 **재배포가 금지되므로 쓰지 않는다.**
   `fontfile`에 Windows 경로를 줄 때 콜론을 이스케이프해야 한다 (`D\:/Git/...`).
