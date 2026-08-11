@@ -37,6 +37,11 @@ _AUDIO_FIELDS = {
     "voice": text(nullable=True),
     # 라이선스를 확인한 파일만 사용자가 지정한다. 기본은 없음 (PRD 8장).
     "music": text(nullable=True),
+    # 효과음의 선형 게인 (#23). **편집 상태가 아니라 초기 상태다** — 렌더러가 실제로 읽는
+    # 값이므로 `caption_style`과 같은 이유로 여기를 지나야 하고, config를 렌더가 다시 열면
+    # 앱이 편집한 프로젝트와 CLI 렌더가 갈린다 (PRD 7.10). 앱(#26)이 트랙별 볼륨 편집을
+    # 붙일 때 이 필드를 그대로 쓴다. 0이면 효과음이 없는 결과가 나온다.
+    "sfx_volume": number(minimum=0),
 }
 
 _RENDER_FIELDS = {

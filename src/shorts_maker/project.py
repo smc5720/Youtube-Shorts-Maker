@@ -76,6 +76,9 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
             "voice": VOICE_TRACK if (run_dir / VOICE_TRACK).is_file() else None,
             # 배경음악은 사용자가 라이선스를 확인한 파일만 넣는다 (PRD 8장). #35까지 없음이다.
             "music": None,
+            # 효과음 게인 (#23). 렌더러가 읽는 값이므로 배경·자막 스타일과 같은 자리를
+            # 지난다 — config를 렌더가 다시 열면 앱이 편집한 값이 무시된다 (PRD 7.10).
+            "sfx_volume": float(config.get("audio.sfx_volume")),
         },
         # 6.3의 영상 규격. 값의 단일 진실 공급원은 렌더러이고 여기는 옮겨 담는다.
         "render": {

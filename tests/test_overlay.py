@@ -771,7 +771,7 @@ def project_with(**render: Any) -> dict[str, Any]:
         "language": "ko",
         "scenes": "scenes.json",
         "background": {"kind": "color", "value": "#101A33"},
-        "audio": {"voice": None, "music": None},
+        "audio": {"voice": None, "music": None, "sfx_volume": 1.0},
         "render": {
             "width": CANVAS_WIDTH, "height": CANVAS_HEIGHT, "fps": 30,
             "output": "final_short.mp4", "caption_style": "impact_yellow",

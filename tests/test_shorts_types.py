@@ -312,7 +312,7 @@ def test_scenes_and_project_schemas_accept_a_newly_registered_type(
             "language": "ko",
             "scenes": "scenes.json",
             "background": {"kind": "preset", "value": "dark-gradient"},
-            "audio": {"voice": None, "music": None},
+            "audio": {"voice": None, "music": None, "sfx_volume": 1.0},
             "render": {
                 "width": 1080,
                 "height": 1920,

@@ -99,7 +99,22 @@ def test_without_a_voice_track_the_audio_is_null(tmp_path: Path) -> None:
     """낭독 장면이 없으면 `voice.mp3`가 생성되지 않는다 (PRD 6.2 표)."""
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
 
-    assert content["audio"] == {"voice": None, "music": None}
+    assert content["audio"] == {"voice": None, "music": None, "sfx_volume": 1.0}
+
+
+def test_the_sfx_gain_comes_from_the_config(tmp_path: Path) -> None:
+    """값이 config → `project.json` → 렌더러 한 방향으로 흐른다 (#23, PRD 7.10).
+
+    렌더러가 `audio.sfx_volume`을 config에서 다시 읽으면 앱이 편집한 프로젝트와 CLI 렌더가
+    갈린다 — 그 방향을 지키는지는 여기와 `test_audio_mix.py`가 함께 본다.
+    """
+    content = project.build(
+        FINAL_SCENES,
+        config=config_of(tmp_path, **{"audio.sfx_volume": 0.0}),
+        run_dir=tmp_path,
+    )
+
+    assert content["audio"]["sfx_volume"] == 0.0
 
 
 def test_an_existing_voice_track_is_referenced(tmp_path: Path) -> None:

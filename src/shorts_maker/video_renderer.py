@@ -10,8 +10,9 @@ MoviePy를 쓰지 않고 FFmpeg 명령을 직접 만든다 (PRD 14.1). **오버�
 - **프레임 경계 정렬은 이 모듈이 소유한다** (`align`). `duration`은 밀리초 자리 실수이고
   30fps 한 프레임은 33.33ms라, 장면 시작 시각을 각자 누적하면 오버레이마다 다른 경계를
   갖게 된다 (`schemas/scenes.py`의 `DURATION_DIGITS` 주석).
-- **오디오 스트림은 항상 정확히 하나다.** 낭독 장면이 없어도 무음 트랙을 넣는다 — 효과음을
-  얹는 #23이 스트림 하나를 전제할 수 있어야 한다.
+- **오디오 스트림은 항상 정확히 하나다.** 낭독 장면이 없어도 무음 트랙을 넣고, 효과음이
+  얹혀도(#23) 믹스 결과가 하나로 나온다 — 필터 체인은 `audio_mix`가 만들고 이 모듈은 명령에
+  옮겨 담는다.
 - **이 단계도 타입을 모른다.** `role`로 갈라지는 규칙은 오버레이 쪽에 생기고, 골격이 읽는
   것은 `duration`뿐이다 (PRD 7.4.1).
 """
@@ -26,8 +27,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import PACKAGE_LOGGER, overlay
+from . import PACKAGE_LOGGER, audio_mix, overlay
 from .assets import AssetError, background_presets
+from .audio_mix import AudioChain, AudioMixError
 from .overlay import OverlayError
 from .schemas.project import BACKGROUND_KINDS
 from .schemas.scenes import validate_scenes_final
@@ -54,11 +56,9 @@ CRF = 20
 중요해서 기본값 23보다 한 단계 올려 잡았다. 실측으로 고른 값은 아니므로, 번인이 들어간 뒤
 (#20) 외곽선 주변이 뭉개지면 이 값부터 본다. 사람이 조정할 값이 되면 그때 config를 연다."""
 
-_AUDIO_SAMPLE_RATE = 44100
-_AUDIO_CHANNEL_LAYOUT = "stereo"
 _AUDIO_BITRATE = "192k"
-"""출력 오디오 규격. 합성 트랙(`timeline`)이 같은 샘플레이트·레이아웃으로 나오므로 리샘플이
-일어나지 않는다."""
+"""출력 오디오 비트레이트. 샘플레이트·레이아웃은 `audio_mix`가 소유한다 — 효과음을 섞는 쪽이
+입력 규격을 맞추므로(#23) 같은 값이 두 모듈에 있으면 한쪽만 바뀔 수 있다."""
 
 _HEX_COLOR = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 """`background.kind`가 `color`일 때의 값. 번들 프리셋(`assets.HEX_COLOR`)보다 느슨하다 —
@@ -187,8 +187,15 @@ def render(
     # **오버레이를 명령보다 먼저 만든다.** 폰트 경로 오타나 한글을 못 그리는 폰트는 여기서
     # 걸리고, 그때 인코딩은 아직 시작되지 않았다 (#20의 완료 조건).
     overlays = build_overlays(project, scenes, timeline=timeline)
+    # 효과음도 인코딩 전에 만든다 (#23). 번들에 없는 `sfx` 이름은 여기서 걸리고, 그때 인코딩은
+    # 아직 시작되지 않았다 — 오버레이의 폰트 검증과 같은 자리다.
+    audio = build_audio(project, scenes, timeline=timeline)
     command = build_command(
-        project, run_dir=run_dir, total_sec=timeline.total_sec, overlays=overlays
+        project,
+        run_dir=run_dir,
+        total_sec=timeline.total_sec,
+        overlays=overlays,
+        audio=audio,
     )
     output = run_dir / str(project["render"]["output"])
 
@@ -260,22 +267,49 @@ def build_overlays(
         raise RenderError(str(error)) from error
 
 
+def build_audio(
+    project: Mapping[str, Any], scenes: Mapping[str, Any], *, timeline: Timeline
+) -> AudioChain:
+    """낭독 위에 효과음을 얹는 오디오 체인 (#23). 트리거 시각은 `audio_mix`가 소유한다.
+
+    **게인을 `project.json`에서 읽는다.** 배경·자막 스타일과 같은 이유로 config를 다시 열지
+    않는다 — 앱(#29)이 트랙 볼륨을 편집하면 CLI 렌더가 그 값으로 돌아야 한다 (PRD 7.10).
+
+    Raises:
+        RenderError: `sfx` 이름이 번들에 없거나 게인 값이 음수일 때.
+    """
+    try:
+        return audio_mix.build(
+            scenes,
+            timeline.frame_spans,
+            fps=timeline.fps,
+            volume=_audio_number(project, "sfx_volume"),
+        )
+    except AudioMixError as error:
+        # 오디오 체인 실패도 렌더 실패다. 부르는 쪽(main)이 잡는 예외를 하나로 유지한다.
+        raise RenderError(str(error)) from error
+
+
 def build_command(
     project: Mapping[str, Any],
     *,
     run_dir: Path,
     total_sec: float,
     overlays: Sequence[str] = (),
+    audio: AudioChain | None = None,
 ) -> list[str]:
     """렌더 명령을 만든다. **FFmpeg를 부르지 않으므로 어디서나 검증할 수 있다.**
 
     Args:
         overlays: 배경 위에 순서대로 이을 필터 문자열 (`build_overlays`). 비어 있으면
             배경만 그린다 — #19까지의 상태다.
+        audio: 오디오 필터 체인 (`build_audio`). `None`이면 낭독만 담는다 — 효과음이 없는
+            장면 목록과 같은 결과이고, #22까지의 명령과 같은 모양이다.
 
     Raises:
         RenderError: `project.json`의 배경·규격 값을 명령으로 옮길 수 없을 때.
     """
+    chain = audio if audio is not None else audio_mix.voice_only()
     width = _int_field(project, "width")
     height = _int_field(project, "height")
     fps = _int_field(project, "fps")
@@ -292,17 +326,17 @@ def build_command(
     )
     audio_input = _audio_input(project.get("audio", {}), run_dir=run_dir, length=length)
 
-    command = ["ffmpeg", "-y", "-v", "error", *video_input, *audio_input]
+    # 효과음 입력은 낭독 뒤에 붙는다. `audio_mix`가 그 순서로 인덱스를 매긴다.
+    command = ["ffmpeg", "-y", "-v", "error", *video_input, *audio_input, *chain.inputs]
     command += [
         "-filter_complex",
         ";".join(
             [
                 # 오버레이는 배경 체인 뒤에 이어 붙는다. 목록 순서가 그리는 순서다.
                 f"[0:v]{','.join([video_chain, *overlays])}[video]",
-                # 합성 트랙이 프레임 정렬 길이보다 반 프레임쯤 짧을 수 있다. `apad`가 그
-                # 차이를 무음으로 메우므로 아래 `-t`가 오디오를 기준으로 끊지 않는다.
-                f"[1:a]aformat=sample_rates={_AUDIO_SAMPLE_RATE}:"
-                f"channel_layouts={_AUDIO_CHANNEL_LAYOUT},apad[audio]",
+                # 오디오는 낭독 하나이거나 효과음이 얹힌 믹스다 (#23). 어느 쪽이든 마지막
+                # 단계가 `[audio]`를 내고, 스트림 수는 정확히 하나로 유지된다 (PRD 7.7).
+                *chain.steps,
             ]
         ),
         "-map",
@@ -421,7 +455,7 @@ def _audio_input(
             "-t",
             length,
             "-i",
-            f"anullsrc=r={_AUDIO_SAMPLE_RATE}:cl={_AUDIO_CHANNEL_LAYOUT}",
+            f"anullsrc=r={audio_mix.SAMPLE_RATE}:cl={audio_mix.CHANNEL_LAYOUT}",
         ]
 
     path = _source_file(str(voice), run_dir)
@@ -472,6 +506,21 @@ def _number_field(project: Mapping[str, Any], key: str) -> float:
         raise RenderError(f"project.json의 render.{key}가 없다") from None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
         raise RenderError(f"render.{key}는 0 이상의 수여야 한다. 받은 값: {value!r}")
+    return float(value)
+
+
+def _audio_number(project: Mapping[str, Any], key: str) -> float:
+    """`audio` 섹션의 실수 값 (#23). 정수도 받는다 — `sfx_volume: 1`은 1.0이다.
+
+    `render` 섹션이 아닌 이유는 이것이 트랙의 성격을 정하는 값이기 때문이다. 앱(#26)이 붙일
+    트랙별 볼륨도 같은 자리에 온다 (PRD 7.10).
+    """
+    try:
+        value = project["audio"][key]
+    except (KeyError, TypeError):
+        raise RenderError(f"project.json의 audio.{key}가 없다") from None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise RenderError(f"audio.{key}는 0 이상의 수여야 한다. 받은 값: {value!r}")
     return float(value)
 
 

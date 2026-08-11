@@ -321,6 +321,21 @@ outputs/run-{timestamp}/
 - 오디오 스트림은 **낭독이 없어도 항상 정확히 하나**다. 낭독 장면이 없는 입력에서는 무음
   트랙을 넣는다 — 효과음을 얹는 단계(#23)가 스트림 하나를 전제할 수 있어야 한다.
 
+#### 효과음 믹싱 (#23)
+
+효과음은 **렌더 패스 안에서** 낭독 트랙 위에 얹는다. 중간 파일을 만들지 않으므로 6.2의
+산출물 목록이 늘지 않고, 믹스 결과는 계속 스트림 하나다.
+
+- 트리거 시각은 `scenes.json`의 `sfx`와 장면의 프레임 구간에서 나온다 — 카운트다운은 숫자가
+  갈리는 프레임마다, 정답은 정답이 등장하는 순간 한 번이다. **그림과 같은 프레임 계산을
+  쓴다** (`overlay.countdown_windows` / `overlay.ANSWER_ONSET_SEC`).
+- 레벨은 `project.json`의 `audio.sfx_volume`(선형 게인)이 정한다. 번들 효과음이 낭독보다
+  peak 9.5dB / RMS 9~10dB 아래로 정규화돼 있어(#18) 기본값 1.0에서 추가 감쇠가 없다.
+- 믹스 끝에 리미터를 둬서 최종 오디오가 **-1 dBFS**를 넘지 않는다. 기본 설정에서는 걸리지
+  않고, 사람이 게인을 올렸거나 낭독 레벨이 다른 provider를 쓸 때만 동작한다.
+- 게인이 `0`이거나 `sfx`가 하나도 없으면 효과음 입력과 믹스 필터를 만들지 않는다 — 그때의
+  명령은 #22까지의 것과 같다.
+
 #### 프레임 경계 정렬 (#19)
 
 `duration`은 밀리초 자리 실수이고 30fps 한 프레임은 33.33ms라, 정렬 규칙이 없으면 장면
@@ -406,7 +421,7 @@ total_frames = sum(frames_i)
   "language": "ko",
   "scenes": "scenes.json",
   "background": { "kind": "preset", "value": "deep_navy" },
-  "audio": { "voice": "voice.mp3", "music": null },
+  "audio": { "voice": "voice.mp3", "music": null, "sfx_volume": 1.0 },
   "render": {
     "width": 1080, "height": 1920, "fps": 30, "output": "final_short.mp4",
     "caption_style": "impact_yellow", "font_path": null,
@@ -422,6 +437,7 @@ total_frames = sum(frames_i)
 | `background.kind` | `preset` \| `color` \| `image` \| `video`. `preset`은 번들 프리셋 이름, `color`는 색상 값, 나머지는 사용자 파일 경로 (14.1의 배경 소스 결정) |
 | `audio.voice` | 합성 트랙 경로. 낭독 장면이 없으면 `voice.mp3`가 생성되지 않으므로 `null`이 될 수 있다 (6.2) |
 | `audio.music` | 사용자가 라이선스를 확인한 파일만. 기본은 `null` (8장) |
+| `audio.sfx_volume` | 효과음의 선형 게인. `config`의 `audio.sfx_volume`에서 오고 **렌더러가 읽는 유일한 자리다** (#23). `0`이면 효과음 없이 렌더한다. 앱이 붙일 트랙별 볼륨도 이 섹션에 온다 |
 | `render` | 6.3의 영상 규격과 출력 파일명, 그리고 번인 오버레이가 읽는 값 — 자막 스타일·폰트 경로·cta 문구·`caption_onset_sec` |
 | `render.caption_onset_sec` | 해설 자막이 뜨는 시각(장면 시작 기준 초). `timing.caption_onset_sec`에서 오고, **장면 길이 하한을 계산한 7.5.1의 공식이 읽은 값과 같은 값이다** — 렌더러가 상수를 갖거나 config를 다시 열면 화면과 길이 계산이 갈린다 |
 
@@ -858,6 +874,25 @@ optional로 두고**, TTS 이후 상태를 요구하는 확정 검증(`validate_
 
 영향 — config `tts.timeout_sec` / `tts.max_retries` / `tts.cache_dir` 키(#6 후속), 7.5·7.5.2,
 세그먼트 배치(#15), duration 보정(#16), 자막 타임코드(#17).
+
+#### 효과음 레벨: 기본 게인은 감쇠 없이 1.0이고, 클리핑은 리미터가 막는다
+
+효과음은 `audio.sfx_volume`(선형, 기본 `1.0`)으로 조정하고 `0`이면 효과음 없이 렌더한다.
+믹스 끝의 리미터가 최종 오디오를 **-1 dBFS**에서 잡는다.
+
+근거 — 실측에서 낭독(edge_tts `ko-KR-SunHiNeural`)은 peak -4.81 dBFS / RMS -18.06 dB이고
+번들 효과음은 peak -14.3 dBFS / RMS -27~-28.5 dB였다. 대사 우선 믹스의 통상 범위(8~12dB)에
+이미 들어 있으므로 기본 게인에 감쇠를 넣으면 근거 없는 상수가 하나 늘어난다. 동시 피크의
+최악값도 -2.3 dBFS라 기본 설정에서는 리미터가 걸리지 않는다 — 리미터는 사람이 게인을 올린
+경우와 낭독 레벨이 다른 provider를 위한 안전망이다. 상한을 설정 키에 두지 않는 이유가
+그것이고, 음수만 거부한다.
+
+**효과음이 낭독과 실제로 겹치는 곳은 정답 장면 하나다.** 정답 효과음은 장면 시작 +0.15초에
+울리고 낭독은 +0.30초(`timing.lead_in_sec`)에 시작하므로 앞머리 약 0.5초가 겹친다.
+카운트다운은 낭독이 없는 장면이라 겹치지 않는다.
+
+영향 — config `audio.sfx_volume` 키(#6 후속), 7.7·7.10, `project.json`의 `audio` 섹션(#19 후속),
+앱의 트랙 볼륨 편집(#29), 배경음악 ducking(#35)이 같은 리미터 뒤에 붙는다.
 
 ### 14.2 남은 미해결 항목
 

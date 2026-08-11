@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 
 from shorts_maker import timeline, video_renderer
+from shorts_maker.audio_mix import AudioChain
 from shorts_maker.schemas import SchemaError
 from shorts_maker.video_renderer import (
     CANVAS_HEIGHT,
@@ -63,7 +64,7 @@ def project_with(**overrides: Any) -> dict[str, Any]:
         "language": "ko",
         "scenes": "scenes.json",
         "background": {"kind": "preset", "value": "deep_navy"},
-        "audio": {"voice": None, "music": None},
+        "audio": {"voice": None, "music": None, "sfx_volume": 1.0},
         "render": {
             "width": CANVAS_WIDTH,
             "height": CANVAS_HEIGHT,
@@ -233,7 +234,7 @@ def test_an_unknown_background_kind_lists_the_supported_ones(tmp_path: Path) -> 
 
 def test_the_voice_track_is_the_audio_input_when_it_exists(tmp_path: Path) -> None:
     (tmp_path / "voice.mp3").write_bytes(b"audio")
-    project = project_with(audio={"voice": "voice.mp3", "music": None})
+    project = project_with(audio={"voice": "voice.mp3", "music": None, "sfx_volume": 1.0})
 
     command = build_command(project, run_dir=tmp_path, total_sec=5.0)
 
@@ -254,11 +255,24 @@ def test_the_audio_is_padded_so_a_short_track_does_not_cut_the_video(
 ) -> None:
     """합성 트랙은 프레임 정렬 길이보다 반 프레임쯤 짧을 수 있다."""
     (tmp_path / "voice.mp3").write_bytes(b"audio")
-    project = project_with(audio={"voice": "voice.mp3", "music": None})
+    project = project_with(audio={"voice": "voice.mp3", "music": None, "sfx_volume": 1.0})
 
     command = build_command(project, run_dir=tmp_path, total_sec=5.0)
 
     assert "apad" in command[command.index("-filter_complex") + 1]
+
+
+def test_the_sfx_inputs_come_after_the_voice_input(tmp_path: Path) -> None:
+    """효과음 입력 인덱스는 `audio_mix`가 매긴다 (#23). 순서가 어긋나면 낭독이 지연된다."""
+    (tmp_path / "voice.mp3").write_bytes(b"audio")
+    project = project_with(audio={"voice": "voice.mp3", "music": None, "sfx_volume": 1.0})
+    chain = AudioChain(steps=("[1:a]anull[audio]",), inputs=("-i", "beep.mp3"))
+
+    command = build_command(project, run_dir=tmp_path, total_sec=5.0, audio=chain)
+
+    # 입력 0은 배경이므로 뒤 두 개를 본다 — 낭독이 1, 효과음이 2다.
+    assert flags(command, "-i")[-2:] == [str(tmp_path / "voice.mp3"), "beep.mp3"]
+    assert "[1:a]anull[audio]" in command[command.index("-filter_complex") + 1]
 
 
 def test_overlays_ride_on_the_background_chain(tmp_path: Path) -> None:
@@ -451,7 +465,7 @@ def test_the_narration_starts_at_its_recorded_offset(tmp_path: Path) -> None:
     total = align(scenes).total_sec
     offset = scenes["scenes"][1]["narration_offset"]
     voice_track(tmp_path, offset_sec=offset, total_sec=total)
-    project = project_with(audio={"voice": "voice.mp3", "music": None})
+    project = project_with(audio={"voice": "voice.mp3", "music": None, "sfx_volume": 1.0})
 
     output = render(project, scenes, run_dir=tmp_path)
 
