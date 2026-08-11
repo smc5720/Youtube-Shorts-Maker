@@ -1,4 +1,4 @@
-"""확정 `scenes.json` → `drawtext` 필터 목록 (D1 확정 스펙 5장, 이슈 #20).
+"""확정 `scenes.json` → `drawtext`·`drawbox` 필터 목록 (D1 확정 스펙 5장, 이슈 #20·#21).
 
 렌더 골격(#19)이 배경·오디오·프레임 경계를 정하고, **이 모듈이 그 위에 무엇을 그리는지를
 정한다.** 좌표·폰트 크기·요소별 외곽선은 여기 `_ELEMENTS` 표가 소유한다 — 프리셋(`assets/`)이
@@ -13,8 +13,8 @@
 - **텍스트는 `expansion=none`으로 넣는다.** 기본 확장 모드에서는 `%`가 `%{...}` 문법의 도입
   문자라, 퀴즈 문장에 흔한 백분율(`약 71%`) 하나가 그 요소를 통째로 지운다. 일부가 잘리는
   것이 아니라 아무것도 그려지지 않고 경고만 나온다. `\\%`로 이스케이프해도 막히지 않는다 —
-  실측은 `_escape` 주석에 있다. 카운트다운 숫자(#21)처럼 확장이 필요한 요소는 자기 인스턴스에서
-  기본 모드를 쓰면 된다.
+  실측은 `_escape` 주석에 있다. **카운트다운 숫자도 확장을 쓰지 않는다** — `%{eif}` 한
+  인스턴스로 세는 대신 초마다 인스턴스를 나눴다 (`_Painter.draw_countdown`).
 - **구간은 초가 아니라 프레임 번호로 준다.** `enable`에 `2.533`처럼 반올림한 초를 적으면 그
   값이 실제 프레임 시각보다 크게 반올림됐을 때 요소가 한 프레임 늦게 켜진다. `75/30`을 그대로
   적으면 필터의 `t`와 정확히 같은 값이 되어 경계가 어긋날 여지가 없다 (#19의 `align`).
@@ -40,6 +40,18 @@ TEXT_COLUMN = 840
 
 CENTER_X = 500
 """가로 정렬 중심. **캔버스 중앙 540이 아니다** — 우측 160px가 Shorts 사이드 버튼 영역이다."""
+
+COLUMN_LEFT = CENTER_X - TEXT_COLUMN // 2
+"""텍스트 컬럼의 왼쪽 끝 x80. 텍스트는 `text_w`로 중심을 잡지만 진행 바는 폭이 고정이라
+왼쪽 끝을 직접 쓴다."""
+
+BAR_Y = 1330
+BAR_HEIGHT = 14
+"""카운트다운 진행 바의 위치와 높이 (확정 스펙 5.3)."""
+
+BAR_TRACK_COLOR = "white@0.16"
+"""바의 빈 부분. **프리셋 색이 아니다** — 확정 스펙 5.3의 표에 있는 값이고 3종이 공통이라
+좌표·크기와 같은 자리에 둔다. 채움색만 프리셋의 강조색을 쓴다 (6.1)."""
 
 SHADOW_BASELINE = 0.5
 """아래 표의 `shadow_alpha`가 기준으로 삼는 불투명도 (P1 임팩트 옐로).
@@ -170,6 +182,12 @@ _ELEMENTS: dict[str, Element] = {
             _tier(max_chars=39, size=64, y=648, line_height=88, max_lines=3),
             _tier(max_chars=45, size=56, y=664, line_height=78, max_lines=3),
         ),
+    ),
+    # --- countdown (5.3) ---
+    "digit": Element(
+        weight=800, color="accent", borderw=7, shadow_offset=12, shadow_alpha=0.5,
+        # 박스 y1060 h240에 240px 한 줄이라 잉크가 박스를 정확히 채운다 (2.4의 `y` 실측).
+        tiers=(_tier(max_chars=999, size=240, y=1060, line_height=240, max_lines=1),),
     ),
     # --- answer (5.4) ---
     "answer": Element(
@@ -342,6 +360,10 @@ def build(
                 "meta", _meta(scene_list, total_questions), span,
                 where=f"scenes[{index}]",
             )
+        elif role == "countdown":
+            painter.draw_countdown(
+                scene.get("seconds"), span, where=f"scenes[{index}]"
+            )
         elif role == "answer":
             painter.draw("answer", scene.get("text"), span, where=f"scenes[{index}]")
             painter.draw(
@@ -465,6 +487,84 @@ class _Painter:
                     color=color or element.color,
                 )
             )
+
+    def draw_countdown(
+        self, seconds: Any, span: tuple[int, int], *, where: str
+    ) -> None:
+        """카운트다운 숫자와 진행 바 (확정 스펙 5.3).
+
+        **숫자는 초마다 인스턴스 하나다.** `%{eif}` 한 인스턴스로 남은 초를 계산하는 방법도
+        되지만, 그러려면 그 요소만 확장 모드를 켜야 하고 구간이 표현식 안의 반올림한 초로
+        들어간다. 인스턴스를 나누면 다른 요소와 같은 `n/fps` 경계를 쓴다 — 숫자가 바뀌는
+        프레임이 장면 경계와 같은 규칙으로 정해진다.
+
+        **바는 1초 단위로 끊긴다.** 확정 스펙 5.3이 요구한 `840*(1-t/T)` 연속 감소는
+        `drawbox`로 만들 수 없다 — 이 필터의 `t`는 시간이 아니라 **박스 두께**이고
+        (`ffmpeg -h filter=drawbox`), 표현식에 프레임·시간 변수가 아예 없어 `n`이나 `time`을
+        적으면 "Undefined constant"로 필터 설정이 실패한다 (#21에서 실측, 확정 스펙 2.3).
+        고정 폭 인스턴스를 숫자와 같은 박자로 갈아 끼워 남은 시간을 전달한다.
+
+        Args:
+            seconds: `scenes.json`의 `seconds`. 확정 검증이 요구하는 값이지만(스키마의
+                `_check_scene_roles`) 앱이 만든 프로젝트가 그 경로를 지나지 않을 수 있어
+                없으면 경고만 남기고 그리지 않는다.
+        """
+        if not isinstance(seconds, int) or isinstance(seconds, bool) or seconds < 1:
+            LOGGER.warning(
+                "%s의 seconds가 1 이상의 정수가 아니다 — 카운트다운을 그리지 않는다: %r",
+                where, seconds,
+            )
+            return
+
+        steps = self._countdown_steps(seconds, span, where=where)
+        if not steps:
+            return
+
+        self.filters.append(self._drawbox(TEXT_COLUMN, BAR_TRACK_COLOR, span))
+        fill = _color(self.style.color("accent"))
+        for index, window in steps:
+            # 남은 초에 비례한다. 첫 초가 가득 찬 840이고 마지막 초가 한 칸이다.
+            width = round(TEXT_COLUMN * (seconds - index) / seconds)
+            self.filters.append(self._drawbox(width, fill, window))
+        for index, window in steps:
+            self.draw("digit", str(seconds - index), window, where=where)
+
+    def _countdown_steps(
+        self, seconds: int, span: tuple[int, int], *, where: str
+    ) -> list[tuple[int, tuple[int, int]]]:
+        """숫자 하나가 서 있는 (순번, 프레임 구간). 순번 0이 가장 큰 숫자다.
+
+        각 1.0초이고, **마지막 숫자만 장면 끝까지 늘어난다.** 확정 검증이 `duration`과
+        `seconds`를 같게 묶지만(`schemas/scenes.py`) 프레임 반올림으로 한두 프레임이 남을 수
+        있고, 그 프레임에 숫자가 비면 카운트다운이 끝나기 전에 화면이 빈다.
+        """
+        start, end = span
+        steps: list[tuple[int, tuple[int, int]]] = []
+        for index in range(seconds):
+            first = start + index * self.fps
+            if first >= end:
+                # 장면이 seconds보다 짧다. 들어갈 수 있는 숫자까지만 그린다.
+                LOGGER.warning(
+                    "%s: 장면 길이가 seconds(%d초)보다 짧아 숫자 %d개만 그린다",
+                    where, seconds, index,
+                )
+                break
+            last = end if index == seconds - 1 else min(first + self.fps, end)
+            steps.append((index, (first, last)))
+        return steps
+
+    def _drawbox(self, width: int, color: str, span: tuple[int, int]) -> str:
+        """진행 바 한 칸. 폭 말고는 전부 고정이다 (확정 스펙 5.3)."""
+        return "drawbox=" + ":".join([
+            f"x={COLUMN_LEFT}",
+            f"y={BAR_Y}",
+            f"w={width}",
+            f"h={BAR_HEIGHT}",
+            f"color={color}",
+            # 테두리만 그리는 기본값(두께 3)이 아니라 안을 채운다.
+            "t=fill",
+            f"enable='{self._enable(span)}'",
+        ])
 
     def _drawtext(
         self,

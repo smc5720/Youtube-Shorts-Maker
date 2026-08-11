@@ -83,8 +83,17 @@ def option(filter_string: str, name: str) -> str:
     return match.group(1).strip("'")
 
 
+def drawtexts(filter_list: list[str]) -> list[str]:
+    """`drawtext`만. 카운트다운 바는 `drawbox`라 `text`·`fontsize`가 없다 (#21)."""
+    return [item for item in filter_list if item.startswith("drawtext=")]
+
+
+def drawboxes(filter_list: list[str]) -> list[str]:
+    return [item for item in filter_list if item.startswith("drawbox=")]
+
+
 def texts(filter_list: list[str]) -> list[str]:
-    return [option(item, "text") for item in filter_list]
+    return [option(item, "text") for item in drawtexts(filter_list)]
 
 
 # --- 문구의 출처 (완료 조건: 렌더러에 고정 문자열이 없다) ---------------------
@@ -150,22 +159,127 @@ def test_an_overlong_cta_setting_stops_before_rendering(key: str, value: str) ->
         filters(quiz_scenes(), **{key: value})
 
 
-def test_a_scene_without_text_draws_nothing() -> None:
-    """countdown에는 자기 문구가 없다. 숫자는 #21이 얹는다."""
+def test_a_scene_without_text_draws_only_its_own_elements() -> None:
+    """countdown에는 `text`가 없다 — 화면에 나오는 것은 숫자와 바뿐이다 (#21)."""
     scenes = {
         "schema_version": 1,
         "type": "quiz",
         "scenes": [scene("countdown", 3.0, seconds=3)],
     }
 
-    assert filters(scenes) == []
+    drawn = filters(scenes)
+
+    assert texts(drawn) == ["3", "2", "1"]
+    # 트랙 1 + 채움 3.
+    assert len(drawboxes(drawn)) == 4
+
+
+# --- 카운트다운 (완료 조건: #21) ---------------------------------------------
+
+
+def countdown_scenes(seconds: int) -> dict[str, Any]:
+    """카운트다운 앞뒤로 장면이 있는 목록. 구간을 벗어나는지 보려면 앞뒤가 필요하다."""
+    scenes = quiz_scenes()
+    scenes["scenes"][2].update(seconds=seconds, duration=float(seconds))
+    return scenes
+
+
+def digit_windows(filter_list: list[str]) -> dict[str, str]:
+    """숫자 → `enable` 식. 240px 요소만 카운트다운 숫자다 (확정 스펙 5.3)."""
+    return {
+        option(item, "text"): option(item, "enable")
+        for item in drawtexts(filter_list)
+        if option(item, "fontsize") == "240"
+    }
+
+
+def test_the_digits_count_down_one_second_each() -> None:
+    """`countdown_sec` 기본값 3에서 3 → 2 → 1이 각 1초씩 (확정 스펙 5.3)."""
+    scenes = countdown_scenes(3)
+    start, end = align(scenes).frame_spans[2]
+
+    windows = digit_windows(filters(scenes))
+
+    assert list(windows) == ["3", "2", "1"]
+    assert windows["3"] == f"gte(t,{start}/30)*lt(t,{start + 30}/30)"
+    assert windows["2"] == f"gte(t,{start + 30}/30)*lt(t,{start + 60}/30)"
+    # 마지막 숫자만 장면 끝까지 간다 — 프레임 반올림으로 남는 프레임에 화면이 비지 않는다.
+    assert windows["1"] == f"gte(t,{start + 60}/30)*lt(t,{end}/30)"
+
+
+def test_the_digit_count_follows_the_seconds_field() -> None:
+    """`countdown_sec`를 4로 올리면 4부터 센다 — 렌더러에 3이 박혀 있지 않다."""
+    assert list(digit_windows(filters(countdown_scenes(4)))) == ["4", "3", "2", "1"]
+
+
+def test_the_countdown_never_draws_outside_its_scene() -> None:
+    """숫자와 바 모두 countdown 장면 구간 안에서만 켜진다."""
+    scenes = countdown_scenes(3)
+    start, end = align(scenes).frame_spans[2]
+    drawn = filters(scenes)
+
+    countdown = drawboxes(drawn) + [
+        item for item in drawtexts(drawn) if option(item, "fontsize") == "240"
+    ]
+
+    assert countdown
+    for item in countdown:
+        first, last = re.findall(r"t,(\d+)/30", option(item, "enable"))
+        assert start <= int(first) < int(last) <= end
+
+
+def test_the_progress_bar_empties_one_step_per_second() -> None:
+    """연속 감소는 `drawbox`로 만들 수 없다 (확정 스펙 2.3의 실측). 숫자와 같은 박자로
+    끊어 남은 시간을 전달한다 — 첫 초가 가득 차고 마지막 초가 1/N이다."""
+    drawn = filters(countdown_scenes(3))
+
+    widths = [int(option(item, "w")) for item in drawboxes(drawn)]
+
+    # 트랙(가득 참) + 채움 3칸.
+    assert widths == [840, 840, 560, 280]
+
+
+def test_the_progress_bar_track_is_preset_independent() -> None:
+    """트랙은 확정 스펙 5.3의 값이라 3종이 공통이고, 채움만 프리셋 강조색을 따른다."""
+    for name, style in caption_styles().items():
+        boxes = drawboxes(filters(countdown_scenes(3), style=name))
+        accent = style.color("accent").replace("#", "0x")
+
+        assert option(boxes[0], "color") == overlay.BAR_TRACK_COLOR
+        assert {option(item, "color") for item in boxes[1:]} == {accent}
+
+
+def test_the_bar_sits_in_the_text_column() -> None:
+    """x80 w840 — 텍스트 컬럼과 같은 폭이다 (확정 스펙 1장, 5.3)."""
+    boxes = drawboxes(filters(countdown_scenes(3)))
+
+    assert option(boxes[0], "x") == str(SAFE_LEFT)
+    assert int(option(boxes[0], "w")) == SAFE_RIGHT - SAFE_LEFT
+    assert int(option(boxes[0], "y")) + int(option(boxes[0], "h")) <= SAFE_BOTTOM
+
+
+def test_a_countdown_without_seconds_warns_instead_of_crashing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """확정 검증이 요구하는 필드지만(`schemas/scenes.py`) 앱이 만든 프로젝트는 그 경로를
+    지나지 않을 수 있다. 화면 하나가 비는 것이 렌더 전체를 잃는 것보다 낫다."""
+    scenes = countdown_scenes(3)
+    del scenes["scenes"][2]["seconds"]
+
+    drawn = filters(scenes)
+
+    assert not drawboxes(drawn)
+    assert "seconds" in caplog.text
 
 
 # --- 길이 티어 (완료 조건: 22자에서 76→64px, 39자에서 64→56px) ----------------
 
 
 def size_of(filter_list: list[str], text_start: str) -> int:
-    found = next(item for item in filter_list if option(item, "text").startswith(text_start))
+    found = next(
+        item for item in drawtexts(filter_list)
+        if option(item, "text").startswith(text_start)
+    )
     return int(option(found, "fontsize"))
 
 
@@ -173,7 +287,7 @@ def lines_of(filter_list: list[str], size: int, *, weight: str = "") -> list[str
     """그 크기로 그려진 줄들. 질문(700)과 hook(800)이 64px을 공유하므로 웨이트로 가른다."""
     return [
         option(item, "text")
-        for item in filter_list
+        for item in drawtexts(filter_list)
         if option(item, "fontsize") == str(size) and weight in option(item, "fontfile")
     ]
 
@@ -211,7 +325,9 @@ def test_a_long_question_drops_a_tier_and_moves_down() -> None:
 
     assert size_of(small, "서른아홉") == 64
     assert size_of(smaller, "마흔") == 56
-    first = next(item for item in smaller if option(item, "text").startswith("마흔"))
+    first = next(
+        item for item in drawtexts(smaller) if option(item, "text").startswith("마흔")
+    )
     assert option(first, "y") == "664"
 
 
@@ -234,7 +350,7 @@ def test_an_overlong_text_still_draws_and_warns(caplog: pytest.LogCaptureFixture
     그리지 않는 것보다 넘치더라도 그리는 편이 낫다 — 어긋난 것이 보여야 고친다."""
     drawn = filters(quiz_scenes(explanation="해" * 120))
 
-    assert any(option(item, "fontsize") == "36" for item in drawn)
+    assert any(option(item, "fontsize") == "36" for item in drawtexts(drawn))
     assert "상한" in caplog.text
 
 
@@ -243,7 +359,7 @@ def test_an_overlong_text_still_draws_and_warns(caplog: pytest.LogCaptureFixture
 
 def test_every_line_is_centred_on_500_not_540() -> None:
     """우측 160px가 Shorts 사이드 버튼 영역이다 (확정 스펙 1장)."""
-    for item in filters(quiz_scenes()):
+    for item in drawtexts(filters(quiz_scenes())):
         assert option(item, "x") == f"({CENTER_X}-text_w/2)"
 
 
@@ -259,7 +375,7 @@ def test_the_question_keeps_its_first_line_fixed_across_line_counts() -> None:
 def _index_of(filter_list: list[str], start: str) -> int:
     return next(
         index for index, item in enumerate(filter_list)
-        if option(item, "text").startswith(start)
+        if item.startswith("drawtext=") and option(item, "text").startswith(start)
     )
 
 
@@ -273,7 +389,7 @@ def test_the_answer_block_stays_centred_on_its_box() -> None:
     assert single + 132 // 2 == 1112
 
     tops = sorted(
-        int(option(item, "y")) for item in two if option(item, "fontsize") == "84"
+        int(option(item, "y")) for item in drawtexts(two) if option(item, "fontsize") == "84"
     )
     assert (tops[0] + (tops[-1] + 84)) // 2 == 1112
 
@@ -287,7 +403,9 @@ def test_one_instance_covers_the_question_and_countdown() -> None:
     question_start = timeline.frame_spans[1][0]
     countdown_end = timeline.frame_spans[2][1]
 
-    headings = [item for item in drawn if option(item, "text").startswith("지구 표면")]
+    headings = [
+        item for item in drawtexts(drawn) if option(item, "text").startswith("지구 표면")
+    ]
     body = [item for item in headings if "0xFFFFFF" in item]
 
     assert body, "본문색 질문이 없다"
@@ -327,7 +445,7 @@ def test_scene_spans_never_overlap() -> None:
 def layout_only(filter_string: str) -> str:
     """색·외곽선·그림자를 지운 필터. 남는 것이 레이아웃이다."""
     return re.sub(
-        r"(?:^|:)(fontcolor|bordercolor|borderw|shadowx|shadowy|shadowcolor)=[^:]*",
+        r"(?:^|:)(fontcolor|bordercolor|borderw|shadowx|shadowy|shadowcolor|color)=[^:]*",
         "",
         filter_string,
     )
@@ -392,7 +510,7 @@ def test_percent_signs_survive_because_expansion_is_off() -> None:
     퀴즈 문장에 흔하다."""
     drawn = filters(quiz_scenes(question="지구 표면의 약 71%를 덮는 것은?"))
 
-    percent = [item for item in drawn if "71%" in option(item, "text")]
+    percent = [item for item in drawtexts(drawn) if "71%" in option(item, "text")]
     assert percent
     for item in percent:
         assert option(item, "expansion") == "none"
@@ -510,7 +628,10 @@ def ink_count(frame: bytes) -> int:
 
 
 @needs_ffmpeg
-@pytest.mark.parametrize("index", [0, 1, 3, 4], ids=["hook", "question", "answer", "cta"])
+@pytest.mark.parametrize(
+    "index", [0, 1, 2, 3, 4],
+    ids=["hook", "question", "countdown", "answer", "cta"],
+)
 def test_every_scene_keeps_its_text_inside_the_safe_area(
     tmp_path: Path, index: int
 ) -> None:
@@ -591,6 +712,104 @@ def test_an_element_turns_on_at_exactly_its_first_frame(tmp_path: Path) -> None:
 
     assert ink_count(gray_frame(video, first_cta_frame - 1)) == 0
     assert ink_count(gray_frame(video, first_cta_frame)) > 0
+
+
+DIGIT_BAND = (1050, 1310)
+"""숫자 박스 y1060 h240에 여유를 준 띠. 질문(~y912)도 바(y1330)도 들어오지 않아서, 이 띠의
+잉크는 카운트다운 숫자뿐이다."""
+
+
+def band_mask(frame: bytes, top: int, bottom: int) -> list[bool]:
+    """띠 안에서 잉크가 있는 픽셀. 두 프레임을 겹쳐 보면 숫자가 바뀌었는지가 나온다."""
+    return [value > 90 for value in frame[top * CANVAS_WIDTH : bottom * CANVAS_WIDTH]]
+
+
+def band_width(frame: bytes, top: int, bottom: int) -> int:
+    """띠 안 잉크의 가로 폭. 글리프를 읽지 않고도 `1`과 `3`을 가른다."""
+    columns = [
+        index % CANVAS_WIDTH
+        for index, inked in enumerate(band_mask(frame, top, bottom)) if inked
+    ]
+    return max(columns) - min(columns) + 1 if columns else 0
+
+
+@needs_ffmpeg
+def test_each_countdown_digit_holds_for_exactly_one_second(tmp_path: Path) -> None:
+    """완료 조건의 프레임 검사다. 숫자 띠의 잉크 패턴이 **1초 동안 그대로**이고 초 경계에서
+    바뀌어야 한다 — 개수만 세면 `3`과 `2`처럼 잉크량이 비슷한 글자를 못 가른다."""
+    scenes = countdown_scenes(3)
+    video = video_renderer.render(project_with(), scenes, run_dir=tmp_path)
+    start, end = align(scenes).frame_spans[2]
+
+    def band(index: int) -> list[bool]:
+        return band_mask(gray_frame(video, index), *DIGIT_BAND)
+
+    def differing(left: list[bool], right: list[bool]) -> int:
+        return sum(1 for a, b in zip(left, right, strict=True) if a != b)
+
+    # 질문 장면 마지막 프레임에는 숫자가 없다.
+    assert not any(band(start - 1))
+    seconds = [(start + offset * 30, start + offset * 30 + 29) for offset in range(3)]
+    for first, last in seconds:
+        assert last < end
+        # 전환 애니메이션도 펄스도 없다 (확정 스펙 5.3) — 1초 내내 같은 그림이다.
+        assert differing(band(first), band(last)) < 200
+    for (_, last), (first, _) in zip(seconds, seconds[1:], strict=False):
+        assert differing(band(last), band(first)) > 1000, "초 경계에서 숫자가 안 바뀐다"
+
+    # 순서가 3 → 2 → 1이다. `1`은 다른 두 글자보다 확연히 좁다.
+    widths = [band_width(gray_frame(video, first + 15), *DIGIT_BAND) for first, _ in seconds]
+    assert widths[2] < widths[0] and widths[2] < widths[1]
+
+
+@needs_ffmpeg
+def test_the_question_does_not_move_between_question_and_countdown(
+    tmp_path: Path,
+) -> None:
+    """완료 조건의 프레임 비교다. 인스턴스 하나가 두 장면을 덮으므로(확정 스펙 5.3) 질문과
+    index가 **같은 픽셀에** 있어야 한다. 인스턴스를 나누면 여기서 어긋난다."""
+    scenes = countdown_scenes(3)
+    video = video_renderer.render(project_with(), scenes, run_dir=tmp_path)
+    question_span, countdown_span = align(scenes).frame_spans[1:3]
+
+    # 숫자 박스 위쪽 — index(y400)와 질문(y648~)만 있는 영역이다.
+    heading = (300, 1000)
+    before = gray_frame(video, (question_span[0] + question_span[1]) // 2)
+    during = gray_frame(video, (countdown_span[0] + countdown_span[1]) // 2)
+
+    left, right = band_mask(before, *heading), band_mask(during, *heading)
+
+    assert sum(left) > 3000, "질문이 그려지지 않았다"
+    # 인코딩이 손실이라 글리프 경계 몇 픽셀은 흔들린다. 한 글자만 밀려도 수천이 어긋난다.
+    assert sum(1 for a, b in zip(left, right, strict=True) if a != b) < 200
+
+
+BAR_ROW = 1337
+"""바(y1330 h14)의 가운데 행. 이 행에는 바 말고 아무것도 없다."""
+
+
+def bar_widths(frame: bytes) -> tuple[int, int]:
+    """(채움 폭, 트랙 폭). 채움은 강조색이라 밝고, 트랙은 흰색@0.16이라 배경보다 조금 밝다."""
+    row = frame[BAR_ROW * CANVAS_WIDTH : (BAR_ROW + 1) * CANVAS_WIDTH]
+    return (
+        sum(1 for value in row if value > 150),
+        sum(1 for value in row if 45 < value <= 150),
+    )
+
+
+@needs_ffmpeg
+def test_the_progress_bar_empties_a_step_at_a_time(tmp_path: Path) -> None:
+    """확정 스펙 5.3이 요구한 `840*(1-t/T)` 연속 감소는 `drawbox`로 만들 수 없다 (2.3의
+    실측). 남은 초에 비례한 폭이 실제 픽셀에 나오는지 본다 — 트랙은 내내 840이다."""
+    scenes = countdown_scenes(3)
+    video = video_renderer.render(project_with(), scenes, run_dir=tmp_path)
+    start, _ = align(scenes).frame_spans[2]
+
+    measured = [bar_widths(gray_frame(video, start + offset * 30 + 15)) for offset in range(3)]
+
+    for fill, expected in zip(measured, (840, 560, 280), strict=True):
+        assert fill[0] == pytest.approx(expected, abs=2)
+        assert fill[0] + fill[1] == pytest.approx(840, abs=2)
 
 
 @needs_ffmpeg
