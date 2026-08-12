@@ -524,3 +524,136 @@ def test_rendering_twice_gives_the_same_spec_and_length(tmp_path: Path) -> None:
     second = duration_of(render(project_with(), scenes, run_dir=tmp_path))
 
     assert first == pytest.approx(second, abs=1e-6)
+
+
+# --- 프리뷰 (#27) -----------------------------------------------------------
+
+
+def preview_chain(command: list[str]) -> str:
+    return command[command.index("-filter_complex") + 1]
+
+
+def test_the_preview_command_carries_no_audio_at_all(tmp_path: Path) -> None:
+    """**`-map [audio]`만 빼는 것으로는 안 된다** — `alimiter`의 출력이 어디에도 연결되지
+    않아 그래프 바인딩이 실패한다 (스파이크 #25 6.1). 오디오는 처음부터 만들지 않는다."""
+    command = video_renderer.build_preview_command(
+        project_with(), run_dir=tmp_path, total_sec=5.0, frames=[10], out_dir=tmp_path
+    )
+
+    assert "[audio]" not in " ".join(command)
+    assert "-c:a" not in command
+    assert "anullsrc" not in " ".join(command)
+    # 입력은 배경 하나뿐이다.
+    assert command.count("-i") == 1
+
+
+def test_the_preview_command_writes_png_not_h264(tmp_path: Path) -> None:
+    """`-c:v libx264`가 남은 채 확장자만 `.png`로 주면 **경고 없이 H.264가 그 파일에
+    쓰인다** (스파이크 #25 6.1). 인코더를 명시해 그 경로를 없앤다."""
+    command = video_renderer.build_preview_command(
+        project_with(), run_dir=tmp_path, total_sec=5.0, frames=[10], out_dir=tmp_path
+    )
+
+    assert "libx264" not in command
+    assert command[command.index("-c:v") + 1] == "png"
+    assert command[-1].endswith(".png")
+    # 최종 산출물 이름이 이 명령에 없다 — 프리뷰가 렌더 결과를 덮어쓸 수 없다.
+    assert OUTPUT_NAME not in " ".join(command)
+
+
+def test_the_preview_shares_the_video_chain_with_the_final_render(tmp_path: Path) -> None:
+    """**두 명령이 같은 그림을 내는 근거다.** 배경과 오버레이가 한 함수를 지나므로, 프리뷰만
+    다르게 그리려면 그 함수를 고쳐야 하고 그러면 최종 렌더도 함께 바뀐다 (PRD 7.9)."""
+    overlays = ["drawtext=text='하나'", "drawtext=text='둘'"]
+    final = build_command(project_with(), run_dir=tmp_path, total_sec=5.0, overlays=overlays)
+    preview = video_renderer.build_preview_command(
+        project_with(), run_dir=tmp_path, total_sec=5.0, frames=[10], out_dir=tmp_path,
+        overlays=overlays,
+    )
+
+    shared = "[0:v]setsar=1,drawtext=text='하나',drawtext=text='둘'"
+    assert f"{shared}[video]" in preview_chain(final)
+    assert preview_chain(preview).startswith(f"{shared},select=")
+
+
+def test_the_preview_stops_after_the_last_requested_frame(tmp_path: Path) -> None:
+    """비용을 정하는 인자다. 요청 수만큼만 쓰고 끝나므로 앞쪽 장면만 고르면 그만큼 싸다."""
+    command = video_renderer.build_preview_command(
+        project_with(), run_dir=tmp_path, total_sec=30.0, frames=[10, 200, 400],
+        out_dir=tmp_path,
+    )
+
+    assert command[command.index("-frames:v") + 1] == "3"
+    # `select`가 버린 자리를 복제해 채우면 상한에 먼저 닿아 뒤쪽 장면이 빈다.
+    assert command[command.index("-fps_mode") + 1] == "passthrough"
+    assert r"select='eq(n\,10)+eq(n\,200)+eq(n\,400)'" in preview_chain(command)
+
+
+def test_representative_frames_sit_in_the_middle_of_each_scene() -> None:
+    """경계 프레임은 어느 장면을 고른 것인지 화면에서 구분되지 않는다."""
+    aligned = align(scenes_with(2.5, 3.0, 1.0), fps=30)
+
+    assert aligned.frame_spans == ((0, 75), (75, 165), (165, 195))
+    assert video_renderer.representative_frames(aligned) == (37, 120, 180)
+
+
+def test_preview_rejects_a_scene_index_out_of_range(tmp_path: Path) -> None:
+    with pytest.raises(RenderError, match="범위를 벗어났다"):
+        video_renderer.preview(
+            project_with(), scenes_with(1.0, 1.0), run_dir=tmp_path,
+            out_dir=tmp_path / "frames", indices=[5],
+        )
+
+
+def test_preview_rejects_a_draft_scene_list(tmp_path: Path) -> None:
+    """확정 상태만 받는다 — 길이가 없는 초안으로 그린 그림은 렌더 결과와 다르다."""
+    draft = {"schema_version": 1, "type": "quiz",
+             "scenes": [{"role": "hook", "text": "문구"}]}
+
+    with pytest.raises(SchemaError):
+        video_renderer.preview(
+            project_with(), draft, run_dir=tmp_path, out_dir=tmp_path / "frames"
+        )
+
+
+@needs_ffmpeg
+def test_preview_names_every_frame_by_its_scene_index(tmp_path: Path) -> None:
+    """**순번이 아니라 장면 인덱스다.** 일부만 요청하면 둘이 어긋나므로 여기서 갈린다."""
+    scenes = scenes_with(1.0, 1.0, 1.0, 1.0)
+
+    frames = video_renderer.preview(
+        project_with(), scenes, run_dir=tmp_path, out_dir=tmp_path / "frames",
+        indices=[1, 3],
+    )
+
+    assert sorted(frames) == [1, 3]
+    assert frames[1].name == "scene-001.png"
+    assert frames[3].name == "scene-003.png"
+    # 중간 이름이 남지 않는다.
+    assert not list((tmp_path / "frames").glob("seq-*.png"))
+
+
+@needs_ffmpeg
+def test_preview_frames_are_png_at_the_canvas_spec(tmp_path: Path) -> None:
+    frames = video_renderer.preview(
+        project_with(), scenes_with(1.0, 1.0), run_dir=tmp_path,
+        out_dir=tmp_path / "frames",
+    )
+
+    assert sorted(frames) == [0, 1]
+    for path in frames.values():
+        streams = probe(path, "stream=codec_name,width,height")["streams"]
+        assert streams[0]["codec_name"] == "png"
+        assert (streams[0]["width"], streams[0]["height"]) == (CANVAS_WIDTH, CANVAS_HEIGHT)
+
+
+@needs_ffmpeg
+def test_preview_does_not_produce_the_final_output(tmp_path: Path) -> None:
+    """#27 완료 조건 — 프리뷰가 최종 렌더 경로를 실행하지 않는다."""
+    video_renderer.preview(
+        project_with(), scenes_with(1.0, 1.0), run_dir=tmp_path,
+        out_dir=tmp_path / "frames",
+    )
+
+    assert not (tmp_path / OUTPUT_NAME).exists()
+    assert not list(tmp_path.glob("*.mp4"))

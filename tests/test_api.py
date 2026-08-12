@@ -12,8 +12,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,8 +27,18 @@ from shorts_maker import api, project
 from shorts_maker.config import load_config
 from shorts_maker.run_context import serialize_artifact, write_artifact
 from shorts_maker.schemas.project import PROJECT_SCHEMA
+from shorts_maker.schemas.scenes import SCENES_SCHEMA
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+PNG_MAGIC = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+"""PNG 시그니처. **`-c:v png`가 지켜지는지를 여기서 본다** — libx264가 남은 채 확장자만
+`.png`이면 경고 없이 H.264가 그 파일에 쓰인다 (스파이크 #25 6.1)."""
+
+needs_ffmpeg = pytest.mark.skipif(
+    shutil.which("ffmpeg") is None,
+    reason="FFmpeg가 없다 — 프리뷰 명령이 맞는지는 test_video_renderer.py가 지킨다",
+)
 
 FINAL_SCENES: dict[str, Any] = {
     "schema_version": 1,
@@ -40,7 +52,12 @@ FINAL_SCENES: dict[str, Any] = {
 
 @pytest.fixture
 def run_dir(tmp_path: Path) -> Path:
-    """`project.json`이 있는 run 디렉터리. 파이프라인이 만드는 것과 같은 초기 상태다."""
+    """`project.json`과 `scenes.json`이 있는 run 디렉터리. 파이프라인이 내는 초기 상태다.
+
+    **장면 목록도 함께 쓴다.** `project.json`은 장면 배열을 복사하지 않고 파일 이름만 들고
+    있으므로(PRD 7.4.1), 그 파일이 없는 run 디렉터리는 앱이 열 수는 있어도 그릴 것이 없다.
+    """
+    write_artifact(tmp_path, SCENES_SCHEMA.name, FINAL_SCENES)
     content = project.build(
         FINAL_SCENES, config=load_config(search_from=tmp_path), run_dir=tmp_path
     )
@@ -174,7 +191,8 @@ def test_a_failed_write_leaves_the_original_and_no_leftovers(
 
     assert error["code"] == "io"
     assert path.read_text(encoding="utf-8") == before
-    assert [child.name for child in run_dir.iterdir()] == [PROJECT_SCHEMA.name]
+    # 반쯤 쓰인 임시 파일이 남지 않는다 — 남으면 다음 저장이 그것을 원본으로 착각할 수 있다.
+    assert not [child for child in run_dir.iterdir() if ".tmp-" in child.name]
 
 
 def test_saving_needs_the_project_body(run_dir: Path) -> None:
@@ -224,6 +242,130 @@ def test_a_malformed_line_does_not_stop_the_stream() -> None:
 
     assert responses[0]["error"]["code"] == "bad_request"
     assert responses[1] == {"id": 7, "result": {"값": 1}}
+
+
+# --- 장면 목록과 프리뷰 (#27) ------------------------------------------------------
+
+
+def test_scenes_comes_back_separately_from_the_project(run_dir: Path) -> None:
+    """**`open`과 나눠 둔다** — 장면 목록을 읽지 못하는 것이 프로젝트를 열지 못할 이유는
+    아니다. 앱은 둘을 따로 부르고 실패도 따로 그린다."""
+    result = result_of(call("scenes", run_dir=str(run_dir)))
+
+    assert result["scenes"] == FINAL_SCENES
+    assert result["scenes_path"].endswith("scenes.json")
+
+
+def test_scenes_rejects_a_draft_scene_list(run_dir: Path) -> None:
+    """확정 상태만 화면에 온다. 길이가 없는 초안을 목록에 그리면 총 길이도 장면 경계도
+    화면과 결과가 갈린다."""
+    draft = dict(FINAL_SCENES, scenes=[{"role": "hook", "text": "문구"}])
+    write_artifact(run_dir, SCENES_SCHEMA.name, draft)
+
+    error = error_of(call("scenes", run_dir=str(run_dir)))
+
+    assert error["code"] == "schema"
+    assert any("duration" in message for message in error["details"])
+
+
+def test_scenes_in_a_directory_without_one_says_which_directory(tmp_path: Path) -> None:
+    error = error_of(call("scenes", run_dir=str(tmp_path)))
+
+    assert error["code"] == "not_found"
+    assert "scenes.json" in error["message"]
+
+
+def test_preview_validates_the_project_it_is_handed(run_dir: Path) -> None:
+    """**앱이 들고 있는 값으로 그린다** — 저장하지 않은 편집이 프리뷰에 보이지 않으면
+    프리뷰가 편집 도구가 되지 못한다. 대신 저장과 같은 검증을 지난다."""
+    broken = json.loads((run_dir / "project.json").read_text(encoding="utf-8"))
+    broken["render"]["fps"] = "서른"
+
+    error = error_of(call("preview", run_dir=str(run_dir), project=broken, scene_index=0))
+
+    assert error["code"] == "schema"
+    assert any("render.fps" in message for message in error["details"])
+
+
+def test_preview_rejects_a_scene_index_out_of_range(run_dir: Path) -> None:
+    project_body = json.loads((run_dir / "project.json").read_text(encoding="utf-8"))
+
+    error = error_of(
+        call("preview", run_dir=str(run_dir), project=project_body, scene_index=9)
+    )
+
+    assert error["code"] == "bad_request"
+    assert "9" in error["message"]
+
+
+def test_preview_needs_a_scene_index(run_dir: Path) -> None:
+    project_body = json.loads((run_dir / "project.json").read_text(encoding="utf-8"))
+
+    error = error_of(call("preview", run_dir=str(run_dir), project=project_body))
+
+    assert error["code"] == "bad_request"
+    assert "scene_index" in error["message"]
+
+
+@needs_ffmpeg
+def test_preview_returns_a_png_and_serves_the_next_scene_from_cache(run_dir: Path) -> None:
+    """**요청한 장면 하나만 만들지 않는다.** 뒤쪽 장면 하나를 만드는 비용이 전부를 만드는
+    비용과 거의 같아서, 두 번째 요청이 FFmpeg를 다시 지날 이유가 없다."""
+    project_body = json.loads((run_dir / "project.json").read_text(encoding="utf-8"))
+
+    first = result_of(call("preview", run_dir=str(run_dir), project=project_body, scene_index=0))
+    second = result_of(call("preview", run_dir=str(run_dir), project=project_body, scene_index=1))
+
+    assert base64.b64decode(first["png"]).startswith(PNG_MAGIC)
+    assert first["generated"] and first["elapsed_ms"] > 0
+    assert first["scene_count"] == len(FINAL_SCENES["scenes"])
+    assert not second["generated"] and second["elapsed_ms"] is None
+    assert second["signature"] == first["signature"]
+    assert second["png"] != first["png"]
+
+
+@needs_ffmpeg
+def test_editing_the_project_invalidates_the_cached_frames(run_dir: Path) -> None:
+    """**프로젝트를 통째로 해싱한다.** 프리뷰에 영향을 주는 필드를 골라 적으면 렌더가 읽는
+    필드가 늘었을 때 화면이 옛 그림에 머문다."""
+    project_body = json.loads((run_dir / "project.json").read_text(encoding="utf-8"))
+    before = result_of(call("preview", run_dir=str(run_dir), project=project_body, scene_index=0))
+
+    edited = json.loads(json.dumps(project_body))
+    edited["render"]["caption_style"] = "neon_mint"
+    after = result_of(call("preview", run_dir=str(run_dir), project=edited, scene_index=0))
+
+    assert after["signature"] != before["signature"]
+    assert after["generated"]
+
+
+@needs_ffmpeg
+def test_preview_leaves_nothing_in_the_run_directory(run_dir: Path) -> None:
+    """프레임은 파생물이고 수명이 앱 세션이다. run 디렉터리에 남기면 사용자가 만들지 않은
+    파일이 산출물 옆에 쌓인다 — 최종 렌더 산출물도 물론 생기지 않는다 (#27 완료 조건)."""
+    project_body = json.loads((run_dir / "project.json").read_text(encoding="utf-8"))
+    before = sorted(path.name for path in run_dir.iterdir())
+
+    result_of(call("preview", run_dir=str(run_dir), project=project_body, scene_index=0))
+
+    assert sorted(path.name for path in run_dir.iterdir()) == before
+
+
+def test_a_slow_method_does_not_hold_the_dispatch_loop(run_dir: Path) -> None:
+    """**프리뷰 한 번이 2~3초다.** 그 사이 저장도 다른 요청도 받지 못하면 앱이 멈춘 것과
+    구분되지 않는다. 응답은 `id`로 짝을 찾으므로 순서가 뒤바뀌어도 앱이 헷갈리지 않는다."""
+    assert "preview" in api.BACKGROUND_METHODS
+    lines = [
+        json.dumps({"id": 1, "method": "preview", "params": {}}),
+        json.dumps({"id": 2, "method": "ping", "params": {"값": 1}}),
+    ]
+    sent: list[dict[str, Any]] = []
+
+    responses = list(api.respond(lines, background=sent.append))
+
+    # 프리뷰는 루프가 답하지 않는다 — 넘겨받은 쪽이 자기 스레드에서 쓴다.
+    assert [response["id"] for response in responses] == [2]
+    assert [request["id"] for request in sent] == [1]
 
 
 # --- 프로세스 경계 ----------------------------------------------------------------

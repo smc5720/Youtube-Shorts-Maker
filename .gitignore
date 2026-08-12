@@ -19,4 +19,4 @@ node_modules/
 
 # 스모크 산출물 — 임시 디렉터리 경로가 매번 달라 커밋하면 diff만 는다.
 /app/smoke/results.json
-/app/smoke/screenshot.png
+/app/smoke/screenshot*.png

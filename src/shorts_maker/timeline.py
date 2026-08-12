@@ -171,6 +171,10 @@ def mix_voice_track(
             encoding="utf-8",
             errors="replace",
             timeout=FFMPEG_TIMEOUT_SEC,
+            # **stdin을 막는다.** ffmpeg는 stdin을 조작 입력으로 읽으므로, 앱이 띄운
+            # 백엔드에서 그대로 두면 프로토콜 줄을 가져가고 이 호출이 끝나지 않는다
+            # (스파이크 #25 7장, #27에서 실제로 밟았다).
+            stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError as error:
         raise TimelineError(

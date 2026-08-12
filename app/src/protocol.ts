@@ -24,9 +24,37 @@ export interface Project {
   }
 }
 
+/** `scenes.json`의 장면 하나 (`schemas/scenes.py`). 확정 상태만 앱에 온다. */
+export interface Scene {
+  role: 'hook' | 'question' | 'countdown' | 'answer' | 'cta'
+  duration: number
+  text?: string
+  /** 블록 내내 상단에 유지되는 문구. 정답 장면에서는 `text`가 정답, 이쪽이 질문이다. */
+  heading?: string
+  kicker?: string
+  caption?: string
+  narrate?: boolean
+  audio?: string
+  audio_duration?: number
+  narration_offset?: number
+  seconds?: number
+  sfx?: string
+  /** **장면 목록의 묶는 기준이다.** 앱은 이 필드가 있다는 것만 알고 무엇의 번호인지는 모른다. */
+  question_id?: number
+}
+
+export interface Scenes {
+  schema_version: number
+  type: string
+  scenes: Scene[]
+}
+
 /** 실패는 예외가 아니라 값이다. `code`가 화면 분기의 기준이다 (D2 확정 스펙 4장). */
 export interface ApiError {
-  /** `not_found` | `schema` | `io` | `bad_request` | `unknown_method` | `internal` | `backend` */
+  /**
+   * `not_found` | `schema` | `io` | `render` | `bad_request` | `unknown_method` |
+   * `internal` | `backend`
+   */
   code: string
   message: string
   details: string[]
@@ -50,6 +78,23 @@ export interface EnvResult {
 export interface SaveResult {
   project_path: string
   bytes: number
+}
+
+export interface ScenesResult {
+  scenes_path: string
+  scenes: Scenes
+}
+
+export interface PreviewResult {
+  scene_index: number
+  /** 프레임을 정하는 입력 전부의 지문. 바뀌면 캐시가 비고 다시 만든다. */
+  signature: string
+  scene_count: number
+  /** 이번 호출이 FFmpeg를 지났는가. `false`면 캐시에서 왔다. */
+  generated: boolean
+  elapsed_ms: number | null
+  /** PNG의 base64. `data:image/png;base64,`를 붙이면 그대로 `<img>`에 넣는다. */
+  png: string
 }
 
 export interface AppContext {

@@ -154,6 +154,10 @@ function call (method, params) {
 async function createWindow () {
   mainWindow = new BrowserWindow({
     // D2 확정 스펙 3.1 — 1440x900 기준, 최소 1280x720.
+    // **`useContentSize`가 필요하다.** 기본값은 창틀을 포함한 크기라 Windows에서 콘텐츠가
+    // 1440보다 좁아지고, 그러면 확정 수치(좌 296 / 우 340)가 그 폭에서 나오지 않는다 —
+    // 폭 계산이 `100vw`(콘텐츠 폭) 위에 있기 때문이다 (#27, `app.css`의 `.panel--scenes`).
+    useContentSize: true,
     width: 1440,
     height: 900,
     minWidth: 1280,

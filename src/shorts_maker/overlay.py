@@ -310,7 +310,11 @@ def _require_korean(path: Path) -> None:
             "-frames:v", "1", "-pix_fmt", "gray", "-f", "rawvideo", "-",
         ]
         try:
-            completed = subprocess.run(command, capture_output=True, timeout=60)
+            # stdin을 막는 이유는 렌더·프리뷰와 같다 — 앱이 띄운 백엔드에서 ffmpeg가
+            # 프로토콜 줄을 가져간다 (`video_renderer.render`).
+            completed = subprocess.run(
+                command, capture_output=True, timeout=60, stdin=subprocess.DEVNULL
+            )
         except FileNotFoundError:
             return
         except subprocess.TimeoutExpired as error:
