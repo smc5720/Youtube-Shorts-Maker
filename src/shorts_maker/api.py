@@ -20,8 +20,10 @@ HTTP / 파일 교환)을 재서 stdio를 골랐고, 결정적인 축은 지연�
 - **UTF-8을 명시한다.** Windows에서 파이프 stdio의 기본 인코딩은 콘솔 코드페이지
   (한국어 Windows는 cp949)라, 한글이 든 응답이 cp949로 나가고 UTF-8로 읽는 Node 쪽에서
   **에러 없이 값만 깨진다** (스파이크 4.3). `serve()`가 첫 줄을 쓰기 전에 재설정한다.
-- **이 모듈은 타입을 모른다.** `project.json`·`scenes.json`만 지나므로 퀴즈 스펙 1.1의
-  경계가 앱 경로에서도 그대로다.
+- **이 모듈은 타입을 모른다.** 사람이 고치는 콘텐츠 산출물(`content` / `save_content`, #28)도
+  지나지만 파일명과 검증은 **레지스트리에서 온다** — 여기에 `quiz.json`을 적거나 `load_quiz`를
+  import하면 `tests/test_type_boundary.py`가 잡는다. 퀴즈 스펙 1.1의 경계가 앱 경로에서도
+  그대로다.
 
 - **오래 걸리는 메서드는 스레드로 나간다** (`BACKGROUND_METHODS`, #27). 프리뷰 한 번이 이
   머신에서 2~3초이고, 그동안 루프를 잡고 있으면 앱은 저장도 다른 장면 선택도 하지 못한다.
@@ -49,8 +51,10 @@ from typing import Any, TextIO
 from . import video_renderer
 from .run_context import serialize_artifact
 from .schemas import SchemaError, load_project, validate_project
-from .schemas.project import PROJECT_SCHEMA
+from .schemas.core import Schema
+from .schemas.project import APP_STATE_SECTIONS, PROJECT_SCHEMA
 from .schemas.scenes import SCENES_SCHEMA, load_scenes
+from .shorts_types import ShortsTypeError, get_type
 from .video_renderer import RenderError
 
 PROTOCOL_VERSION = 1
@@ -213,6 +217,80 @@ def method_scenes(params: dict[str, Any]) -> Any:
     return {"scenes_path": str(path), "scenes": scenes}
 
 
+def method_content(params: dict[str, Any]) -> Any:
+    """타입 전용 콘텐츠 산출물을 읽어 그대로 넘긴다 (퀴즈는 `quiz.json`, 이슈 #28).
+
+    **파일명도 검증도 레지스트리에서 온다.** 이 모듈은 `types/` 밖이라 타입 전용 스키마를
+    import할 수도 파일명을 적을 수도 없다(`tests/test_type_boundary.py`). `params.type`은
+    `project.json`이 들고 있던 값이고, 앱은 그것을 그대로 돌려보낸다.
+
+    **`open`과 나눠 둔다.** 콘텐츠를 읽지 못하는 것이 프로젝트를 열지 못할 이유는 아니다 —
+    장면 목록과 프리뷰는 `scenes.json`만 있으면 되고, 문제 편집만 닫히면 된다.
+    """
+    run_dir = _run_dir(params)
+    schema = _content_schema(params)
+    path = run_dir / schema.name
+    if not path.is_file():
+        raise ApiError(
+            "not_found",
+            f"이 디렉터리에는 {schema.name}이 없다: {run_dir}",
+            ["쇼츠를 생성한 run 디렉터리를 고른다 (기본 위치: outputs/run-*)"],
+        )
+    try:
+        content = schema.load(path)
+    except SchemaError as error:
+        raise ApiError("schema", f"{path.name}을 열 수 없다", error.messages) from error
+
+    return {"content_path": str(path), "content": content}
+
+
+def method_save_content(params: dict[str, Any]) -> Any:
+    """사람이 고친 콘텐츠를 콘텐츠 산출물에 쓴다 (#28).
+
+    `save`와 같은 규칙이다 — **검증이 쓰기보다 먼저이고**, 걸리면 원본은 손대지 않은 채로
+    남는다. 이 파일은 사람이 검수하는 원본이라(퀴즈 스펙 3.1) 반쯤 쓰인 상태로 남는 것이
+    편집 하나를 잃는 것보다 훨씬 나쁘다.
+
+    **검증기가 채운 필드를 이 경로가 지우지 못하게 하는 장치는 없다.** 앱이 콘텐츠를 통째로
+    받아 통째로 돌려주기 때문이고, 사람 확인 기록을 `project.json`으로 보낸 이유가 그것이다
+    (D2 확정 스펙 1.4).
+    """
+    run_dir = _run_dir(params)
+    schema = _content_schema(params)
+    content = params.get("content")
+    if not isinstance(content, dict):
+        raise ApiError("bad_request", f"params.content는 {schema.name} 내용(매핑)이어야 한다")
+
+    try:
+        schema.validate(content)
+    except SchemaError as error:
+        raise ApiError(
+            "schema",
+            f"{schema.name}의 계약을 어겨 저장하지 않았다. 원본은 그대로다.",
+            error.messages,
+        ) from error
+
+    path = run_dir / schema.name
+    write_atomically(path, serialize_artifact(content))
+    return {"content_path": str(path), "bytes": path.stat().st_size}
+
+
+def _content_schema(params: dict[str, Any]) -> Schema:
+    """`params.type`이 가리키는 타입의 콘텐츠 계약.
+
+    등록되지 않은 타입은 `bad_request`다 — 백엔드가 고장 난 것이 아니라 앱이 이 백엔드가
+    모르는 타입의 프로젝트를 열었다는 뜻이고(동결 배포에서 세대가 갈릴 수 있다), 앱은 그때
+    편집 폼을 닫고 나머지 화면을 그대로 둔다.
+    """
+    name = params.get("type")
+    if not isinstance(name, str) or not name.strip():
+        raise ApiError("bad_request", "params.type에 쇼츠 타입 이름이 필요하다")
+    try:
+        return get_type(name).content_schema
+    except ShortsTypeError as error:
+        raise ApiError("bad_request", str(error)) from error
+
+
 def method_preview(params: dict[str, Any]) -> Any:
     """장면 하나의 대표 프레임을 PNG로 돌려준다 (PRD 7.9, 이슈 #27).
 
@@ -276,6 +354,8 @@ METHODS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "open": method_open,
     "save": method_save,
     "scenes": method_scenes,
+    "content": method_content,
+    "save_content": method_save_content,
     "preview": method_preview,
 }
 
@@ -306,12 +386,23 @@ run 디렉터리 **밖**이다 — TTS 캐시와 같은 이유가 아니라 반�
 def _signature(run_dir: Path, project: dict[str, Any], scenes: dict[str, Any]) -> str:
     """프레임을 정하는 입력 전부의 지문.
 
-    **프로젝트를 통째로 넣는다.** 프리뷰에 영향을 주는 필드를 골라 적으면 렌더가 읽는 필드가
-    늘었을 때(#29의 볼륨, #34의 모션) 화면이 옛 그림에 머문다 — 틀린 그림을 캐시가 지켜 주는
-    쪽이 값을 하나 더 해싱하는 것보다 비싸다.
+    **프로젝트를 통째로 넣되 `APP_STATE_SECTIONS`만 뺀다.** 프리뷰에 영향을 주는 필드를 골라
+    적으면 렌더가 읽는 필드가 늘었을 때(#29의 볼륨, #34의 모션) 화면이 옛 그림에 머문다 —
+    틀린 그림을 캐시가 지켜 주는 쪽이 값을 하나 더 해싱하는 것보다 비싸다. 그래서 목록은
+    "렌더가 읽는 것"이 아니라 **"렌더가 읽지 않는 것"** 쪽으로 뒀다. 빼는 근거는 스키마가
+    들고 있고(`schemas/project.py`), 새 섹션은 아무것도 하지 않아도 지문에 들어간다.
+
+    빼지 않으면 확인 버튼 한 번이 프레임 11장을 다시 만들고(이 머신에서 2초대) 결과는 같은
+    그림이다 (#28).
     """
     payload = "\n".join(
-        [str(run_dir), serialize_artifact(project), serialize_artifact(scenes)]
+        [
+            str(run_dir),
+            serialize_artifact(
+                {k: v for k, v in project.items() if k not in APP_STATE_SECTIONS}
+            ),
+            serialize_artifact(scenes),
+        ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 

@@ -1,32 +1,42 @@
 // 앱 셸 — 프로젝트를 열고, 고친 것을 저장하고, 실패를 그린다 (이슈 #26).
-// 그 위에 장면 목록 · 세로형 프리뷰 · 속성 패널 3분할이 올라와 있다 (#27).
+// 그 위에 장면 목록 · 세로형 프리뷰 · 속성 패널 3분할(#27)과 문제 편집 화면(#28)이 있다.
 //
 // 여기서 정해 두는 것은 편집이 어떻게 생겼는지가 아니라 **편집이 어디에 쌓이고 언제 파일이
-// 되는가**다. 문제 편집(#28), 공통 편집(#29), 렌더 실행(#30)이 이 상태 위에 올라온다.
+// 되는가**다. 공통 편집(#29)과 렌더 실행(#30)이 이 상태 위에 올라온다.
 //
-// - `project`는 통째로 오가는 값이다. 필드를 골라 다시 조립하지 않으므로 스키마가 늘어도
-//   앱이 값을 잃지 않는다
+// - `project`와 `content`는 통째로 오가는 값이다. 필드를 골라 다시 조립하지 않으므로 스키마가
+//   늘어도 앱이 값을 잃지 않는다. **파일이 둘이므로 저장도 둘이다** — 한 번에 두 파일을 쓰고
+//   둘 다 성공해야 저장됨으로 돌아온다
 // - 저장 여부는 플래그가 아니라 **마지막으로 파일과 같았던 내용(`baseline`)과의 비교**다.
 //   고쳤다가 되돌린 것을 "변경"으로 세면 사용자가 없는 변경을 저장하게 된다
 // - 프리뷰를 다시 만들지도 같은 비교로 정한다. 프로젝트 내용이 곧 그림을 정하므로, 무엇이
 //   프레임에 영향을 주는지 앱이 알 필요가 없다 (`_signature`가 백엔드 쪽 같은 판단이다)
+// - **콘텐츠 편집은 프리뷰를 다시 만들지 않는다.** `scenes.json`이 그대로이기 때문이고,
+//   새 낭독이 그림에 도달하는 것은 재생성(#77) 뒤다
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import { Header } from './components/Header'
+import { Header, type View } from './components/Header'
 import { ErrorNotice, Notice } from './components/Notice'
 import { OpenScreen } from './components/OpenScreen'
 import { Preview, type PreviewFrame } from './components/Preview'
 import { Properties } from './components/Properties'
+import { QuestionScreen } from './components/QuestionScreen'
 import { SceneList } from './components/SceneList'
+import { contentModule } from './types'
 import {
   bridge,
+  review,
   type ApiError,
   type AppContext,
+  type Content,
+  type ContentResult,
   type EnvResult,
   type OpenResult,
   type PreviewResult,
   type Project,
+  type Review,
+  type SaveContentResult,
   type Scenes,
   type ScenesResult,
   type SaveResult
@@ -39,16 +49,32 @@ export function App () {
   const [opened, setOpened] = useState<{ runDir: string, path: string } | null>(null)
   const [project, setProject] = useState<Project | null>(null)
   const [scenes, setScenes] = useState<Scenes | null>(null)
+  const [content, setContent] = useState<Content | null>(null)
   const [baseline, setBaseline] = useState<string | null>(null)
+  const [contentBaseline, setContentBaseline] = useState<string | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const [view, setView] = useState<View>('scenes')
   const [selected, setSelected] = useState<number | null>(null)
+  const [selectedItem, setSelectedItem] = useState<number | null>(null)
   const [frame, setFrame] = useState<PreviewFrame | null>(null)
   const [pending, setPending] = useState<number | null>(null)
   const [previewError, setPreviewError] = useState<ApiError | null>(null)
 
-  const unsaved = project !== null && baseline !== null && JSON.stringify(project) !== baseline
+  // **두 파일 중 어느 쪽이든 바뀌면 저장되지 않은 변경이다.** 헤더의 pill 하나가 둘을
+  // 함께 말하고, 창을 닫을 때 main이 보는 플래그도 이 값이다.
+  const unsaved = (
+    (project !== null && baseline !== null && JSON.stringify(project) !== baseline) ||
+    (content !== null && contentBaseline !== null && JSON.stringify(content) !== contentBaseline)
+  )
+
+  // 편집기가 등록되지 않은 타입이면 `null`이고, 그때 문제 편집 화면이 열리지 않는다.
+  const type = project === null ? null : contentModule(project.type)
+  const items = useMemo(
+    () => (type && content ? type.items(content) : []),
+    [type, content]
+  )
   // 프리뷰를 다시 만들 근거. 백엔드도 같은 판단을 하므로 이 값이 바뀌었는데 그림이 같으면
   // 캐시가 답하고 왕복이 몇 ms로 끝난다.
   const projectKey = useMemo(() => (project === null ? null : JSON.stringify(project)), [project])
@@ -67,16 +93,25 @@ export function App () {
       return false
     }
 
-    // **장면 목록은 따로 묻는다.** 읽지 못하는 것이 프로젝트를 열지 못할 이유는 아니다 —
-    // `project.json`의 값은 여전히 보이고 고칠 수 있어야 한다.
-    const listed = await api.call<ScenesResult>('scenes', { run_dir: response.result.run_dir })
+    // **장면 목록과 콘텐츠는 따로 묻는다.** 읽지 못하는 것이 프로젝트를 열지 못할 이유는
+    // 아니다 — `project.json`의 값은 여전히 보이고 고칠 수 있어야 하고, 콘텐츠가 없으면
+    // 문제 편집만 닫히면 된다.
+    const opening = response.result.run_dir
+    const listed = await api.call<ScenesResult>('scenes', { run_dir: opening })
+    const loaded = contentModule(response.result.project.type)
+      ? await api.call<ContentResult>('content', { run_dir: opening, type: response.result.project.type })
+      : null
     setBusy(false)
 
-    setOpened({ runDir: response.result.run_dir, path: response.result.project_path })
+    setOpened({ runDir: opening, path: response.result.project_path })
     setProject(response.result.project)
     setBaseline(JSON.stringify(response.result.project))
     setScenes(listed.result?.scenes ?? null)
+    setContent(loaded?.result?.content ?? null)
+    setContentBaseline(loaded?.result ? JSON.stringify(loaded.result.content) : null)
+    setView('scenes')
     setSelected(listed.result ? 0 : null)
+    setSelectedItem(null)
     setFrame(null)
     setPending(null)
     setPreviewError(null)
@@ -90,18 +125,34 @@ export function App () {
     // 무엇을 보냈는지를 기준으로 삼는다. 저장 중에 편집이 더 일어나면 그것은 여전히
     // 저장되지 않은 변경이어야 한다.
     const sent = JSON.stringify(project)
+    const sentContent = content === null ? null : JSON.stringify(content)
     setBusy(true)
-    const response = await api.call<SaveResult>('save', { run_dir: opened.runDir, project })
-    setBusy(false)
-    if (response.error) {
-      setError(response.error)
+
+    const fail = (failure: ApiError) => {
+      setBusy(false)
+      setError(failure)
       return false
     }
 
+    // **콘텐츠를 먼저 쓴다.** 둘 중 계약을 어길 수 있는 쪽이 이쪽이다 — 질문을 비우면
+    // 스키마가 반려한다. 프로젝트를 먼저 쓰면 그 실패에서 확인 기록만 파일에 남아, 확인한
+    // 대상이 없는 확인이 된다.
+    if (content !== null) {
+      const stored = await api.call<SaveContentResult>(
+        'save_content', { run_dir: opened.runDir, type: project.type, content }
+      )
+      if (stored.error) return fail(stored.error)
+    }
+
+    const response = await api.call<SaveResult>('save', { run_dir: opened.runDir, project })
+    if (response.error) return fail(response.error)
+
+    setBusy(false)
     setBaseline(sent)
+    if (sentContent !== null) setContentBaseline(sentContent)
     setError(null)
     return true
-  }, [api, opened, project])
+  }, [api, opened, project, content])
 
   const edit = useCallback((section: 'render', field: string, value: unknown) => {
     setProject((previous) => previous && {
@@ -109,6 +160,110 @@ export function App () {
       [section]: { ...previous[section], [field]: value }
     })
   }, [])
+
+  /**
+   * `scenes.json`이 아직 참조하는 항목 번호.
+   *
+   * **콘텐츠에서 지운 번호도 여기 남는다.** 그래서 새 항목이 그 번호를 가져가지 못하고,
+   * 옛 장면들이 새 항목의 것으로 읽히는 일이 생기지 않는다 — 재생성(#77)이 장면을 다시
+   * 만들면 그때 목록에서 빠진다.
+   */
+  const reservedIds = useMemo(() => {
+    if (!scenes) return []
+    const seen = new Set<number>()
+    scenes.scenes.forEach((scene) => {
+      if (scene.question_id !== undefined) seen.add(scene.question_id)
+    })
+    return [...seen]
+  }, [scenes])
+
+  /** `review`를 고친 프로젝트. 없던 섹션은 빈 값에서 시작한다 (옛 run 디렉터리). */
+  const patchReview = useCallback((change: (current: Review) => Review) => {
+    setProject((previous) => previous && { ...previous, review: change(review(previous)) })
+  }, [])
+
+  /**
+   * 콘텐츠 편집이 검수 상태에 미치는 영향 — **규칙 하나다.**
+   *
+   * 낭독 문구가 바뀐 항목은 확인이 풀리고(확인한 내용과 다른 내용이 확인된 상태로 남지
+   * 않는다) 재생성 대상이 된다. 어느 필드가 낭독으로 가는지는 타입 모듈이 알고, 여기서는
+   * 값이 달라졌는지만 본다.
+   *
+   * **한 번 붙은 `stale`은 되돌려도 떨어지지 않는다.** `scenes.json`이 어느 문구에서
+   * 만들어졌는지 기록해 두는 곳이 없어 비교 기준이 "지금 화면의 직전 값"뿐이기 때문이다.
+   * 낡지 않은 것을 낡았다고 말하는 쪽이 반대보다 안전하고, 표시를 지우는 것은 재생성(#77)이다.
+   */
+  const editContent = useCallback((next: Content) => {
+    if (!type || !content) return
+    const before = new Map(type.items(content).map((item) => [item.id, item.narration]))
+    const changed = type.items(next)
+      .filter((item) => before.has(item.id) && before.get(item.id) !== item.narration)
+      .map((item) => item.id)
+    setContent(next)
+    if (changed.length > 0) {
+      patchReview((current) => ({
+        acknowledged: current.acknowledged.filter((id) => !changed.includes(id)),
+        stale: union(current.stale, changed)
+      }))
+    }
+  }, [type, content, patchReview])
+
+  const addItem = useCallback(() => {
+    if (!type || !content) return
+    const added = type.add(content, reservedIds)
+    setContent(added.content)
+    // 새 항목은 오디오도 자막도 **아예 없다.** `stale`이 "낡음"과 "없음"을 함께 뜻한다 —
+    // 재생성이 해야 할 일이 같기 때문이다.
+    patchReview((current) => ({ ...current, stale: union(current.stale, [added.id]) }))
+    setSelectedItem(added.id)
+  }, [type, content, reservedIds, patchReview])
+
+  const removeItem = useCallback((id: number) => {
+    if (!type || !content) return
+    const remaining = type.items(content).filter((item) => item.id !== id)
+    setContent(type.remove(content, id))
+    // 지운 번호는 두 목록에서도 빠진다. 남겨 두면 나중에 같은 번호가 다시 생겼을 때
+    // 옛 판단이 새 항목에 붙는다 — 번호를 재사용하지 않는 것과 같은 이유다.
+    patchReview((current) => ({
+      acknowledged: current.acknowledged.filter((value) => value !== id),
+      stale: current.stale.filter((value) => value !== id)
+    }))
+    setSelectedItem(remaining[0]?.id ?? null)
+  }, [type, content, patchReview])
+
+  const moveItem = useCallback((id: number, delta: number) => {
+    // **순서만 바뀌면 그 항목의 오디오는 그대로다.** 낡는 것은 `scenes.json`의 장면 배열이고,
+    // 그것은 저장하지 않는다 — 두 파일의 번호 나열을 비교하면 나온다 (`orderStale`).
+    if (type && content) setContent(type.move(content, id, delta))
+  }, [type, content])
+
+  const acknowledge = useCallback((id: number) => {
+    // **콘텐츠는 건드리지 않는다.** `verify.status`와 `confidence`는 검증기(#10)와 검수
+    // 게이트(#11)가 소유한다 (확정 스펙 1.4).
+    patchReview((current) => ({ ...current, acknowledged: union(current.acknowledged, [id]) }))
+  }, [patchReview])
+
+  /**
+   * 장면 구성이 낡았는가 — 콘텐츠의 항목 순서와 `scenes.json`의 `question_id` 나열 비교.
+   *
+   * **적어 두지 않는다.** 두 파일에서 바로 나오는 값이라 기록하면 어느 쪽이 원본인지 모호해지고,
+   * 재시작 뒤에도 같은 답이 나온다.
+   */
+  const orderStale = useMemo(() => {
+    if (!scenes || items.length === 0) return false
+    const inScenes: number[] = []
+    scenes.scenes.forEach((scene) => {
+      const id = scene.question_id
+      if (id !== undefined && inScenes[inScenes.length - 1] !== id) inScenes.push(id)
+    })
+    return inScenes.join(',') !== items.map((item) => item.id).join(',')
+  }, [scenes, items])
+
+  // 고른 것이 없으면 첫 항목이다. 상태에 미리 넣지 않는 이유는 목록이 바뀔 때(삭제) 그
+  // 값이 사라진 항목을 가리킬 수 있기 때문이다.
+  const activeItem = selectedItem !== null && items.some((item) => item.id === selectedItem)
+    ? selectedItem
+    : items[0]?.id ?? null
 
   // 늦게 온 응답이 최신 프레임을 덮어쓰지 않게 하는 표. 프리뷰는 백엔드에서 스레드로 돌아
   // 응답 순서가 요청 순서와 다를 수 있다.
@@ -178,14 +333,28 @@ export function App () {
       save,
       edit,
       select: (index: number) => setSelected(index),
+      // 문제 편집도 **UI가 부르는 것과 같은 경로**다 (#28). 스모크 전용 저장 경로를 두면
+      // 확인한 것이 제품 동작이 아니게 된다.
+      view: (next: View) => setView(next),
+      selectItem: (id: number) => setSelectedItem(id),
+      editContent,
+      acknowledge,
+      addItem,
+      removeItem,
+      moveItem,
       state: () => ({
         unsaved,
         project,
         scenes,
+        content,
+        items,
         error,
         opened,
         environment,
+        view,
         selected,
+        selectedItem: activeItem,
+        orderStale,
         pending,
         frame: frame && { index: frame.index, bytes: frame.png.length, elapsedMs: frame.elapsedMs },
         previewError
@@ -202,6 +371,11 @@ export function App () {
         unsaved={unsaved}
         busy={busy}
         canSave={unsaved}
+        view={view}
+        // 편집기가 등록되지 않은 타입이면 문제 편집으로 갈 수 없다. 화면을 막는 것이 아니라
+        // 그 화면만 없다 — 장면 목록과 프리뷰는 그대로 돈다.
+        canEditContent={Boolean(type && content)}
+        onView={setView}
         onOpen={() => { void open() }}
         onSave={() => { void save() }}
       />
@@ -224,18 +398,66 @@ export function App () {
             {error && <ErrorNotice error={error} />}
           </div>
         )}
+        {/* **`accent` 파랑이다** — 결함이 아니라 사용자가 해야 할 일이고, 주황으로 그리면
+            `flagged`와 같은 종류로 읽힌다 (확정 스펙 4장). 두 화면 모두에 뜬다. */}
+        {project && opened && orderStale && (
+          <div className="body__notices">
+            <Notice kind="todo" title="장면 구성이 낡았다" testid="notice-order-stale">
+              문제 순서나 개수가 바뀌었다. 장면 목록·총 길이·프리뷰는 아직 옛 구성이고,
+              재생성해야 반영된다.
+            </Notice>
+          </div>
+        )}
         {project && opened
-          ? (
-            <div className="split">
-              {scenes
-                ? <SceneList scenes={scenes.scenes} selected={selected} onSelect={setSelected} />
-                : <aside className="panel panel--scenes"><div className="panel__head"><span className="t-heading">장면</span></div></aside>}
-              <Preview frame={frame} scene={scene} pending={pending} error={previewError} />
-              <Properties project={project} scene={scene} index={selected} runDir={opened.runDir} />
-            </div>
-            )
+          ? (view === 'questions' && type && content
+              ? (
+                <QuestionScreen
+                  module={type}
+                  content={content}
+                  items={items}
+                  selectedId={activeItem}
+                  acknowledged={review(project).acknowledged}
+                  stale={review(project).stale}
+                  onSelect={setSelectedItem}
+                  onChange={editContent}
+                  onAcknowledge={acknowledge}
+                  onAdd={addItem}
+                  onRemove={removeItem}
+                  onMove={moveItem}
+                />
+                )
+              : (
+                <div className="split">
+                  {scenes
+                    ? (
+                      <SceneList
+                        scenes={scenes.scenes}
+                        selected={selected}
+                        items={items}
+                        review={review(project)}
+                        onSelect={setSelected}
+                        onOpenItem={type && content
+                          ? (id) => { setSelectedItem(id); setView('questions') }
+                          : null}
+                      />
+                      )
+                    : <aside className="panel panel--scenes"><div className="panel__head"><span className="t-heading">장면</span></div></aside>}
+                  <Preview frame={frame} scene={scene} pending={pending} error={previewError} />
+                  <Properties project={project} scene={scene} index={selected} runDir={opened.runDir} />
+                </div>
+                ))
           : <OpenScreen busy={busy} onOpen={() => { void open() }} />}
       </main>
     </div>
   )
+}
+
+/**
+ * 두 목록을 합치되 중복을 만들지 않는다.
+ *
+ * `review`의 두 목록은 집합의 뜻이고 스키마가 중복을 거부한다(`_check_review_ids_are_unique`).
+ * 확인 버튼을 두 번 누르는 것만으로 저장이 실패하면 원인이 화면에서 드러나지 않는다.
+ */
+function union (current: number[], added: number[]): number[] {
+  return [...current, ...added.filter((id) => !current.includes(id))]
 }

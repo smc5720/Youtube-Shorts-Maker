@@ -1,4 +1,4 @@
-// 스모크 시나리오 — 사람 없이 #26의 완료 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28의 완료 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
 // 같은 `open` / `edit` / `save`이고, 확인 대화상자만 바꿔 끼운다(모달이 뜨면 자동 실행이
@@ -22,7 +22,9 @@ const SHOT = process.env.SHORTS_SMOKE_SHOT
 /** 편집이 파일까지 갔는지 보는 표식. 한글이라 인코딩 회귀도 함께 걸린다. */
 const MARKERS = {
   save: '스모크 · 저장 버튼',
-  close: '스모크 · 닫기 저장'
+  close: '스모크 · 닫기 저장',
+  /** 문제 편집 쪽 표식 (#28). 낭독 문구라 확인 기록이 풀리고 재생성 대상이 된다. */
+  answer: '스모크 · 고친 정답'
 }
 
 const TIMEOUT_MS = 120000
@@ -92,6 +94,12 @@ async function runSmoke ({ scenario, window, log, app, backendInfo, externalRequ
     if (scenario === 'verify') return await verify({ evaluate, quote, record, finish, network })
     if (scenario === 'preview') {
       return await preview({ window, evaluate, quote, attribute, text, record, finish, network })
+    }
+    if (scenario === 'questions') {
+      return await questions({ window, evaluate, quote, attribute, text, saveState, record, finish, network })
+    }
+    if (scenario === 'questions-verify') {
+      return await questionsVerify({ evaluate, quote, record, finish, network })
     }
     await roundTrip({ window, evaluate, quote, text, attribute, saveState, record, finish, setAsk, network })
   } catch (failure) {
@@ -239,13 +247,13 @@ async function preview (host) {
 
   const groups = await evaluate(
     `[...document.querySelectorAll('.scene-group')].map((n) => ({
-       head: n.querySelector('[data-testid="question-head"]').textContent.trim(),
+       head: n.querySelector('[data-testid="question-head-number"]').textContent.trim(),
        roles: [...n.querySelectorAll('[data-testid="scene-row"]')].map((r) => r.dataset.role)
      }))`
   )
   record(
     '문제마다 세 장면이 머리글 아래 한 그룹으로 묶인다',
-    groups.length === 2 && groups.every((group) =>
+    groups.length === 3 && groups.every((group) =>
       group.roles.join(',') === 'question,countdown,answer' && /^문제 \d+$/.test(group.head)),
     JSON.stringify(groups)
   )
@@ -317,6 +325,188 @@ async function preview (host) {
     await until(async () => await attribute('[data-testid="total-duration"]', 'data-state') === 'over'),
     await text('[data-testid="total-value"]'))
 
+  network()
+  finish(0)
+}
+
+/**
+ * 문제 편집 (#28) — 2분할 · 세 상태 표기 · 확인 기록 · 재생성 표시 · 순서 변경.
+ *
+ * **FFmpeg를 요구하지 않는다.** 이 화면에는 프리뷰가 없고(확정 스펙 3.2) 콘텐츠 편집은
+ * 프레임을 다시 만들지 않는다 — 그것이 `review`를 프리뷰 지문에서 뺀 이유이기도 하다.
+ */
+async function questions (host) {
+  const { window, evaluate, quote, attribute, text, saveState, record, finish, network } = host
+  const state = () => evaluate('window.__smoke.state()')
+  const rect = (selector) => evaluate(
+    `(() => { const n = document.querySelector(${quote(selector)}); if (!n) return null;
+       const r = n.getBoundingClientRect(); return { w: r.width, h: r.height } })()`
+  )
+
+  record('문제가 있는 run을 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
+  const loaded = await until(async () => Boolean((await state()).content))
+  record('콘텐츠 산출물이 함께 열린다', loaded, JSON.stringify((await state()).items))
+
+  // 1. **장면 목록의 문제 머리글에 배지가 붙는다** — #30의 렌더 전 경고와 같은 표기다.
+  const heads = await evaluate(
+    `[...document.querySelectorAll('[data-testid="question-head"]')].map((n) => ({
+       number: n.querySelector('[data-testid="question-head-number"]').textContent.trim(),
+       badge: (n.querySelector('[data-testid="verify-badge"]') || { dataset: {} }).dataset.status || null,
+       link: n.tagName
+     }))`
+  )
+  record('문제 머리글이 세 개이고 번호가 붙는다',
+    heads.length === 3 && heads.every((head) => /^문제 \d+$/.test(head.number)), JSON.stringify(heads))
+  record('verified 문제에는 배지가 없고 나머지 둘에만 붙는다',
+    heads.filter((head) => head.badge).length === 2, JSON.stringify(heads.map((head) => head.badge)))
+  record('문제 머리글이 눌러서 이동하는 버튼이다', heads.every((head) => head.link === 'BUTTON'))
+
+  // 2. 머리글을 눌러 문제 편집으로 간다 — 화면이 **2분할**이다 (확정 스펙 3.2)
+  await evaluate('document.querySelectorAll(\'[data-testid="question-head"]\')[0].click()')
+  const opened = await until(async () => (await state()).view === 'questions')
+  record('머리글을 누르면 문제 편집으로 간다', opened && (await state()).selectedItem === 1)
+  record('프리뷰가 없는 2분할이다',
+    (await rect('[data-testid="question-list"]')) !== null && (await rect('.preview__frame')) === null)
+
+  // 3. 세 상태가 색 외에 **문구와 모양으로도** 갈린다 (확정 스펙 4장)
+  const badges = await evaluate(
+    `[...document.querySelectorAll('[data-testid="question-row"] [data-testid="verify-badge"]')].map((n) => ({
+       status: n.dataset.status,
+       text: n.textContent.trim(),
+       border: getComputedStyle(n).borderStyle,
+       glyph: Boolean(n.querySelector('.vbadge__glyph'))
+     }))`
+  )
+  const flagged = badges.find((badge) => badge.status === 'flagged')
+  const unverified = badges.find((badge) => badge.status === 'unverified')
+  record('flagged와 unverified가 다른 문구를 쓴다',
+    flagged && unverified && flagged.text !== unverified.text, JSON.stringify(badges.map((b) => b.text)))
+  record('unverified만 점선이고 `?` 기호를 쓴다',
+    unverified && unverified.glyph && unverified.border === 'dashed' && flagged.border === 'solid',
+    JSON.stringify(badges.map((b) => `${b.status}:${b.border}`)))
+
+  // 4. `unverified`는 `confidence` 자리에 `—`가 온다 — 0인 것과 없는 것은 다르다
+  await evaluate('window.__smoke.selectItem(3)')
+  await until(async () => (await state()).selectedItem === 3)
+  record('unverified의 confidence 자리가 —다',
+    (await text('[data-testid="verify-confidence"]')).includes('—'),
+    await text('[data-testid="verify-confidence"]'))
+
+  // 5. 확인 처리 — **콘텐츠의 `verify`는 그대로다** (확정 스펙 1.4)
+  await evaluate('window.__smoke.selectItem(1)')
+  await until(async () => (await state()).selectedItem === 1)
+  record('flagged 사유가 무엇을 고칠지 말한다',
+    (await text('[data-testid="verify-reason"]')).includes('아마존강'),
+    await text('[data-testid="verify-reason"]'))
+
+  const beforeVerify = JSON.stringify((await state()).content.questions[0].verify)
+  await evaluate('document.querySelector(\'[data-testid="acknowledge"]\').click()')
+  const acknowledged = await until(async () => (await state()).project.review.acknowledged.includes(1))
+  record('확인하면 project.json의 review에 번호가 들어간다', acknowledged,
+    JSON.stringify((await state()).project.review))
+  record('확인해도 quiz.json의 verify는 그대로다',
+    JSON.stringify((await state()).content.questions[0].verify) === beforeVerify, beforeVerify)
+  record('확인 뒤 저장되지 않은 변경이 뜬다', await until(async () => await saveState() === 'unsaved'))
+
+  // 6. 낭독 문구를 고치면 **확인이 풀리고 재생성 대상이 된다**
+  await evaluate(
+    `(() => { const c = window.__smoke.state().content;
+       const next = { ...c, questions: c.questions.map((q) => (q.id === 1 ? { ...q, answer: ${quote(MARKERS.answer)} } : q)) };
+       window.__smoke.editContent(next) })()`
+  )
+  const released = await until(async () => {
+    const review = (await state()).project.review
+    return !review.acknowledged.includes(1) && review.stale.includes(1)
+  })
+  record('낭독 문구를 고치면 확인이 풀리고 stale에 들어간다', released,
+    JSON.stringify((await state()).project.review))
+  record('재생성 필요 카드가 뜬다', Boolean(await text('[data-testid="stale-card"]')))
+  // **`accent` 파랑이다** — 주황이면 `flagged`와 같은 종류로 읽힌다 (확정 스펙 4장).
+  const staleColor = await evaluate(
+    'getComputedStyle(document.querySelector(\'[data-testid="stale-badge"]\')).color'
+  )
+  const accent = await evaluate(
+    '(() => { const p = document.createElement("i"); p.style.color = "var(--accent)";'
+    + ' document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c })()'
+  )
+  record('재생성 표시가 accent 파랑이다', staleColor === accent, `${staleColor} / ${accent}`)
+
+  // 7. 카운트다운·난이도는 낭독이 아니다 — 고쳐도 새로 stale이 붙지 않는다
+  const before = JSON.stringify((await state()).project.review.stale)
+  await evaluate(
+    `(() => { const c = window.__smoke.state().content;
+       const next = { ...c, questions: c.questions.map((q) => (q.id === 2 ? { ...q, countdown_sec: 5 } : q)) };
+       window.__smoke.editContent(next) })()`
+  )
+  await delay(200)
+  record('카운트다운만 고치면 재생성 대상이 늘지 않는다',
+    JSON.stringify((await state()).project.review.stale) === before,
+    JSON.stringify((await state()).project.review.stale))
+
+  // 8. 순서 변경 — **장면 구성이 낡았다**가 뜬다 (저장하지 않고 두 파일에서 계산한다)
+  record('처음에는 장면 구성이 낡지 않았다', (await state()).orderStale === false)
+  await evaluate('window.__smoke.moveItem(1, 1)')
+  const reordered = await until(async () => (await state()).orderStale === true)
+  record('순서를 바꾸면 장면 구성이 낡았다고 뜬다', reordered,
+    JSON.stringify((await state()).items.map((item) => item.id)))
+  record('그 알림이 화면에 있다', Boolean(await text('[data-testid="notice-order-stale"]')))
+
+  // 9. 추가 / 삭제
+  await evaluate('window.__smoke.addItem()')
+  const added = await until(async () => (await state()).items.length === 4)
+  record('문제를 추가하면 목록이 늘고 재생성 대상이 된다',
+    added && (await state()).project.review.stale.includes(4),
+    JSON.stringify((await state()).project.review.stale))
+  await evaluate('window.__smoke.removeItem(4)')
+  record('추가한 문제를 지우면 재생성 대상에서도 빠진다', await until(async () => {
+    const now = await state()
+    return now.items.length === 3 && !now.project.review.stale.includes(4)
+  }), JSON.stringify((await state()).project.review.stale))
+
+  // **장면이 아직 참조하는 번호는 새 문제에 주지 않는다.** 3번은 `scenes.json`에 장면 셋을
+  // 갖고 있어서, 지운 자리에 새 문제가 그 번호를 가져가면 옛 장면들이 새 문제의 것으로
+  // 읽힌다 — 배지도 재생성 표시도 번호를 따라간다.
+  await evaluate('window.__smoke.removeItem(3)')
+  await until(async () => (await state()).items.length === 2)
+  await evaluate('window.__smoke.addItem()')
+  const fresh = await until(async () => (await state()).items.length === 3)
+  const ids = (await state()).items.map((item) => item.id)
+  record('장면이 참조하는 번호를 새 문제에 주지 않는다',
+    fresh && !ids.includes(3) && ids.includes(4), JSON.stringify(ids))
+
+  // 재시작 쪽이 보는 상태를 단순하게 두려고 방금 추가한 것만 되돌린다.
+  await evaluate(`window.__smoke.removeItem(${Math.max(...ids)})`)
+  record('정리 뒤 문제가 둘이다',
+    await until(async () => (await state()).items.length === 2),
+    JSON.stringify((await state()).items.map((item) => item.id)))
+
+  await capture(window, record)
+
+  // 10. 저장 — 두 파일이 함께 간다. 결과 확인은 재시작 쪽(questions-verify)이 한다
+  record('저장이 성공한다', await evaluate('window.__smoke.save()') === true)
+  record('저장 뒤 상태가 저장됨으로 돌아온다', await until(async () => await saveState() === 'saved'))
+  const leftovers = fs.readdirSync(RUN).filter((name) => name.includes('.tmp-'))
+  record('임시 파일이 남지 않는다', leftovers.length === 0, leftovers.join(', '))
+
+  network()
+  finish(0)
+}
+
+/** 앱을 다시 띄운 쪽. 문제 편집이 두 파일에 남아 다시 열리는지 본다 (#28). */
+async function questionsVerify ({ evaluate, quote, record, finish, network }) {
+  record('재시작한 앱이 같은 프로젝트를 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
+  const settled = await until(async () => Boolean((await evaluate('window.__smoke.state()')).content))
+  const state = await evaluate('window.__smoke.state()')
+
+  record('고친 정답이 유지된다', settled && state.content.questions.some(
+    (question) => question.answer === MARKERS.answer), JSON.stringify(state.content.questions.map((q) => q.answer)))
+  record('재생성 대상 표시가 유지된다', state.project.review.stale.includes(1),
+    JSON.stringify(state.project.review))
+  record('확인 기록은 풀린 채로 유지된다', !state.project.review.acknowledged.includes(1))
+  // 순서를 바꾼 뒤 저장했으므로 장면과 어긋난 상태가 그대로 열려야 한다.
+  record('장면 구성이 낡았다는 판단이 재시작 뒤에도 같다', state.orderStale === true,
+    JSON.stringify(state.items.map((item) => item.id)))
+  record('다시 연 직후에는 변경이 없다', state.unsaved === false)
   network()
   finish(0)
 }

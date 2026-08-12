@@ -22,6 +22,29 @@ export interface Project {
     cta_tail: string
     caption_onset_sec: number
   }
+  /**
+   * **앱이 소유하는 유일한 섹션이다** (#28). 렌더러가 읽지 않으므로 프리뷰 지문에서도 빠진다
+   * (`api.APP_STATE_SECTIONS`).
+   *
+   * 이 필드가 생기기 전에 만들어진 run 디렉터리가 있으므로 없을 수 있다. 읽는 쪽은
+   * `review(project)`를 쓴다.
+   */
+  review?: Review
+}
+
+/** 두 목록 모두 문제 `id`이고 `scenes.json`의 `question_id`와 같은 값이다. */
+export interface Review {
+  /** 사람이 `flagged`/`unverified`를 보고 넘어가기로 한 문제. */
+  acknowledged: number[]
+  /** 낭독 문구가 바뀌어 오디오·자막이 낡은 문제. 지우는 것은 재생성(#77)이다. */
+  stale: number[]
+}
+
+const EMPTY_REVIEW: Review = { acknowledged: [], stale: [] }
+
+/** 없는 `review`를 빈 값으로 읽는다. 호출부마다 `?? []`를 쓰면 한 곳을 빠뜨린다. */
+export function review (project: Project): Review {
+  return project.review ?? EMPTY_REVIEW
 }
 
 /** `scenes.json`의 장면 하나 (`schemas/scenes.py`). 확정 상태만 앱에 온다. */
@@ -83,6 +106,25 @@ export interface SaveResult {
 export interface ScenesResult {
   scenes_path: string
   scenes: Scenes
+}
+
+/**
+ * 타입 전용 콘텐츠 산출물 (퀴즈는 `quiz.json`, 이슈 #28).
+ *
+ * **내용의 모양을 여기서 정하지 않는다.** 백엔드도 파일명과 검증을 레지스트리에서 받고
+ * (`api._content_schema`) 이 계층은 통째로 옮길 뿐이다. 필드를 아는 것은 `src/types/`의
+ * 타입 모듈뿐이고, 그 경계가 퀴즈 스펙 1.1이 앱 쪽에 그은 선이다.
+ */
+export interface ContentResult {
+  content_path: string
+  content: Content
+}
+
+export type Content = Record<string, unknown>
+
+export interface SaveContentResult {
+  content_path: string
+  bytes: number
 }
 
 export interface PreviewResult {

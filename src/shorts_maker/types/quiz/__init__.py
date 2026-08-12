@@ -14,8 +14,9 @@ from .scene_template import build
 
 SHORTS_TYPE = ShortsType(
     name=TYPE,
-    # 파일명은 스키마가 확정한다. 여기 문자열을 다시 적으면 계약이 두 곳에 생긴다.
-    content_artifact=QUIZ_SCHEMA.name,
+    # 파일명도 검증도 스키마 하나에서 나온다. 앱이 이 파일을 읽고 쓰는 경로(#28)가
+    # 레지스트리를 지나는 것도 이 값 때문이다 — `api.py`는 `quiz.json`을 적을 수 없다.
+    content_schema=QUIZ_SCHEMA,
     generator=generate,
     scene_template=build,
     # 문제 수 허용 범위(3~5)는 퀴즈의 규칙이다. 파이프라인이 run 디렉터리를 만들기 전에

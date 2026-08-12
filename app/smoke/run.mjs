@@ -1,14 +1,19 @@
-// 앱 스모크 (#26, #27) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
+// 앱 스모크 (#26, #27, #28) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
 //
-// 네 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
+// 여섯 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
-//   1. edit    — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
-//   2. verify  — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
-//   3. preview — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27)
-//   4. idle    — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
+//   1. edit             — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
+//   2. verify           — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
+//   3. preview          — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27)
+//   4. questions        — 2분할 · 세 상태 표기 · 확인 기록 · 재생성 표시 · 순서·추가·삭제 (#28)
+//   5. questions-verify — 다시 띄워서 문제 편집이 두 파일에 남았는지 (#28)
+//   6. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
 //
 // **3번은 FFmpeg를 요구한다.** 실제 프레임이 나오는지가 그 시나리오의 절반이라 대역으로
-// 바꾸면 확인하려는 것이 확인되지 않는다.
+// 바꾸면 확인하려는 것이 확인되지 않는다. 4번은 요구하지 않는다 — 그 화면에는 프리뷰가 없고
+// 콘텐츠 편집이 프레임을 다시 만들지 않는 것 자체가 확인 대상이다.
+//
+// **순서가 있다.** 4번이 `run-smoke`의 두 파일을 고치므로 앞선 시나리오보다 뒤에 온다.
 //
 // 실행: npm run smoke   (결과는 app/smoke/results.json)
 
@@ -144,7 +149,64 @@ record('프리뷰 시나리오가 끝난다', previewResult && previewResult.ok 
 const leaked = fs.readdirSync(RUN).filter((name) => name.endsWith('.mp4'))
 record('프리뷰가 최종 렌더 산출물을 만들지 않는다', leaked.length === 0, leaked.join(', '))
 
-// --- 4. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
+// --- 4. 문제 편집 (#28) -------------------------------------------------------------
+
+// **파일이 둘이므로 두 파일을 함께 본다.** 확인 기록은 project.json에, 확인한 대상은
+// 콘텐츠에 있어 한쪽만 확인하면 계약이 지켜졌는지 알 수 없다.
+const quizBefore = JSON.parse(fs.readFileSync(path.join(RUN, 'quiz.json'), 'utf8'))
+
+const questionsOut = path.join(WORK, 'questions.json')
+const questions = await wait(electron('questions', {
+  SHORTS_SMOKE_RUN: RUN,
+  SHORTS_SMOKE_OUT: questionsOut,
+  SHORTS_SMOKE_SHOT: path.join(APP_DIR, 'smoke', 'screenshot-questions.png'),
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+}), 180000)
+
+const questionsResult = fs.existsSync(questionsOut) ? JSON.parse(fs.readFileSync(questionsOut, 'utf8')) : null
+results.phases.push({ scenario: 'questions', ...questions, result: questionsResult })
+if (questionsResult) results.checks.push(...questionsResult.checks)
+record('문제 편집 시나리오가 끝난다', questionsResult && questionsResult.ok && !questions.timedOut)
+
+const quizAfter = JSON.parse(fs.readFileSync(path.join(RUN, 'quiz.json'), 'utf8'))
+const projectAfter = JSON.parse(fs.readFileSync(path.join(RUN, 'project.json'), 'utf8'))
+
+record('고친 정답이 quiz.json까지 간다',
+  quizAfter.questions.some((question) => question.answer === MARKERS.answer),
+  quizAfter.questions.map((question) => question.answer).join(' / '))
+record('순서 변경이 quiz.json까지 간다',
+  quizAfter.questions.map((question) => question.id).join(',') !== quizBefore.questions.map((question) => question.id).join(','),
+  quizAfter.questions.map((question) => question.id).join(','))
+
+// **이것이 이 이슈의 계약이다** (D2 확정 스펙 1.4). 사람 확인이 검증기 소유 필드를 덮으면
+// 다음 실행의 임계값 판정이 조용히 통과한다.
+// **남아 있는 문제끼리 번호로 짝지어 본다.** 시나리오가 지운 문제도 있으므로 배열을
+// 통째로 비교하면 이 계약이 아니라 개수가 걸린다.
+const verifyOf = (quiz) => new Map(quiz.questions.map((q) => [q.id, JSON.stringify(q.verify ?? null)]))
+const before = verifyOf(quizBefore)
+const after = verifyOf(quizAfter)
+const touched = [...after].filter(([id, entry]) => before.has(id) && before.get(id) !== entry)
+record('사람 확인이 verify.status·confidence를 건드리지 않는다',
+  touched.length === 0, JSON.stringify(touched))
+record('확인 기록이 project.json의 review로 간다',
+  Array.isArray(projectAfter.review.acknowledged) && projectAfter.review.stale.includes(1),
+  JSON.stringify(projectAfter.review))
+
+// --- 5. 재시작하고 문제 편집 확인 ---------------------------------------------------
+
+const qVerifyOut = path.join(WORK, 'questions-verify.json')
+const qVerify = await wait(electron('questions-verify', {
+  SHORTS_SMOKE_RUN: RUN,
+  SHORTS_SMOKE_OUT: qVerifyOut,
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+}), 120000)
+
+const qVerifyResult = fs.existsSync(qVerifyOut) ? JSON.parse(fs.readFileSync(qVerifyOut, 'utf8')) : null
+results.phases.push({ scenario: 'questions-verify', ...qVerify, result: qVerifyResult })
+if (qVerifyResult) results.checks.push(...qVerifyResult.checks)
+record('문제 편집 재시작 시나리오가 끝난다', qVerifyResult && qVerifyResult.ok && !qVerify.timedOut)
+
+// --- 6. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
 
 const readyPath = path.join(WORK, 'ready.json')
 const idle = electron('idle', {
@@ -179,7 +241,7 @@ if (ready) {
 }
 idle.kill()
 
-// --- 5. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
+// --- 7. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
 
 // 실행 중 감시(main의 `onBeforeRequest`)와 **다른 층의 확인이다.** 그쪽은 "시도가 없었다"를,
 // 이쪽은 "시도할 대상이 빌드에 없다"를 본다 — 시안의 CDN 링크가 되살아나는 경로가 이쪽이다
