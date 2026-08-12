@@ -1,0 +1,267 @@
+/* 셸 레이아웃 (#26). 화면 안을 채우는 것은 #27부터이므로 여기 있는 것은 헤더와
+ * 프로젝트를 여는 자리, 그리고 실패를 그리는 자리뿐이다. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  /* 편집 앱이라 텍스트를 고르는 자리는 값(경로·수치)뿐이다. */
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* --- 헤더 (확정 스펙 3.1) ------------------------------------------------- */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  height: var(--header-height);
+  flex: 0 0 var(--header-height);
+  padding: 0 var(--s6);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.header__title {
+  white-space: nowrap;
+}
+
+.header__path {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* 경로가 길면 앞이 아니라 뒤가 남아야 어느 run인지 보인다 */
+  text-align: left;
+  user-select: text;
+}
+
+.header__spacer {
+  flex: 1 1 auto;
+}
+
+.header__actions {
+  display: flex;
+  gap: var(--s3);
+}
+
+/* 저장 상태 pill. **경고 색은 저장되지 않은 변경에 쓴다** (확정 스펙 4장 — warn = 경고). */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 24px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pill--unsaved {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--warn);
+}
+
+.pill--saved {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+}
+
+/* --- 버튼 ---------------------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 30px;
+  padding: 0 var(--s4);
+  border-radius: var(--r-control);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.button:disabled {
+  color: var(--text-3);
+  border-color: var(--line);
+  cursor: default;
+}
+
+.button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+}
+
+.button--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, white);
+}
+
+.button--primary:disabled {
+  background: var(--bg-raised);
+}
+
+.button--large {
+  height: 36px;
+  padding: 0 var(--s6);
+  font-size: 14px;
+}
+
+/* --- 본문 ---------------------------------------------------------------- */
+
+.body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--s8);
+}
+
+.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--s7);
+}
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: var(--s8);
+}
+
+.open-card {
+  width: 520px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s5);
+  text-align: center;
+}
+
+.open-card__icon {
+  color: var(--text-3);
+}
+
+.open-card__hint {
+  color: var(--text-2);
+  max-width: 40ch;
+}
+
+/* --- 알림 (확정 스펙 4장 — 네 색이 각각 다른 것을 뜻하고 섞어 쓰지 않는다) ------- */
+
+.notice {
+  display: flex;
+  gap: var(--s4);
+  align-items: flex-start;
+  padding: var(--s5) var(--s6);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--r-card);
+  background: var(--bg-raised);
+  margin-bottom: var(--s6);
+}
+
+.notice--danger {
+  border-left-color: var(--danger);
+}
+
+.notice--warn {
+  border-left-color: var(--warn);
+}
+
+.notice__icon--danger {
+  color: var(--danger);
+}
+
+.notice__icon--warn {
+  color: var(--warn);
+}
+
+.notice__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notice__title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.notice__details {
+  margin: var(--s3) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.notice__details li {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  user-select: text;
+  word-break: break-all;
+}
+
+/* --- 프로젝트 요약 -------------------------------------------------------- */
+
+.summary {
+  max-width: 820px;
+}
+
+.summary__grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: var(--s4) var(--s6);
+  margin-top: var(--s6);
+}
+
+.summary__value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  user-select: text;
+  word-break: break-all;
+}
+
+.summary__next {
+  margin-top: var(--s8);
+  padding-top: var(--s6);
+  border-top: 1px solid var(--line);
+  color: var(--text-2);
+}

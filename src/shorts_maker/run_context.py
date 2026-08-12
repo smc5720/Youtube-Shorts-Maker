@@ -70,15 +70,28 @@ def start_run(output_root: Path, started_at: datetime | None = None) -> RunConte
     )
 
 
+def serialize_artifact(data: Any) -> str:
+    """산출물 JSON의 파일 표현.
+
+    **사람이 읽고 고치는 파일이다** (퀴즈 스펙 3.1: `quiz.json`이 검수 원본). 그래서
+    들여쓰기를 넣고 한글을 이스케이프하지 않는다. 쓰는 경로가 파이프라인 하나가 아니므로
+    (앱이 `project.json`을 다시 쓴다, #26) 형식은 여기 한 곳에 둔다 — 두 경로가 다른 모양을
+    내면 사람이 앱으로 저장한 것만으로 diff가 생긴다.
+    """
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
 def write_artifact(run_dir: Path, name: str, data: Any) -> Path:
     """산출물 JSON을 run 디렉터리에 쓴다.
 
-    **사람이 읽고 고치는 파일이다** (퀴즈 스펙 3.1: `quiz.json`이 검수 원본). 그래서
-    들여쓰기를 넣고 한글을 이스케이프하지 않는다. 파일명은 호출자가 준다 — 타입 전용
-    산출물의 이름을 이 모듈이 알면 공통 파이프라인이 타입을 알게 된다 (퀴즈 스펙 1.1).
+    파일명은 호출자가 준다 — 타입 전용 산출물의 이름을 이 모듈이 알면 공통 파이프라인이
+    타입을 알게 된다 (퀴즈 스펙 1.1).
+
+    **덮어쓰기를 전제하지 않는다.** 파이프라인은 매번 새 run 디렉터리에 쓰므로 손상시킬
+    원본이 없다. 이미 있는 파일을 고쳐 쓰는 쪽(앱의 저장)은 `api.write_atomically`다.
     """
     path = run_dir / name
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(serialize_artifact(data), encoding="utf-8")
     return path
 
 

@@ -1,0 +1,34 @@
+/* 번들 Pretendard — CDN이 아니다 (D2 확정 스펙 1.6).
+ *
+ * 시안 `<helmet>`은 `cdn.jsdelivr.net`에서 폰트를 불러오지만 앱은 네트워크를 쓰지 않는다
+ * (브리프 3.3). 여기서 참조하는 것은 D1에서 받아 저장소에 커밋된 파일이고
+ * (`assets/fonts/`, #38, OFL), 빌드가 `dist/`로 복사한다.
+ *
+ * **웨이트가 셋뿐이다.** `drawtext`가 웨이트를 고를 수 없어 가변 폰트를 쓸 수 없었고
+ * (assets.FONT_FILES), 그래서 렌더와 앱이 같은 세 파일을 공유한다. 토큰의 400(`body`)은
+ * Medium이 받는다 — 400짜리 파일을 위해 번들을 늘리면 렌더가 쓰지 않는 파일이 하나 는다.
+ */
+
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 400 500;
+  font-style: normal;
+  font-display: block;
+  src: url('../../../assets/fonts/Pretendard-Medium.otf') format('opentype');
+}
+
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: block;
+  src: url('../../../assets/fonts/Pretendard-Bold.otf') format('opentype');
+}
+
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 800;
+  font-style: normal;
+  font-display: block;
+  src: url('../../../assets/fonts/Pretendard-ExtraBold.otf') format('opentype');
+}

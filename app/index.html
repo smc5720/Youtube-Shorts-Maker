@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      **바깥으로 나가는 길이 없다** (D2 발주서 3.3). 폰트도 아이콘도 번들에서 오므로
+      원격 출처를 하나도 허용하지 않는다 — CSP를 두지 않으면 Electron이 보안 경고를
+      띄우고(스파이크 1장), 무엇보다 실수로 추가된 CDN 링크가 조용히 동작한다.
+      `style-src`의 `unsafe-inline`은 React가 인라인 스타일을 쓰기 때문이다.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'"
+    />
+    <title>YouTube Shorts Maker</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

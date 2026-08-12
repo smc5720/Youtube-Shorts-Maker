@@ -18,15 +18,17 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9, #10, #11), 퀴즈 장면
 템플릿(#12), 메타데이터 생성기(#13), TTS provider 레이어(#14), 세그먼트 합성(#15),
 타임라인 확정(#16), 자막 생성(#17), 렌더 골격(#19), 번인 오버레이(#20), 카운트다운(#21),
-정답 강조 애니메이션(#22), 효과음 믹싱(#23), 전 구간 스모크 테스트(#24)까지 있고 `app/`은 아직
-없다. CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`, `metadata.json`,
+정답 강조 애니메이션(#22), 효과음 믹싱(#23), 전 구간 스모크 테스트(#24)까지 있다. `app/`에는
+Electron + React 셸과 stdio JSON Lines 백엔드(`api.py`)가 있고 **프로젝트를 열고 저장하는
+왕복까지만 돈다**(#26) — 화면 안은 #27부터 채운다.
+CLI 한 번에 `verify`가 확정된 `quiz.json`, flagged 경고, `scenes.json`, `metadata.json`,
 낭독 장면별 `audio/seg-*.mp3`, `voice.mp3`, `captions.srt`, `project.json`, 그리고 규격에 맞는
 `final_short.mp4`까지 나온다 — **화면에는 hook·질문·카운트다운·정답 확대·해설·cta가 나오고
 비프와 정답 효과음이 들린다.** `assets/`에는 효과음(#18)과
 폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는 `assets.py` 하나다 — `sfx_path()` /
 `caption_styles()` / `background_presets()` / `font_path(weight)`. **Phase 3이 끝났고 수직
-슬라이스가 완성됐다. Phase 4의 게이트는 전부 닫혔다** — #25 결정(Electron + React, stdio
-JSON Lines)과 D2 앱 UI 시안 1차 배치 수령이 끝났고 #26·#27이 `status: ready`다. 남은 시안은
+슬라이스가 완성됐다. Phase 4는 #26까지 들어갔고 다음은 #27이다** — #25 결정(Electron + React,
+stdio JSON Lines)과 D2 앱 UI 시안 1차 배치 수령이 그 앞의 게이트였다. 남은 시안은
 S1(프로젝트 열기)과 S4 잔여분뿐이며 **#27 머지 후 2차 배치로 받는다.**
 `scenes.json`은
 `validate_scenes_final()`을 통과하는 확정 상태이므로 자막과 렌더러가 그대로 입력으로 받는다.
@@ -249,7 +251,7 @@ D1과 같은 구조다. 시안은 claude.ai/design에서 받았고 **구현 기�
   timestamp 개선에 별도 전사 의존성이 불필요할 수 있다. 빌드 의존적이므로 다른 환경에서는
   확인이 필요하다. (#17, #33)
 
-## 앱 경계 (#25 결정)
+## 앱 경계 (#25 결정, #26 구현)
 
 스택은 **Electron + React**, 백엔드는 앱이 자식으로 띄우는 **Python 프로세스 + stdio JSON
 Lines**다. 근거와 측정치는 `docs/spikes/25-app-framework.md`, 결정문은 PRD 14.1에 있다.
@@ -270,3 +272,24 @@ Lines**다. 근거와 측정치는 `docs/spikes/25-app-framework.md`, 결정문�
 - **동결 배포(PyInstaller onedir)에서는 `assets/`가 실행 파일 옆에 있어야 한다.**
   `assets.ASSETS_DIR`이 `shorts_maker/assets.py`에서 두 단계 위를 보기 때문이고, 없으면 어느
   경로를 찾았는지 말하며 실패한다. 동적으로 import되는 타입 패키지는 `--hidden-import`가 필요하다.
+
+아래는 #26에서 실제로 밟은 것들이다.
+
+- **저장 여부를 main에 알리는 IPC만 동기다** (`sendSync` + `useLayoutEffect`). `invoke`로
+  보내면 화면이 먼저 바뀌고 main이 나중에 알아, **그 틈에 창을 닫으면 확인 없이 닫힌다** —
+  스모크가 1ms 차이로 밟았다. main은 프로젝트 내용을 들지 않고 이 플래그 하나로 판단한다.
+- **`run_context.write_artifact`는 원자적이지 않고, 그래도 된다.** 파이프라인은 매번 새 run
+  디렉터리에 쓰므로 손상시킬 원본이 없다. 이미 있는 파일을 고쳐 쓰는 것은 앱의 저장뿐이고
+  그쪽이 `api.write_atomically`(임시 파일 + `os.replace`)를 지난다. 직렬화 형식은
+  `serialize_artifact` 하나여서 CLI가 쓴 파일을 앱이 저장만 해도 diff가 생기지 않는다.
+- **백엔드 오류는 문자열이 아니라 `code` + `message` + `details`다.** 앱이 원인 종류에 따라
+  다른 것을 그리므로(스키마 위반은 필드 목록, 파일 없음은 다른 디렉터리 안내) 메시지를
+  문자열 매칭하는 코드를 두면 문구를 다듬는 순간 깨진다. 스키마 위반으로 열기에 실패해도
+  **이미 열려 있던 프로젝트는 그대로 둔다.**
+- **앱 스모크(`app/smoke/run.mjs`)는 앱을 세 번 띄운다.** 한 프로세스 안에서 다시 여는 것은
+  "재시작하고 다시 열었다"의 증거가 되지 못하고, 고아 프로세스 확인은 Electron만
+  `taskkill /F`(트리 아님)로 죽여야 의미가 있다. 확인 대화상자는 `ask` 하나를 바꿔 끼운다 —
+  모달이 뜨면 자동 실행이 거기서 멈춘다.
+- **Vite는 `base: './'`가 필요하다.** `loadFile`로 여는 페이지라 절대 경로(`/assets/...`)는
+  파일 시스템 루트를 가리킨다. 번들 폰트는 `app/` 밖의 `assets/fonts/`를 CSS에서 상대 경로로
+  참조해 빌드가 `dist/`로 복사한다 — 앱 안으로 복사하면 D1이 관리하는 폰트가 두 벌이 된다.

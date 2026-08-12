@@ -1,0 +1,90 @@
+/* D2 확정 토큰 (확정 스펙 2장). 시안 값 그대로이고 사용 제한 하나가 붙어 있다.
+ *
+ * **`--text-3`는 비활성·기호 전용이다** (확정 스펙 1.7). 11px `caption`에 쓰면 창 바탕 위
+ * 4.08:1 / 카드 위 3.82:1로 소형 텍스트 AA(4.5:1)에 미달한다. 읽어야 하는 11px 문구는
+ * `--text-2`(7.7:1 / 7.5:1)를 쓴다 — 색표를 바꾸는 것이 아니라 쓰이는 자리를 좁힌 것이다.
+ *
+ * `--accent`는 D1의 강조 3색(#FFE400 / #35F5C0 / #FF7A45)과 겹치지 않는다. 프리뷰 안의
+ * 정답 강조와 앱 버튼이 같은 색이면 어느 쪽이 콘텐츠인지 구분되지 않는다 (브리프 4.2).
+ */
+
+:root {
+  --bg-base: #0e0f12;
+  --bg-panel: #121418;
+  --bg-raised: #15171b;
+  --bg-hover: #1c1f24;
+
+  --line: #2a2e35;
+  --line-strong: #3a3f49;
+
+  --text: #e8eaed;
+  --text-2: #a2a8b4;
+  --text-3: #6e7480;
+
+  --accent: #5b9dff;
+  --warn: #e8a33d;
+  --danger: #f2555a;
+  --ok: #5fb98f;
+
+  /* 선택 상태 (확정 스펙 2.1) */
+  --select-bg: #22293a;
+  --select-border: #3e5680;
+  --card-bg: #182234;
+
+  /* space 4 · 6 · 8 · 12 · 14 · 16 · 20 · 24 · 28 (확정 스펙 2.3) */
+  --s1: 4px;
+  --s2: 6px;
+  --s3: 8px;
+  --s4: 12px;
+  --s5: 14px;
+  --s6: 16px;
+  --s7: 20px;
+  --s8: 24px;
+  --s9: 28px;
+
+  --r-badge: 4px;
+  --r-control: 6px;
+  --r-card: 8px;
+  --r-panel: 10px;
+  --r-pill: 999px;
+
+  --header-height: 52px;
+
+  --font: 'Pretendard', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+}
+
+/* 타이포 토큰 (확정 스펙 2.2). 기계가 만든 값 — 경로·시간·수치·역할 이름 — 은 전부 mono다. */
+.t-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.t-heading {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.t-body {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.t-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+.t-caption {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
