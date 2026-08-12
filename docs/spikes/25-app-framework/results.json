@@ -1,0 +1,132 @@
+{
+  "started_at": "2026-08-12T08:23:35",
+  "environment": {
+    "python": "3.13.2",
+    "platform": "Windows-11-10.0.26100-SP0",
+    "cpu": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel"
+  },
+  "parameters": {
+    "iterations": 200,
+    "large_iterations": 20,
+    "large_payload_chars": 1000000,
+    "stream_frames": 100,
+    "file_poll_sec": 0.02
+  },
+  "transports": {
+    "stdio": {
+      "read_retries": 0,
+      "rtt_small": {
+        "n": 200,
+        "median_ms": 0.033,
+        "p95_ms": 0.059,
+        "max_ms": 0.221
+      },
+      "rtt_large": {
+        "n": 20,
+        "median_ms": 12.374,
+        "p95_ms": 13.24,
+        "max_ms": 13.447
+      },
+      "stream": {
+        "frames": 101,
+        "total_ms": 0.603,
+        "median_gap_ms": 0.003,
+        "max_gap_ms": 0.012
+      },
+      "presets": {
+        "caption_styles": [
+          "impact_yellow",
+          "neon_mint",
+          "orange_card"
+        ],
+        "backgrounds": [
+          "deep_navy",
+          "deep_teal_gradient",
+          "purple_gradient"
+        ]
+      },
+      "cold_start_ms": 182.289,
+      "orphan": {
+        "heartbeat_started": true,
+        "backend_survived_parent_kill": false
+      }
+    },
+    "http": {
+      "read_retries": 0,
+      "rtt_small": {
+        "n": 200,
+        "median_ms": 0.172,
+        "p95_ms": 0.286,
+        "max_ms": 0.373
+      },
+      "rtt_large": {
+        "n": 20,
+        "median_ms": 9.077,
+        "p95_ms": 31.247,
+        "max_ms": 31.881
+      },
+      "stream": {
+        "frames": 101,
+        "total_ms": 1.955,
+        "median_gap_ms": 0.017,
+        "max_gap_ms": 0.036
+      },
+      "presets": {
+        "caption_styles": [
+          "impact_yellow",
+          "neon_mint",
+          "orange_card"
+        ],
+        "backgrounds": [
+          "deep_navy",
+          "deep_teal_gradient",
+          "purple_gradient"
+        ]
+      },
+      "cold_start_ms": 673.165,
+      "orphan": {
+        "heartbeat_started": true,
+        "backend_survived_parent_kill": true
+      }
+    },
+    "file": {
+      "read_retries": 1,
+      "rtt_small": {
+        "n": 200,
+        "median_ms": 26.64,
+        "p95_ms": 52.317,
+        "max_ms": 289.022
+      },
+      "rtt_large": {
+        "n": 20,
+        "median_ms": 33.753,
+        "p95_ms": 58.218,
+        "max_ms": 77.67
+      },
+      "stream": {
+        "frames": 101,
+        "total_ms": 472.483,
+        "median_gap_ms": 0.004,
+        "max_gap_ms": 36.269
+      },
+      "presets": {
+        "caption_styles": [
+          "impact_yellow",
+          "neon_mint",
+          "orange_card"
+        ],
+        "backgrounds": [
+          "deep_navy",
+          "deep_teal_gradient",
+          "purple_gradient"
+        ]
+      },
+      "cold_start_ms": 279.159,
+      "orphan": {
+        "heartbeat_started": true,
+        "backend_survived_parent_kill": true
+      }
+    }
+  },
+  "finished_at": "2026-08-12T08:23:58"
+}

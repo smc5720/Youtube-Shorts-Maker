@@ -1,0 +1,35 @@
+{
+  "measured_at": "2026-08-12T10:05:13",
+  "environment": {
+    "python": "3.13.2",
+    "platform": "Windows-11-10.0.26100-SP0"
+  },
+  "run_dir": "D:\\Git\\Youtube-Shorts-Maker\\docs\\spikes\\25-app-framework\\sample-run\\run-20260812-082525",
+  "video": {
+    "total_sec": 27.9,
+    "total_frames": 837,
+    "canvas": "1080x1920",
+    "scenes": 11
+  },
+  "repeats": 3,
+  "preview_ms_by_timestamp": {
+    "0.50s": 809.8,
+    "13.95s": 2005.5,
+    "27.40s": 2351.6
+  },
+  "preview_ms_by_scale": {
+    "1080x1920": 2005.5,
+    "540x960": 2026.8,
+    "270x480": 2014.8
+  },
+  "fixed_cost": {
+    "ffmpeg_version_ms": 1326.3,
+    "background_only_frame_ms": 1468.1
+  },
+  "seek_side": {
+    "output_side_ms": 2351.6,
+    "input_side_ms": 1482.9,
+    "same_image": true
+  },
+  "final_render_ms": 3493.0
+}

@@ -25,7 +25,8 @@ LLM provider 레이어(#48)와 퀴즈 생성기·검증기·검수 게이트(#9,
 비프와 정답 효과음이 들린다.** `assets/`에는 효과음(#18)과
 폰트·배경·자막 스타일 프리셋(#38)이 있고 조회는 `assets.py` 하나다 — `sfx_path()` /
 `caption_styles()` / `background_presets()` / `font_path(weight)`. **Phase 3이 끝났고 수직
-슬라이스가 완성됐다 — 다음은 Phase 4이며 #25 결정과 D2 앱 UI 시안 수령이 그 게이트다.**
+슬라이스가 완성됐다 — 다음은 Phase 4이고 #25 결정이 났으므로(Electron + React, stdio
+JSON Lines) 남은 게이트는 D2 앱 UI 시안 수령 하나다.**
 `scenes.json`은
 `validate_scenes_final()`을 통과하는 확정 상태이므로 자막과 렌더러가 그대로 입력으로 받는다.
 이슈 #1–#37이 아래 순서를 따르며 번호가 Phase 순서와 같다. **#38 이후는 나중에 추가된
@@ -219,3 +220,25 @@ CSS로 그려졌고 렌더는 FFmpeg `drawtext`라서 같은 숫자가 같은 �
 - 개발 환경 FFmpeg 빌드에 libass와 `--enable-whisper`가 포함되어 있다. PRD 7.6의 word-level
   timestamp 개선에 별도 전사 의존성이 불필요할 수 있다. 빌드 의존적이므로 다른 환경에서는
   확인이 필요하다. (#17, #33)
+
+## 앱 경계 (#25 결정)
+
+스택은 **Electron + React**, 백엔드는 앱이 자식으로 띄우는 **Python 프로세스 + stdio JSON
+Lines**다. 근거와 측정치는 `docs/spikes/25-app-framework.md`, 결정문은 PRD 14.1에 있다.
+아래는 프로토타입에서 실제로 밟은 것들이라 다시 조사하지 않아도 된다.
+
+- **프리뷰 비용의 바닥은 필터가 아니라 FFmpeg 프로세스 기동이다.** 아무 일도 하지 않는
+  `ffmpeg -version`이 이 머신에서 1.1~1.3초다(같은 머신 `cmd /c ver`는 0.2초). 그래서 프리뷰
+  1프레임이 0.8~2.4초이고 **해상도를 1/4로 낮춰도 빨라지지 않는다.** 프레임마다 프로세스를
+  띄우는 프리뷰는 #27에서 기각된 상태로 시작한다. (#25, PRD 7.9)
+- **Windows에서 파이프 stdio의 기본 인코딩은 cp949다.** 백엔드가
+  `sys.stdout.reconfigure(encoding="utf-8")`을 하지 않으면 한글이 든 응답이 UTF-8로 읽는 Node
+  쪽에서 **에러 없이 값만 깨진다.** 같은 이유로 자식 FFmpeg도 `encoding="utf-8"`로 연다.
+- **자식으로 띄운 FFmpeg는 백엔드의 stdin을 먹는다.** ffmpeg가 stdin을 조작 입력으로 읽으므로
+  `stdin=subprocess.DEVNULL`을 주지 않으면 프로토콜 줄을 가져가고 렌더가 끝나지 않는다.
+- **최종 렌더 명령에서 `-map [audio]`만 빼면 프리뷰 명령이 실패한다** — `alimiter` 출력이
+  연결되지 않는다. 오디오 체인을 필터 그래프에서 함께 들어내야 하고, `-c:v libx264`를 남긴 채
+  `.png`로 쓰면 **경고 없이 H.264가 그 파일에 쓰인다.**
+- **동결 배포(PyInstaller onedir)에서는 `assets/`가 실행 파일 옆에 있어야 한다.**
+  `assets.ASSETS_DIR`이 `shorts_maker/assets.py`에서 두 단계 위를 보기 때문이고, 없으면 어느
+  경로를 찾았는지 말하며 실패한다. 동적으로 import되는 타입 패키지는 `--hidden-import`가 필요하다.

@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "run_dir": "D:\\Git\\Youtube-Shorts-Maker\\docs\\spikes\\25-app-framework\\sample-run\\run-20260812-082525",
+  "scenes": 11,
+  "total_sec": 27.9,
+  "ipc_ping": {
+    "n": 100,
+    "median_ms": 0.2,
+    "max_ms": 1.8
+  },
+  "preview": {
+    "elapsed_ms": 1068,
+    "bytes": 58501
+  },
+  "render": {
+    "elapsed_ms": 2986.4,
+    "bytes": 455613,
+    "frames": 837
+  },
+  "backend_ready_ms": 273.02,
+  "electron": "43.4.0",
+  "chrome": "150.0.7871.224",
+  "node": "24.18.1"
+}
