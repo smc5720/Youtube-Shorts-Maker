@@ -28,6 +28,7 @@ from shorts_maker.config import load_config
 from shorts_maker.run_context import serialize_artifact, write_artifact
 from shorts_maker.schemas.project import PROJECT_SCHEMA
 from shorts_maker.schemas.scenes import SCENES_SCHEMA
+from shorts_maker.shorts_types import DEFAULT_TYPE, get_type
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,6 +64,47 @@ def run_dir(tmp_path: Path) -> Path:
     )
     write_artifact(tmp_path, PROJECT_SCHEMA.name, content)
     return tmp_path
+
+
+QUIZ_CONTENT: dict[str, Any] = {
+    "schema_version": 1,
+    "type": DEFAULT_TYPE,
+    "category": "general_knowledge",
+    "language": "ko",
+    "hook": "이 문제 맞힐 수 있나",
+    "cta": "다음 문제도 풀어보자",
+    "questions": [
+        {
+            "id": 1,
+            "question": "세계에서 가장 긴 강은?",
+            "answer": "나일강",
+            "explanation": "약 6,650km로 아마존강보다 조금 길다.",
+            "difficulty": "easy",
+            "countdown_sec": 3,
+            "verify": {"status": "flagged", "confidence": 0.62, "source": "재답변 불일치"},
+        },
+        {
+            "id": 2,
+            "question": "적도가 지나는 대륙은 몇 개인가?",
+            "answer": "3개",
+            "explanation": "남아메리카·아프리카·아시아 세 대륙을 지난다.",
+            "difficulty": "medium",
+            "countdown_sec": 3,
+            # `verify`가 없는 초안 상태. 앱은 이것을 `unverified`로 읽는다 (퀴즈 스펙 5.2).
+        },
+    ],
+}
+
+
+@pytest.fixture
+def content_run_dir(run_dir: Path) -> Path:
+    """콘텐츠 산출물까지 있는 run 디렉터리 (#28).
+
+    **파일명을 여기 적지 않는다.** 레지스트리가 확정하므로, 이름을 옮겨 적으면 타입이
+    늘었을 때 이 테스트가 조용히 낡는다.
+    """
+    write_artifact(run_dir, get_type(DEFAULT_TYPE).content_schema.name, QUIZ_CONTENT)
+    return run_dir
 
 
 def call(method: str, **params: Any) -> dict[str, Any]:
@@ -273,6 +315,170 @@ def test_scenes_in_a_directory_without_one_says_which_directory(tmp_path: Path) 
 
     assert error["code"] == "not_found"
     assert "scenes.json" in error["message"]
+
+
+# --- 콘텐츠 산출물 (#28) ----------------------------------------------------------
+
+
+def test_content_comes_from_the_registry_not_a_filename_in_this_module(
+    content_run_dir: Path,
+) -> None:
+    """**`api.py`는 `quiz.json`을 적을 수 없다** (`tests/test_type_boundary.py`).
+
+    앱이 넘기는 것은 `project.json`이 들고 있던 타입 이름뿐이고, 파일명과 검증은 레지스트리가
+    준다. 그래서 이 테스트도 이름을 적지 않고 같은 곳에서 가져온다.
+    """
+    schema = get_type(DEFAULT_TYPE).content_schema
+
+    result = result_of(call("content", run_dir=str(content_run_dir), type=DEFAULT_TYPE))
+
+    assert result["content"] == QUIZ_CONTENT
+    assert result["content_path"].endswith(schema.name)
+
+
+def test_content_needs_a_registered_type(content_run_dir: Path) -> None:
+    """모르는 타입은 `bad_request`다 — 백엔드가 고장 난 것이 아니라 앱이 이 백엔드가 모르는
+    타입의 프로젝트를 열었다는 뜻이고(동결 배포에서 세대가 갈린다), 앱은 편집 폼만 닫는다."""
+    error = error_of(call("content", run_dir=str(content_run_dir), type="ranking"))
+
+    assert error["code"] == "bad_request"
+    assert DEFAULT_TYPE in error["message"]
+
+
+def test_content_without_a_type_says_so(content_run_dir: Path) -> None:
+    error = error_of(call("content", run_dir=str(content_run_dir)))
+
+    assert error["code"] == "bad_request"
+    assert "type" in error["message"]
+
+
+def test_content_in_a_directory_without_one_says_which_directory(run_dir: Path) -> None:
+    """`open`과 나눠 둔다 — 콘텐츠가 없어도 장면 목록과 프리뷰는 그대로 돈다."""
+    error = error_of(call("content", run_dir=str(run_dir), type=DEFAULT_TYPE))
+
+    assert error["code"] == "not_found"
+    assert get_type(DEFAULT_TYPE).content_schema.name in error["message"]
+
+
+def test_saving_content_and_reading_it_back_keeps_the_edit(content_run_dir: Path) -> None:
+    edited = json.loads(json.dumps(QUIZ_CONTENT))
+    edited["questions"][0]["answer"] = "고친 정답"
+
+    result_of(call("save_content", run_dir=str(content_run_dir), type=DEFAULT_TYPE, content=edited))
+
+    reopened = result_of(call("content", run_dir=str(content_run_dir), type=DEFAULT_TYPE))
+    assert reopened["content"]["questions"][0]["answer"] == "고친 정답"
+
+
+def test_saving_content_writes_the_same_shape_the_pipeline_writes(
+    content_run_dir: Path,
+) -> None:
+    """**CLI가 쓴 파일을 열어 저장만 하면 diff가 생기지 않는다.** 직렬화 경로가 하나여야
+    사람이 검수하는 원본에 앱이 흔적을 남기지 않는다 (`serialize_artifact`)."""
+    path = content_run_dir / get_type(DEFAULT_TYPE).content_schema.name
+    before = path.read_text(encoding="utf-8")
+
+    result_of(
+        call("save_content", run_dir=str(content_run_dir), type=DEFAULT_TYPE, content=QUIZ_CONTENT)
+    )
+
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_saving_content_that_breaks_the_contract_leaves_the_original(
+    content_run_dir: Path,
+) -> None:
+    """검증이 쓰기보다 먼저다. 사람이 검수하는 원본이 반쯤 쓰인 상태로 남는 것이 편집 하나를
+    잃는 것보다 훨씬 나쁘다."""
+    path = content_run_dir / get_type(DEFAULT_TYPE).content_schema.name
+    before = path.read_text(encoding="utf-8")
+    broken = json.loads(json.dumps(QUIZ_CONTENT))
+    broken["questions"][0]["countdown_sec"] = "셋"
+
+    error = error_of(
+        call("save_content", run_dir=str(content_run_dir), type=DEFAULT_TYPE, content=broken)
+    )
+
+    assert error["code"] == "schema"
+    assert any("countdown_sec" in message for message in error["details"])
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_saving_content_rejects_duplicate_item_ids(content_run_dir: Path) -> None:
+    """`id`는 문제를 가리키는 유일한 손잡이다 — `scenes.json`의 `question_id`와
+    `project.json`의 `review`가 이 값을 참조한다."""
+    duplicated = json.loads(json.dumps(QUIZ_CONTENT))
+    duplicated["questions"][1]["id"] = duplicated["questions"][0]["id"]
+
+    error = error_of(
+        call("save_content", run_dir=str(content_run_dir), type=DEFAULT_TYPE, content=duplicated)
+    )
+
+    assert error["code"] == "schema"
+    assert any("중복" in message for message in error["details"])
+
+
+def test_saving_content_needs_the_content_body(content_run_dir: Path) -> None:
+    error = error_of(call("save_content", run_dir=str(content_run_dir), type=DEFAULT_TYPE))
+
+    assert error["code"] == "bad_request"
+    assert "content" in error["message"]
+
+
+def test_the_review_section_is_optional_so_older_runs_still_open(run_dir: Path) -> None:
+    """이 필드가 생기기 전에 만들어진 run 디렉터리가 있다 — 사람이 검수하려고 남겨 둔
+    산출물이 그것이다."""
+    body = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    del body["review"]
+    write_artifact(run_dir, PROJECT_SCHEMA.name, body)
+
+    result = result_of(call("open", run_dir=str(run_dir)))
+
+    assert "review" not in result["project"]
+
+
+def test_a_human_acknowledgement_saves_without_touching_the_content(
+    content_run_dir: Path,
+) -> None:
+    """**이 이슈의 계약이다** (D2 확정 스펙 1.4). 확인 기록은 `project.json`으로 가고
+    `verify.status`·`confidence`는 검증기(#10)와 검수 게이트(#11)가 소유한 채로 남는다."""
+    content_path = content_run_dir / get_type(DEFAULT_TYPE).content_schema.name
+    before = content_path.read_text(encoding="utf-8")
+    body = json.loads((content_run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    body["review"] = {"acknowledged": [1], "stale": []}
+
+    result_of(call("save", run_dir=str(content_run_dir), project=body))
+
+    reopened = result_of(call("open", run_dir=str(content_run_dir)))
+    assert reopened["project"]["review"]["acknowledged"] == [1]
+    assert content_path.read_text(encoding="utf-8") == before
+
+
+def test_a_duplicated_acknowledgement_is_rejected(content_run_dir: Path) -> None:
+    """두 목록 모두 집합의 뜻이라 중복은 값을 바꾸지 않는다. 조용히 통과시키면 확인 버튼을
+    누를 때마다 목록을 늘리는 버그가 드러나지 않는다."""
+    body = json.loads((content_run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    body["review"] = {"acknowledged": [1, 1], "stale": []}
+
+    error = error_of(call("save", run_dir=str(content_run_dir), project=body))
+
+    assert error["code"] == "schema"
+    assert any("review.acknowledged" in message for message in error["details"])
+
+
+def test_the_review_section_does_not_reach_the_preview_signature(run_dir: Path) -> None:
+    """**렌더러가 읽지 않는 값이다** (#28). 확인 버튼 한 번이 프레임 11장을 다시 만들면
+    2초가 붙는데 결과는 같은 그림이다. 반대로 렌더가 읽는 값은 지문에 남아야 한다."""
+    body = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    signature = api._signature(run_dir, body, FINAL_SCENES)
+
+    acknowledged = json.loads(json.dumps(body))
+    acknowledged["review"] = {"acknowledged": [1, 2], "stale": [3]}
+    restyled = json.loads(json.dumps(body))
+    restyled["render"]["caption_style"] = "neon_mint"
+
+    assert api._signature(run_dir, acknowledged, FINAL_SCENES) == signature
+    assert api._signature(run_dir, restyled, FINAL_SCENES) != signature
 
 
 def test_preview_validates_the_project_it_is_handed(run_dir: Path) -> None:

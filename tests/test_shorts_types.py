@@ -19,6 +19,7 @@ from shorts_maker.config import Config, ConfigError, defaults, load_config
 from shorts_maker.main import main
 from shorts_maker.run_context import LOG_FILENAME
 from shorts_maker.schemas import SchemaError, validate_project, validate_scenes
+from shorts_maker.schemas.core import Object, Schema, text
 from shorts_maker.shorts_types import (
     DEFAULT_TYPE,
     SCRIPT_ARTIFACT,
@@ -51,6 +52,14 @@ def artifact_condition(filename: str) -> str:
     return match.group(1).strip()
 
 
+DUMMY_SCHEMA = Schema(
+    name="ranking.json",
+    versions=(1,),
+    root=Object({"topic": text()}),
+)
+"""더미 타입의 콘텐츠 계약. **파일명이 여기서 나온다** — `content_artifact`는 파생값이다."""
+
+
 def dummy_generate(*, topic: str, config: Any) -> dict[str, Any]:
     return {"topic": topic}
 
@@ -68,7 +77,7 @@ def dummy_type() -> Iterator[ShortsType]:
     """더미 타입을 등록한 상태. 파이프라인 코드는 건드리지 않는다."""
     declared = ShortsType(
         name=DUMMY_TYPE,
-        content_artifact="ranking.json",
+        content_schema=DUMMY_SCHEMA,
         generator=dummy_generate,
         scene_template=dummy_scene_template,
         produces_script=True,

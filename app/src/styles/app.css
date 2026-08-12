@@ -219,12 +219,22 @@ body {
   border-left-color: var(--warn);
 }
 
+/* **재생성 필요는 `accent` 파랑이다** (확정 스펙 4장, #28). 결함이 아니라 사용자가 해야 할
+ * 일이고, 주황으로 그리면 `flagged`와 같은 종류로 읽힌다. */
+.notice--todo {
+  border-left-color: var(--accent);
+}
+
 .notice__icon--danger {
   color: var(--danger);
 }
 
 .notice__icon--warn {
   color: var(--warn);
+}
+
+.notice__icon--todo {
+  color: var(--accent);
 }
 
 .notice__body {
@@ -321,7 +331,32 @@ body {
 }
 
 .scene-group__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
   padding: var(--s2) var(--s3);
+  text-align: left;
+}
+
+/* 눌러서 문제 편집으로 간다 (#28). 배경이 아니라 밑줄로 알리는 것은 장면 행의 선택 배경과
+ * 섞이지 않게 하기 위해서다 — 머리글은 선택되는 것이 아니라 옮겨 가는 것이다. */
+.scene-group__head--link {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--r-control);
+}
+
+.scene-group__head--link:hover {
+  background: var(--bg-hover);
+}
+
+.scene-group__head--link:hover .t-label {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .scene-group__rows {
@@ -585,4 +620,328 @@ body {
 
 .field__value--prose {
   font-size: 13px;
+}
+
+/* --- 화면 전환 (S2 ↔ S3) --------------------------------------------------- */
+
+/* 확정 스펙 3.1과 3.2가 서로 다른 분할이라 두 화면이 갈린다. 탭은 헤더에 두고 제목 옆에
+ * 붙인다 — 프로젝트가 열려 있고 편집기가 등록된 타입일 때만 나타난다 (#28). */
+.viewswitch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--bg-raised);
+}
+
+.viewswitch__tab {
+  height: 24px;
+  padding: 0 var(--s4);
+  border: 0;
+  border-radius: var(--r-badge);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.viewswitch__tab:hover {
+  color: var(--text);
+}
+
+.viewswitch__tab--on {
+  background: var(--select-bg);
+  color: var(--text);
+}
+
+/* --- 검증 배지 (확정 스펙 4장) ---------------------------------------------- */
+
+/* **색·아이콘·문구 셋으로 갈린다.** `unverified`만 점선이고, `?`가 아이콘 자리를 채운다 —
+ * 아이콘을 비우면 두 상태가 같은 모양이 되어 색 하나에만 기대게 된다. */
+.vbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  height: 20px;
+  padding: 0 var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-badge);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.vbadge--verified {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+}
+
+.vbadge--flagged {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  color: var(--warn);
+}
+
+.vbadge--unverified {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
+
+.vbadge__glyph {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  width: 12px;
+  text-align: center;
+}
+
+.vbadge--acknowledged {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+}
+
+/* 재생성 필요 — **`accent` 파랑**이다. 경고가 아니라 할 일이다 (확정 스펙 4장). */
+.vbadge--stale {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+
+/* --- S3 문제 편집 (확정 스펙 3.2) ------------------------------------------- */
+
+/* **2분할이다.** 문제를 고치는 동안 프리뷰는 바뀌지 않으므로 자리를 내주지 않는다.
+ * 목록 360px은 확정값이고, 최소 창에서는 3분할과 같은 방식으로 줄인다. */
+.split--questions {
+  display: flex;
+}
+
+.panel--questions {
+  flex: 0 0 auto;
+  width: clamp(320px, calc(320px + (100vw - 1280px) * 0.25), 360px);
+  border-right: 1px solid var(--line);
+}
+
+.panel--editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-base);
+}
+
+.panel__actions {
+  display: flex;
+  gap: var(--s2);
+}
+
+/* 목록 행 — `Q{n}` · 배지 · 난이도, 아래 질문 2줄 말줄임 (확정 스펙 3.2). */
+.qrow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  width: 100%;
+  padding: var(--s4);
+  border: 1px solid transparent;
+  border-radius: var(--r-card);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.qrow:hover {
+  background: var(--bg-hover);
+}
+
+.qrow--selected,
+.qrow--selected:hover {
+  background: var(--select-bg);
+  border-color: var(--select-border);
+}
+
+.qrow__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.qrow__number {
+  color: var(--text-2);
+}
+
+.qrow__tag {
+  margin-left: auto;
+}
+
+.qrow__title {
+  font-size: 13px;
+  line-height: 1.45;
+  /* 두 줄까지 보이고 나머지는 말줄임 (확정 스펙 3.2). */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* --- 편집 폼 --------------------------------------------------------------- */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s6);
+  max-width: 640px;
+  padding: var(--s5) var(--s6);
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.control__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+}
+
+.control__hint {
+  color: var(--text-2);
+}
+
+.input {
+  width: 100%;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.input:focus-within,
+.input:focus {
+  outline: none;
+  border-color: var(--select-border);
+}
+
+.input--area {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* 숫자 한 칸에 폼 너비를 다 주지 않는다 — `.control`이 세로 flex라 `width: auto`만으로는
+ * 늘어난 채로 남는다. */
+.input--number {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  width: auto;
+  align-self: flex-start;
+}
+
+.input--number input {
+  width: 72px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.input--number input:focus {
+  outline: none;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--bg-raised);
+  width: fit-content;
+}
+
+.segmented__option {
+  height: 26px;
+  padding: 0 var(--s4);
+  border: 0;
+  border-radius: var(--r-badge);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented__option--on {
+  background: var(--select-bg);
+  color: var(--text);
+}
+
+/* --- 검증 카드 · 재생성 카드 (확정 스펙 3.2) --------------------------------- */
+
+.verify-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s5);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: var(--r-card);
+  background: var(--card-bg);
+}
+
+/* 배지와 같은 규칙 — `unverified`는 점선이다. */
+.verify-card--unverified {
+  border-style: dashed;
+}
+
+.verify-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.verify-card__reason {
+  margin: 0;
+  color: var(--text);
+}
+
+/* 120px 막대 (확정 스펙 3.2). `confidence`가 없으면 폭 0으로 비어 있다. */
+.verify-card__bar {
+  width: 120px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.verify-card__fill {
+  height: 100%;
+  background: var(--warn);
+}
+
+.verify-card__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.stale-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  padding: var(--s5);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--r-card);
+  background: var(--card-bg);
+  color: var(--accent);
+}
+
+.stale-card__title {
+  font-weight: 700;
+  font-size: 14px;
 }

@@ -139,9 +139,13 @@ def test_the_scene_array_is_referenced_not_copied(tmp_path: Path) -> None:
     assert content["scenes"] == "scenes.json"
 
 
-def test_no_edit_state_fields_yet(tmp_path: Path) -> None:
-    """텍스트 오버레이 편집 이력과 트랙별 볼륨은 #26이 붙인다 (PRD 7.10). 자막 스타일·폰트·
-    cta 문구는 편집 상태가 아니라 렌더러가 읽는 초기 상태라 `render` 안에 있다 (#20)."""
+def test_the_only_edit_state_section_is_review(tmp_path: Path) -> None:
+    """앱이 소유하는 섹션은 `review` 하나다 (#28).
+
+    자막 스타일·폰트·cta 문구는 편집 상태가 아니라 렌더러가 읽는 초기 상태라 `render` 안에
+    있고(#20), 트랙별 볼륨도 같은 이유로 `audio`로 간다(#29). 여기 이름이 늘어나면 렌더러가
+    읽지 않는 값이 하나 더 생겼다는 뜻이므로 `APP_STATE_SECTIONS`도 함께 움직여야 한다.
+    """
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
 
     assert set(content) == {
@@ -152,7 +156,15 @@ def test_no_edit_state_fields_yet(tmp_path: Path) -> None:
         "background",
         "audio",
         "render",
+        "review",
     }
+
+
+def test_a_new_project_has_nothing_acknowledged_or_stale(tmp_path: Path) -> None:
+    """생성 직후에는 사람이 확인한 것도 낡은 것도 없다."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+
+    assert content["review"] == {"acknowledged": [], "stale": []}
 
 
 def test_a_draft_scene_list_is_rejected(tmp_path: Path) -> None:

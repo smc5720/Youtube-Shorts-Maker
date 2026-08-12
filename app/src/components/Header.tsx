@@ -1,18 +1,32 @@
-// 헤더 52px — 제목 · 경로(mono) · 저장 상태 pill · 동작 (D2 확정 스펙 3.1).
+// 헤더 52px — 제목 · 경로(mono) · 화면 전환 · 저장 상태 pill · 동작 (D2 확정 스펙 3.1).
 
 import { Icon } from './Icon'
 
-export function Header ({ projectPath, unsaved, busy, canSave, onOpen, onSave }: {
+/** S2(장면·프리뷰)와 S3(문제 편집). 확정 스펙 3.1과 3.2가 서로 다른 분할이라 화면이 갈린다. */
+export type View = 'scenes' | 'questions'
+
+export function Header ({
+  projectPath, unsaved, busy, canSave, view, canEditContent, onView, onOpen, onSave
+}: {
   projectPath: string | null
   unsaved: boolean
   busy: boolean
   canSave: boolean
+  view: View
+  canEditContent: boolean
+  onView: (next: View) => void
   onOpen: () => void
   onSave: () => void
 }) {
   return (
     <header className="header">
       <span className="t-title header__title">YouTube Shorts Maker</span>
+      {projectPath && canEditContent && (
+        <span className="viewswitch" data-testid="view-switch" role="group">
+          <ViewTab view="scenes" current={view} text="장면" onView={onView} />
+          <ViewTab view="questions" current={view} text="문제 편집" onView={onView} />
+        </span>
+      )}
       {projectPath && (
         // **경로는 기계가 만든 값이므로 mono다** (확정 스펙 2.2). 길면 뒤가 남아야 어느
         // run인지 보이고, 시안이 적은 `runs/2026-…`가 아니라 실제 산출물 경로다 (1.3).
@@ -33,6 +47,26 @@ export function Header ({ projectPath, unsaved, busy, canSave, onOpen, onSave }:
         </button>
       </div>
     </header>
+  )
+}
+
+function ViewTab ({ view, current, text, onView }: {
+  view: View
+  current: View
+  text: string
+  onView: (next: View) => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`viewswitch__tab${view === current ? ' viewswitch__tab--on' : ''}`}
+      data-view={view}
+      data-selected={view === current}
+      aria-pressed={view === current}
+      onClick={() => onView(view)}
+    >
+      {text}
+    </button>
   )
 }
 

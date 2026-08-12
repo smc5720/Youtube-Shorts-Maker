@@ -1,7 +1,13 @@
 // 좌측 장면 목록 296px — 역할 구분 · 문제 그룹 · 총 길이 (D2 확정 스펙 3.1, 이슈 #27).
 //
-// 읽기 전용이다. 순서 변경과 길이 조정은 #29가 이 행 위에 얹는다.
+// 장면 행은 읽기 전용이다. 순서 변경과 길이 조정은 #29가 이 행 위에 얹는다.
+// **문제 머리글에는 검증 배지가 붙고 눌러서 문제 편집으로 간다** (#28) — 같은 상태를
+// 두 화면에서 다르게 표현하면 사용자가 별개 문제로 오인한다.
 
+import type { Review } from '../protocol'
+import type { ContentItem } from '../types'
+import { Icon } from './Icon'
+import { StatusBadge } from './StatusBadge'
 import {
   AXIS_MAX_SEC,
   TARGET_MAX_SEC,
@@ -23,12 +29,18 @@ const ROLE_DOT: Record<Scene['role'], string> = {
   cta: 'neutral'
 }
 
-export function SceneList ({ scenes, selected, onSelect }: {
+export function SceneList ({ scenes, selected, items, review, onSelect, onOpenItem }: {
   scenes: Scene[]
   selected: number | null
+  /** 콘텐츠의 편집 단위. 없으면(편집기 미등록·콘텐츠 없음) 머리글이 번호만 그린다. */
+  items: ContentItem[]
+  review: Review
   onSelect: (index: number) => void
+  /** `null`이면 문제 편집 화면이 없다. 머리글이 버튼이 아니게 된다. */
+  onOpenItem: ((id: number) => void) | null
 }) {
   const groups = groupScenes(scenes)
+  const byId = new Map(items.map((item) => [item.id, item]))
   return (
     <aside className="panel panel--scenes" data-testid="scene-list">
       <div className="panel__head">
@@ -49,10 +61,12 @@ export function SceneList ({ scenes, selected, onSelect }: {
               ))
             : (
               <div className="scene-group" key={`q${group.questionId}-${position}`} data-question={group.questionId}>
-                {/* 머리글에 문제 번호가 온다. 검증 배지는 #28이 이 자리에 붙인다. */}
-                <div className="scene-group__head t-label" data-testid="question-head">
-                  문제 {group.questionId}
-                </div>
+                <GroupHead
+                  questionId={group.questionId}
+                  item={byId.get(group.questionId) ?? null}
+                  review={review}
+                  onOpenItem={onOpenItem}
+                />
                 <div className="scene-group__rows">
                   {group.rows.map((row) => (
                     <Row
@@ -70,6 +84,52 @@ export function SceneList ({ scenes, selected, onSelect }: {
       </div>
       <TotalDuration scenes={scenes} />
     </aside>
+  )
+}
+
+/**
+ * 문제 머리글 — 번호 · 검증 배지 · 확인·재생성 표시.
+ *
+ * **`verified`에는 배지를 그리지 않는다.** 정상인 것에까지 표시를 붙이면 목록이 배지로
+ * 덮여 정작 봐야 할 `flagged`가 묻힌다 (확정 스펙 4장의 `ok`는 렌더 완료 쪽 색이다).
+ */
+function GroupHead ({ questionId, item, review, onOpenItem }: {
+  questionId: number
+  item: ContentItem | null
+  review: Review
+  onOpenItem: ((id: number) => void) | null
+}) {
+  const badges = (
+    <>
+      <span className="t-label" data-testid="question-head-number">문제 {questionId}</span>
+      {item && item.status !== 'verified' && <StatusBadge status={item.status} />}
+      {review.acknowledged.includes(questionId) && (
+        <span className="vbadge vbadge--acknowledged" data-testid="acknowledged-badge">
+          <Icon name="check" size={12} />
+          확인함
+        </span>
+      )}
+      {review.stale.includes(questionId) && (
+        <span className="vbadge vbadge--stale" data-testid="stale-badge">
+          <Icon name="refresh" size={12} />
+          재생성 필요
+        </span>
+      )}
+    </>
+  )
+
+  if (!onOpenItem) {
+    return <div className="scene-group__head" data-testid="question-head">{badges}</div>
+  }
+  return (
+    <button
+      type="button"
+      className="scene-group__head scene-group__head--link"
+      data-testid="question-head"
+      onClick={() => onOpenItem(questionId)}
+    >
+      {badges}
+    </button>
   )
 }
 

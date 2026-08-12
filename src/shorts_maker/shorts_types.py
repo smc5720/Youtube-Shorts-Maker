@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from .config import Config
+    from .schemas.core import Schema
 
 DEFAULT_TYPE = "quiz"
 
@@ -155,8 +156,16 @@ class ShortsType:
     name: str
     """`--type` 값이자 `scenes.json` / `project.json`의 `type` 값."""
 
-    content_artifact: str
-    """타입 전용 콘텐츠 산출물 파일명 (퀴즈는 `quiz.json`)."""
+    content_schema: Schema
+    """타입 전용 콘텐츠 산출물의 계약 (퀴즈는 `QUIZ_SCHEMA`).
+
+    **파일명과 검증이 한 값에서 나온다.** 앱 백엔드(`api.py`)는 `types/` 밖이라 `load_quiz`를
+    import할 수도 `"quiz.json"`을 적을 수도 없는데(`tests/test_type_boundary.py`), 사람이 고친
+    콘텐츠를 읽고 쓰려면 그 파일에 닿아야 한다. 그 경로가 여기를 지난다 (#28).
+
+    **생성 축이 아니다.** `config_check`·`content_review`와 같은 성격의 선언이고, 레지스트리가
+    교체 가능한 축으로 아는 것은 여전히 생성기와 장면 템플릿 둘뿐이다 (퀴즈 스펙 1장).
+    """
 
     generator: ContentGenerator
     scene_template: SceneTemplate
@@ -176,6 +185,15 @@ class ShortsType:
     참이어도 입력 경로에 원문이 없으면 생성되지 않는다 — 타입은 "요약 단계를 쓰는가"만
     선언하고, 실제 생성 여부는 입력 경로와의 논리곱이다 (PRD 6.2 표).
     """
+
+    @property
+    def content_artifact(self) -> str:
+        """타입 전용 콘텐츠 산출물 파일명 (퀴즈는 `quiz.json`).
+
+        **스키마가 확정한다.** 이름을 따로 들면 계약이 두 곳에 생기고, 한쪽만 바뀌었을 때
+        파이프라인이 쓴 파일을 앱이 찾지 못한다.
+        """
+        return self.content_schema.name
 
     def check_config(self, config: Config) -> None:
         """타입이 요구하는 설정 조건을 확인한다. 선언하지 않았으면 아무것도 하지 않는다.
