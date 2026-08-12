@@ -13,3 +13,10 @@ venv/
 
 # TTS 세그먼트 캐시 (tts.cache_dir 기본값, #14). run 디렉터리 밖이라 여기 있다.
 /.cache/
+
+# 편집 앱 (#26). dist/는 위에서 이미 무시된다.
+node_modules/
+
+# 스모크 산출물 — 임시 디렉터리 경로가 매번 달라 커밋하면 diff만 는다.
+/app/smoke/results.json
+/app/smoke/screenshot.png

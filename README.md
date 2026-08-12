@@ -65,9 +65,20 @@ cp config.example.yaml config.yaml
 > 세그먼트 오디오(`audio/seg-*.mp3`), 실측 길이로 확정한 타임라인과 `voice.mp3`,
 > `captions.srt`, `project.json`을 만든 뒤 규격에 맞는 `final_short.mp4`를 렌더합니다.
 > 화면에는 후킹·질문·카운트다운·정답 강조·해설 자막·CTA가 번인되고, 카운트다운 비프와 정답
-> 효과음이 함께 믹스됩니다. **아직 없는 것** — 배경음악과 ducking, 장면 모션, 편집 앱,
-> `--url` / `--text-file` 입력입니다. 설정 키 일부는 값을 읽어 둘 뿐 아직 소비하는 단계가
-> 없습니다.
+> 효과음이 함께 믹스됩니다. **아직 없는 것** — 배경음악과 ducking, 장면 모션,
+> `--url` / `--text-file` 입력입니다. 편집 앱은 셸까지 있습니다(아래). 설정 키 일부는 값을
+> 읽어 둘 뿐 아직 소비하는 단계가 없습니다.
+
+### 편집 앱
+
+`app/`에 Electron + React 앱이 있습니다. run 디렉터리를 열어 `project.json`을 읽고 저장하는
+**셸까지** 만들어져 있고, 장면 목록·프리뷰·편집 화면은 다음 이슈들이 채웁니다.
+
+```bash
+cd app && npm install && npm start
+```
+
+자세한 실행 방법과 배치는 [`app/README.md`](app/README.md)를 참고하세요.
 
 ### 전 구간 확인
 
