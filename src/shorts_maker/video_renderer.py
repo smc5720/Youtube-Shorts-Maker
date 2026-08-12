@@ -51,6 +51,18 @@ FFMPEG_TIMEOUT_SEC = 900
 """60초 영상 하나를 인코딩하는 상한. 넘겼다면 기다릴 것이 아니라 환경 문제다
 (`timeline.FFMPEG_TIMEOUT_SEC`와 같은 성격이고, 인코딩이 있어 값이 크다)."""
 
+PREVIEW_TIMEOUT_SEC = 180
+"""대표 프레임 전부를 뽑는 상한 (#27). 인코딩이 없어 최종 렌더보다 훨씬 작다 — 11장면 실측이
+2.2초였으므로 이 값에 닿았다면 기다릴 것이 아니라 환경 문제다."""
+
+PREVIEW_NAME = "scene-{index:03d}.png"
+"""프리뷰 프레임 파일명. **장면 인덱스로 매긴다** — 세그먼트 오디오(`segment_path`)와 같은
+규칙이라 어느 장면의 그림인지가 파일명에서 드러난다."""
+
+_SEQUENCE_PATTERN = "seq-%03d.png"
+"""image2 muxer가 쓰는 중간 이름. **순번이지 장면 인덱스가 아니다** — 장면 일부만 요청하면
+둘이 어긋나므로 `preview`가 곧바로 바꿔 놓는다."""
+
 CRF = 20
 """libx264 품질. **config 키가 아니다** — 45~60초 세로 영상이라 파일 크기보다 텍스트 경계가
 중요해서 기본값 23보다 한 단계 올려 잡았다. 실측으로 고른 값은 아니므로, 번인이 들어간 뒤
@@ -217,6 +229,10 @@ def render(
             encoding="utf-8",
             errors="replace",
             timeout=FFMPEG_TIMEOUT_SEC,
+            # **stdin을 막는다.** ffmpeg는 stdin을 조작 입력으로 읽으므로, 앱이 띄운
+            # 백엔드에서 그대로 두면 프로토콜 줄을 가져가고 이 호출이 끝나지 않는다
+            # (스파이크 #25 7장, #27에서 실제로 밟았다).
+            stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError as error:
         raise RenderError(
@@ -310,19 +326,12 @@ def build_command(
         RenderError: `project.json`의 배경·규격 값을 명령으로 옮길 수 없을 때.
     """
     chain = audio if audio is not None else audio_mix.voice_only()
-    width = _int_field(project, "width")
-    height = _int_field(project, "height")
     fps = _int_field(project, "fps")
     output = run_dir / str(project["render"]["output"])
     length = f"{total_sec:.3f}"
 
-    video_input, video_chain = _background(
-        project.get("background", {}),
-        run_dir=run_dir,
-        width=width,
-        height=height,
-        fps=fps,
-        length=length,
+    video_input, video_chain = _video_stage(
+        project, run_dir=run_dir, length=length, overlays=overlays
     )
     audio_input = _audio_input(project.get("audio", {}), run_dir=run_dir, length=length)
 
@@ -332,8 +341,7 @@ def build_command(
         "-filter_complex",
         ";".join(
             [
-                # 오버레이는 배경 체인 뒤에 이어 붙는다. 목록 순서가 그리는 순서다.
-                f"[0:v]{','.join([video_chain, *overlays])}[video]",
+                f"[0:v]{video_chain}[video]",
                 # 오디오는 낭독 하나이거나 효과음이 얹힌 믹스다 (#23). 어느 쪽이든 마지막
                 # 단계가 `[audio]`를 내고, 스트림 수는 정확히 하나로 유지된다 (PRD 7.7).
                 *chain.steps,
@@ -364,6 +372,201 @@ def build_command(
         str(output),
     ]
     return command
+
+
+# --- 프리뷰 (#27) ---------------------------------------------------------------
+
+
+def representative_frames(timeline: Timeline) -> tuple[int, ...]:
+    """장면별 대표 프레임 번호 — **장면 한가운데다.**
+
+    경계를 피하는 것이 목적이다. 시작 프레임은 카운트다운의 첫 숫자나 정답 확대의 첫 크기처럼
+    "아직 시작하지 않은" 그림을 잡고, 끝 프레임은 다음 장면과 한 프레임 차이라 어느 장면을
+    고른 것인지 화면에서 구분되지 않는다.
+    """
+    return tuple((start + end) // 2 for start, end in timeline.frame_spans)
+
+
+def build_preview_command(
+    project: Mapping[str, Any],
+    *,
+    run_dir: Path,
+    total_sec: float,
+    frames: Sequence[int],
+    out_dir: Path,
+    overlays: Sequence[str] = (),
+) -> list[str]:
+    """대표 프레임들을 PNG로 뽑는 명령. **FFmpeg를 부르지 않는다** (`build_command`와 같다).
+
+    최종 렌더 명령과 배경·오버레이를 `_video_stage` 하나에서 함께 받고, 여기서 갈라지는 것은
+    오디오가 없다는 것과 인코더가 PNG라는 것 둘뿐이다. 프로토타입에서 밟은 함정 둘이 그
+    갈림에 있다 (스파이크 #25 6.1).
+
+    - **오디오는 체인째 들어낸다.** `-map [audio]`만 빼면 `alimiter`의 출력이 어디에도
+      연결되지 않아 그래프 바인딩이 실패한다. 그래서 이 명령은 오디오 입력도 필터도 만들지
+      않는다 — 지우는 것이 아니라 처음부터 없다
+    - **`-c:v png`를 명시한다.** `libx264`가 남은 채 확장자만 `.png`로 주면 경고 없이 H.264
+      비트스트림이 그 파일에 쓰이고, 눈으로 열어 보기 전까지 성공처럼 보인다
+
+    파일명은 **요청 순서의 순번이지 장면 인덱스가 아니다** — image2 muxer가 1부터 세며 쓰고,
+    장면 인덱스로 바꿔 놓는 것은 `preview`다.
+    """
+    if not frames:
+        raise RenderError("프리뷰할 프레임이 없다")
+
+    video_input, video_chain = _video_stage(
+        project, run_dir=run_dir, length=f"{total_sec:.3f}", overlays=overlays
+    )
+
+    # `n`은 필터 입력의 프레임 번호이고 `Timeline.frame_spans`가 세는 것과 같은 값이다.
+    # 쉼표는 필터 인자 구분자라 이스케이프한다.
+    select = "+".join(rf"eq(n\,{number})" for number in frames)
+    return [
+        "ffmpeg",
+        "-y",
+        "-v",
+        "error",
+        *video_input,
+        "-filter_complex",
+        f"[0:v]{video_chain},select='{select}'[video]",
+        "-map",
+        "[video]",
+        # **여기가 비용을 정한다.** 마지막 요청 프레임까지만 필터를 돌고 끝난다 — 프레임마다
+        # 프로세스를 띄우는 것과 다른 점이 이것이다 (스파이크 #25 6장의 기각 사유).
+        "-frames:v",
+        str(len(frames)),
+        # `select`가 버린 프레임 자리를 복제해 채우지 않게 한다. 기본 동작이면 요청한 수보다
+        # 먼저 상한에 닿아 뒤쪽 장면이 빈다.
+        "-fps_mode",
+        "passthrough",
+        "-c:v",
+        "png",
+        "-f",
+        "image2",
+        str(out_dir / _SEQUENCE_PATTERN),
+    ]
+
+
+def preview(
+    project: Mapping[str, Any],
+    scenes: Mapping[str, Any],
+    *,
+    run_dir: Path,
+    out_dir: Path,
+    indices: Sequence[int] | None = None,
+) -> dict[int, Path]:
+    """장면 대표 프레임을 만들고 `{장면 인덱스: PNG 경로}`를 돌려준다 (PRD 7.9).
+
+    **요청한 장면 전부를 프로세스 하나가 만든다.** 프리뷰 비용의 바닥은 필터가 아니라 FFmpeg
+    기동(이 머신에서 1.1~1.3초)이라, 장면마다 띄우면 그 바닥을 장면 수만큼 낸다. 11장면
+    실측으로 장면별 19.1초 / 배치 2.2초였고 나온 PNG는 바이트까지 같았다
+    (`docs/spikes/27-preview-frames.md`).
+
+    Args:
+        project: `project.json` 내용. **앱이 편집 중인 값을 그대로 받는다** — 저장하지 않은
+            편집이 프리뷰에 보이지 않으면 프리뷰가 편집 도구가 되지 못한다.
+        scenes: 확정 `scenes.json` 내용.
+        out_dir: PNG를 쓸 디렉터리. 이 함수는 만들기만 하고 지우지 않는다 — 언제 버릴지는
+            캐시를 소유하는 쪽(`api`)이 안다.
+        indices: 만들 장면. `None`이면 전부다. **마지막 요청 장면까지 필터가 도는 구조라
+            뒤쪽 장면 하나를 요청하는 비용이 전부를 요청하는 비용과 거의 같다** — 그래서
+            부르는 쪽의 기본은 전부다.
+
+    Raises:
+        RenderError: 장면 인덱스가 범위를 벗어났거나 FFmpeg가 없거나 실패했을 때.
+        SchemaError: 장면 목록이 확정 상태가 아닐 때.
+    """
+    validate_scenes_final(scenes)
+
+    timeline = align(scenes, fps=_int_field(project, "fps"))
+    numbers = representative_frames(timeline)
+    wanted = tuple(range(len(numbers))) if indices is None else tuple(sorted(set(indices)))
+    for index in wanted:
+        if not 0 <= index < len(numbers):
+            raise RenderError(
+                f"장면 인덱스가 범위를 벗어났다: {index} (장면 {len(numbers)}개)"
+            )
+
+    overlays = build_overlays(project, scenes, timeline=timeline)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    command = build_preview_command(
+        project,
+        run_dir=run_dir,
+        total_sec=timeline.total_sec,
+        frames=[numbers[index] for index in wanted],
+        out_dir=out_dir,
+        overlays=overlays,
+    )
+
+    LOGGER.debug("프리뷰 명령 %s", subprocess.list2cmdline(command))
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=PREVIEW_TIMEOUT_SEC,
+            # **stdin을 막는다.** ffmpeg는 stdin을 조작 입력으로 읽으므로, 앱이 띄운
+            # 백엔드에서 그대로 두면 프로토콜 줄을 가져가고 이 호출이 끝나지 않는다
+            # (스파이크 #25 7장, #27에서 실제로 밟았다).
+            stdin=subprocess.DEVNULL,
+        )
+    except FileNotFoundError as error:
+        raise RenderError("ffmpeg를 찾을 수 없다. FFmpeg를 설치하고 PATH에 넣는다") from error
+    except subprocess.TimeoutExpired as error:
+        raise RenderError(
+            f"ffmpeg가 {PREVIEW_TIMEOUT_SEC}초 안에 프리뷰 프레임을 내지 않았다"
+        ) from error
+
+    if completed.returncode != 0:
+        LOGGER.error("ffmpeg stderr %s", completed.stderr.strip())
+        raise RenderError(
+            f"프리뷰 프레임을 만들지 못했다 — ffmpeg 종료 코드 {completed.returncode}, "
+            f"stderr {completed.stderr.strip()!r}"
+        )
+
+    # 순번 파일을 장면 인덱스로 바꾼다. 여기까지가 이 모듈의 계약이고, 부르는 쪽은 순번을
+    # 다시 계산하지 않는다 — 일부만 요청했을 때 순번과 인덱스가 어긋나는 자리다.
+    produced: dict[int, Path] = {}
+    for position, index in enumerate(wanted, start=1):
+        source = out_dir / (_SEQUENCE_PATTERN % position)
+        if not source.is_file():
+            raise RenderError(
+                f"ffmpeg가 장면 {index}의 프레임을 내지 않았다: {source.name}"
+            )
+        target = out_dir / PREVIEW_NAME.format(index=index)
+        source.replace(target)
+        produced[index] = target
+    return produced
+
+
+def _video_stage(
+    project: Mapping[str, Any],
+    *,
+    run_dir: Path,
+    length: str,
+    overlays: Sequence[str],
+) -> tuple[list[str], str]:
+    """배경 입력과 `[0:v]`에 걸 필터 체인 — **최종 렌더와 프리뷰가 갈라지는 지점이다.**
+
+    두 명령이 같은 그림을 내는 이유가 이 함수 하나를 지나기 때문이다 (PRD 7.9). 프로토타입은
+    완성된 명령 리스트에서 오디오 인자를 골라내는 방식이었고, 그 구조는 렌더러가 바뀌는 순간
+    조용히 깨진다 (스파이크 #25 6.1). 갈라지는 것은 이 뒤 — 인코더와 오디오 — 뿐이다.
+
+    Returns:
+        (배경 입력 인자, `[0:v]` 뒤에 붙일 필터 체인). 체인에는 출력 레이블이 없다.
+    """
+    video_input, background_chain = _background(
+        project.get("background", {}),
+        run_dir=run_dir,
+        width=_int_field(project, "width"),
+        height=_int_field(project, "height"),
+        fps=_int_field(project, "fps"),
+        length=length,
+    )
+    # 오버레이는 배경 체인 뒤에 이어 붙는다. 목록 순서가 그리는 순서다.
+    return video_input, ",".join([background_chain, *overlays])
 
 
 def _background(

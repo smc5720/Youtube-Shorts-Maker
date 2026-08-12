@@ -23,24 +23,35 @@ HTTP / 파일 교환)을 재서 stdio를 골랐고, 결정적인 축은 지연�
 - **이 모듈은 타입을 모른다.** `project.json`·`scenes.json`만 지나므로 퀴즈 스펙 1.1의
   경계가 앱 경로에서도 그대로다.
 
-`open`/`save` 외의 메서드(프리뷰·렌더·진행률)는 #27·#30이 붙인다. 오래 걸리는 메서드가
-생기면 그것만 스레드로 보내고 이 루프는 비워 둔다 — 렌더 중에도 다른 요청을 받는 구조가
-프로토타입에서 확인됐다 (스파이크 7장).
+- **오래 걸리는 메서드는 스레드로 나간다** (`BACKGROUND_METHODS`, #27). 프리뷰 한 번이 이
+  머신에서 2~3초이고, 그동안 루프를 잡고 있으면 앱은 저장도 다른 장면 선택도 하지 못한다.
+  응답은 `id`로 짝을 찾으므로 순서가 뒤바뀌어도 앱이 헷갈리지 않는다 (스파이크 7장).
+
+`render`·진행률은 #30이 붙인다.
 """
 
 from __future__ import annotations
 
+import atexit
+import base64
+import hashlib
 import json
 import os
 import shutil
 import sys
+import tempfile
+import threading
+import time
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, TextIO
 
+from . import video_renderer
 from .run_context import serialize_artifact
 from .schemas import SchemaError, load_project, validate_project
 from .schemas.project import PROJECT_SCHEMA
+from .schemas.scenes import SCENES_SCHEMA, load_scenes
+from .video_renderer import RenderError
 
 PROTOCOL_VERSION = 1
 """프로토콜 형식 버전. `ready` 이벤트에 실어 보낸다.
@@ -176,12 +187,178 @@ def method_save(params: dict[str, Any]) -> Any:
     return {"project_path": str(path), "bytes": path.stat().st_size}
 
 
+def method_scenes(params: dict[str, Any]) -> Any:
+    """확정 `scenes.json`을 읽어 그대로 넘긴다 (PRD 7.4.1, 이슈 #27).
+
+    **`open`과 나눠 둔다.** 장면 목록을 읽지 못하는 것이 프로젝트를 열지 못할 이유는 아니다 —
+    `project.json`의 값은 여전히 보이고 고칠 수 있어야 한다. 앱은 둘을 따로 부르고 실패도
+    따로 그린다.
+
+    확정 상태를 요구하는 이유는 이 목록이 곧 프리뷰와 렌더의 입력이기 때문이다. 길이가 없는
+    초안을 목록에 그리면 총 길이도 장면 경계도 화면과 결과가 갈린다.
+    """
+    run_dir = _run_dir(params)
+    path = run_dir / SCENES_SCHEMA.name
+    if not path.is_file():
+        raise ApiError(
+            "not_found",
+            f"이 디렉터리에는 {SCENES_SCHEMA.name}이 없다: {run_dir}",
+            ["쇼츠를 생성한 run 디렉터리를 고른다 (기본 위치: outputs/run-*)"],
+        )
+    try:
+        scenes = load_scenes(path, finalized=True)
+    except SchemaError as error:
+        raise ApiError("schema", f"{path.name}을 열 수 없다", error.messages) from error
+
+    return {"scenes_path": str(path), "scenes": scenes}
+
+
+def method_preview(params: dict[str, Any]) -> Any:
+    """장면 하나의 대표 프레임을 PNG로 돌려준다 (PRD 7.9, 이슈 #27).
+
+    **최종 렌더 경로를 지나지 않는다.** 명령은 `video_renderer.build_preview_command`가 만들고
+    거기에는 인코더도 오디오도 출력 mp4도 없다. 두 명령이 같은 그림을 내는 것은 배경·오버레이를
+    `_video_stage` 하나에서 함께 받기 때문이다.
+
+    **프로젝트를 앱에서 받는다.** 파일을 다시 읽으면 저장하지 않은 편집이 프리뷰에 보이지
+    않고, 그러면 프리뷰가 편집 도구가 되지 못한다. 대신 저장과 같은 검증을 지난다 — 계약을
+    어긴 값으로 그린 그림은 렌더 결과와 다르다.
+
+    요청한 장면 하나만 만들지 않고 **전부 만들어 캐시에 넣는다.** 뒤쪽 장면 하나를 만드는
+    비용이 전부를 만드는 비용과 거의 같기 때문이다 (`docs/spikes/27-preview-frames.md`).
+    """
+    run_dir = _run_dir(params)
+    project = params.get("project")
+    if not isinstance(project, dict):
+        raise ApiError("bad_request", "params.project는 project.json 내용(매핑)이어야 한다")
+
+    index = params.get("scene_index")
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise ApiError("bad_request", "params.scene_index는 0 이상의 정수여야 한다")
+
+    try:
+        validate_project(project)
+    except SchemaError as error:
+        raise ApiError(
+            "schema",
+            f"{PROJECT_SCHEMA.name}의 계약을 어겨 프리뷰를 만들지 않았다.",
+            error.messages,
+        ) from error
+
+    scenes = method_scenes({"run_dir": str(run_dir)})["scenes"]
+    signature = _signature(run_dir, project, scenes)
+    frames, elapsed_ms = _preview_cache(run_dir, project, scenes, signature)
+
+    path = frames.get(index)
+    if path is None:
+        raise ApiError(
+            "bad_request",
+            f"장면 인덱스가 범위를 벗어났다: {index} (장면 {len(scenes['scenes'])}개)",
+        )
+
+    return {
+        "scene_index": index,
+        "signature": signature,
+        "scene_count": len(frames),
+        # **이 호출이 FFmpeg를 지났는가.** 앱이 대기를 어떻게 그릴지와는 무관하고, 실측
+        # 지연을 화면에 그대로 띄우기 위한 값이다 (#27 완료 조건).
+        "generated": elapsed_ms is not None,
+        "elapsed_ms": elapsed_ms,
+        # 바이너리는 base64를 지난다. 프리뷰 PNG는 40~60KB이고 1MB 왕복이 12ms이므로
+        # 이 해상도에서는 여유가 있다 (스파이크 #25 5장).
+        "png": base64.b64encode(path.read_bytes()).decode("ascii"),
+    }
+
+
 METHODS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ping": method_ping,
     "env": method_env,
     "open": method_open,
     "save": method_save,
+    "scenes": method_scenes,
+    "preview": method_preview,
 }
+
+BACKGROUND_METHODS = frozenset({"preview"})
+"""디스패치 루프를 잡고 있으면 안 되는 메서드 (`serve`).
+
+프리뷰 한 번이 2~3초다. 그 사이 저장도 다른 요청도 받지 못하면 앱이 멈춘 것과 구분되지
+않는다. 여기 이름을 추가하는 조건은 "사람이 기다린다고 느낄 만큼 걸린다"이다.
+"""
+
+
+# --- 프리뷰 캐시 -----------------------------------------------------------------
+
+_PREVIEW_LOCK = threading.Lock()
+"""프리뷰는 스레드에서 돈다. 같은 서명에 두 요청이 겹치면 FFmpeg를 두 번 띄우게 된다."""
+
+_PREVIEW: dict[str, Any] = {"root": None, "signature": None, "frames": {}}
+"""**서명 하나 분량만 들고 있다.**
+
+편집은 앞으로만 가므로 지난 서명의 프레임은 다시 요청되지 않는다. 전부 남기면 편집 한 번에
+11장씩 쌓이고, 지우는 기준을 따로 정해야 한다.
+
+run 디렉터리 **밖**이다 — TTS 캐시와 같은 이유가 아니라 반대 이유다. 이쪽은 파생물이고
+수명이 앱 세션이라, run 디렉터리에 남기면 사용자가 만들지 않은 파일이 산출물 옆에 쌓인다.
+"""
+
+
+def _signature(run_dir: Path, project: dict[str, Any], scenes: dict[str, Any]) -> str:
+    """프레임을 정하는 입력 전부의 지문.
+
+    **프로젝트를 통째로 넣는다.** 프리뷰에 영향을 주는 필드를 골라 적으면 렌더가 읽는 필드가
+    늘었을 때(#29의 볼륨, #34의 모션) 화면이 옛 그림에 머문다 — 틀린 그림을 캐시가 지켜 주는
+    쪽이 값을 하나 더 해싱하는 것보다 비싸다.
+    """
+    payload = "\n".join(
+        [str(run_dir), serialize_artifact(project), serialize_artifact(scenes)]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _preview_cache(
+    run_dir: Path, project: dict[str, Any], scenes: dict[str, Any], signature: str
+) -> tuple[dict[int, Path], int | None]:
+    """서명에 해당하는 프레임 전부. 없으면 만든다.
+
+    Returns:
+        (`{장면 인덱스: PNG 경로}`, 이번에 만드는 데 걸린 밀리초). 캐시에 있었으면 둘째가
+        `None`이다.
+    """
+    with _PREVIEW_LOCK:
+        if _PREVIEW["signature"] == signature:
+            return dict(_PREVIEW["frames"]), None
+
+        if _PREVIEW["root"] is None:
+            _PREVIEW["root"] = Path(tempfile.mkdtemp(prefix="shorts-preview-"))
+            # 정상 종료(stdin EOF)에서 치운다. 강제 종료로 남은 것은 OS의 임시 디렉터리
+            # 정리에 맡긴다 — 그것까지 지키려고 수명 관리 코드를 두는 것은 과하다.
+            atexit.register(shutil.rmtree, _PREVIEW["root"], ignore_errors=True)
+        root = Path(_PREVIEW["root"])
+        target = root / signature
+
+        started = time.perf_counter()
+        try:
+            frames = video_renderer.preview(
+                project, scenes, run_dir=run_dir, out_dir=target
+            )
+        except RenderError as error:
+            shutil.rmtree(target, ignore_errors=True)
+            raise ApiError(
+                "render",
+                f"프리뷰 프레임을 만들지 못했다 — {error}",
+                ["FFmpeg가 PATH에 있는지, 배경·폰트 경로가 맞는지 확인한다"],
+            ) from error
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+
+        # 지난 서명은 여기서 버린다. 새 프레임이 자리에 앉은 뒤라 실패해도 잃는 것이 없다.
+        for stale in root.iterdir():
+            if stale != target:
+                shutil.rmtree(stale, ignore_errors=True)
+
+        _PREVIEW["signature"] = signature
+        _PREVIEW["frames"] = frames
+        return dict(frames), elapsed_ms
 
 
 def _run_dir(params: dict[str, Any]) -> Path:
@@ -260,13 +437,36 @@ def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> None:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
 
-    _emit(stdout, {"event": "ready", "pid": os.getpid(), "protocol": PROTOCOL_VERSION})
-    for response in respond(stdin):
-        _emit(stdout, response)
+    # 스레드에서도 이 함수로 쓴다. 줄이 섞이면 앱 쪽 파서가 한 줄 = JSON 하나를 잃는다.
+    guard = threading.Lock()
+
+    def emit(payload: dict[str, Any]) -> None:
+        with guard:
+            _emit(stdout, payload)
+
+    def background(request: dict[str, Any]) -> None:
+        # **응답을 이 루프가 내지 않는다.** 끝나는 순서가 요청 순서와 다를 수 있고, 그래도
+        # 되는 이유는 앱이 `id`로 짝을 찾기 때문이다 (`electron/main.js`의 `pending`).
+        # daemon인 것은 stdin이 닫혔을 때 프리뷰가 종료를 붙잡지 않기 위해서다.
+        threading.Thread(target=lambda: emit(handle(request)), daemon=True).start()
+
+    emit({"event": "ready", "pid": os.getpid(), "protocol": PROTOCOL_VERSION})
+    for response in respond(stdin, background=background):
+        emit(response)
 
 
-def respond(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
-    """요청 줄들 → 응답들. 파일이나 목록으로도 돌릴 수 있게 stdio와 분리한다."""
+def respond(
+    lines: Iterable[str],
+    *,
+    background: Callable[[dict[str, Any]], None] | None = None,
+) -> Iterator[dict[str, Any]]:
+    """요청 줄들 → 응답들. 파일이나 목록으로도 돌릴 수 있게 stdio와 분리한다.
+
+    Args:
+        background: 주면 `BACKGROUND_METHODS`의 요청을 그쪽에 넘기고 여기서는 아무것도
+            내지 않는다 — 그 응답은 넘겨받은 쪽이 직접 쓴다. 주지 않으면 전부 순서대로
+            처리한다(테스트와 파일 입력이 그 경로다).
+    """
     for line in lines:
         line = line.strip()
         if not line:
@@ -275,6 +475,13 @@ def respond(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
             request = json.loads(line)
         except json.JSONDecodeError as error:
             yield _failure(None, ApiError("bad_request", f"JSON 문법 오류 — {error}"))
+            continue
+        if (
+            background is not None
+            and isinstance(request, dict)
+            and request.get("method") in BACKGROUND_METHODS
+        ):
+            background(request)
             continue
         yield handle(request)
 

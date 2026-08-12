@@ -1,10 +1,14 @@
-// #26 스모크 — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
+// 앱 스모크 (#26, #27) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
 //
-// 세 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
+// 네 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
-//   1. edit   — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기
-//   2. verify — 다시 띄워서 저장한 것이 그대로 열리는지
-//   3. idle   — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
+//   1. edit    — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
+//   2. verify  — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
+//   3. preview — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27)
+//   4. idle    — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
+//
+// **3번은 FFmpeg를 요구한다.** 실제 프레임이 나오는지가 그 시나리오의 절반이라 대역으로
+// 바꾸면 확인하려는 것이 확인되지 않는다.
 //
 // 실행: npm run smoke   (결과는 app/smoke/results.json)
 
@@ -72,8 +76,9 @@ if (made.status !== 0) {
   console.error(made.stderr || made.error)
   process.exit(1)
 }
-const RUN = made.stdout.trim()
+const { run: RUN, long: LONG } = JSON.parse(made.stdout.trim())
 record('스모크가 열 run 디렉터리를 만든다', fs.existsSync(path.join(RUN, 'project.json')), RUN)
+record('상한을 넘는 run 디렉터리도 만든다', fs.existsSync(path.join(LONG, 'scenes.json')), LONG)
 
 // 계약을 어긴 사본. **원본을 망가뜨리지 않는다** — 같은 디렉터리를 고쳤다 되돌리면 앞선
 // 단계가 무엇을 봤는지가 순서에 좌우된다.
@@ -118,7 +123,28 @@ results.phases.push({ scenario: 'verify', ...verify, result: verifyResult })
 if (verifyResult) results.checks.push(...verifyResult.checks)
 record('재시작 시나리오가 끝난다', verifyResult && verifyResult.ok && !verify.timedOut)
 
-// --- 3. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
+// --- 3. 장면 목록과 프리뷰 (#27) ----------------------------------------------------
+
+const previewOut = path.join(WORK, 'preview.json')
+const preview = await wait(electron('preview', {
+  SHORTS_SMOKE_RUN: RUN,
+  SHORTS_SMOKE_LONG: LONG,
+  SHORTS_SMOKE_OUT: previewOut,
+  SHORTS_SMOKE_SHOT: path.join(APP_DIR, 'smoke', 'screenshot-preview.png'),
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+}), 240000)
+
+const previewResult = fs.existsSync(previewOut) ? JSON.parse(fs.readFileSync(previewOut, 'utf8')) : null
+results.phases.push({ scenario: 'preview', ...preview, result: previewResult })
+if (previewResult) results.checks.push(...previewResult.checks)
+record('프리뷰 시나리오가 끝난다', previewResult && previewResult.ok && !preview.timedOut)
+
+// **프리뷰가 최종 렌더 경로를 지나지 않았다는 증거.** 프레임을 여러 장 만든 뒤이므로,
+// 여기 mp4가 있다면 프리뷰 명령이 인코더까지 들고 갔다는 뜻이다 (#27 완료 조건).
+const leaked = fs.readdirSync(RUN).filter((name) => name.endsWith('.mp4'))
+record('프리뷰가 최종 렌더 산출물을 만들지 않는다', leaked.length === 0, leaked.join(', '))
+
+// --- 4. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
 
 const readyPath = path.join(WORK, 'ready.json')
 const idle = electron('idle', {
@@ -153,7 +179,7 @@ if (ready) {
 }
 idle.kill()
 
-// --- 4. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
+// --- 5. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
 
 // 실행 중 감시(main의 `onBeforeRequest`)와 **다른 층의 확인이다.** 그쪽은 "시도가 없었다"를,
 // 이쪽은 "시도할 대상이 빌드에 없다"를 본다 — 시안의 CDN 링크가 되살아나는 경로가 이쪽이다

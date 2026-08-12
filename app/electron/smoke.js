@@ -12,6 +12,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const RUN = process.env.SHORTS_SMOKE_RUN
+const LONG = process.env.SHORTS_SMOKE_LONG
 const BROKEN = process.env.SHORTS_SMOKE_BROKEN
 const OUT = process.env.SHORTS_SMOKE_OUT
 const EXPECT = process.env.SHORTS_SMOKE_EXPECT
@@ -89,6 +90,9 @@ async function runSmoke ({ scenario, window, log, app, backendInfo, externalRequ
 
     if (scenario === 'idle') return await idle({ backendInfo, record, finish })
     if (scenario === 'verify') return await verify({ evaluate, quote, record, finish, network })
+    if (scenario === 'preview') {
+      return await preview({ window, evaluate, quote, attribute, text, record, finish, network })
+    }
     await roundTrip({ window, evaluate, quote, text, attribute, saveState, record, finish, setAsk, network })
   } catch (failure) {
     record('예외 없이 끝난다', false, failure && failure.message)
@@ -160,9 +164,159 @@ async function roundTrip (host) {
 /** 앱을 다시 띄운 쪽. 저장한 것이 그대로 열리는지만 본다. */
 async function verify ({ evaluate, quote, record, finish, network }) {
   record('재시작한 앱이 같은 프로젝트를 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
+  // **`open`이 끝난 것과 화면이 그것을 반영한 것은 다르다.** `window.__smoke`는 렌더마다
+  // 다시 달리므로, 커밋 전에 읽으면 직전 렌더의 값이 온다.
+  const settled = await until(async () => Boolean((await evaluate('window.__smoke.state()')).project))
   const state = await evaluate('window.__smoke.state()')
-  record('저장한 편집이 유지된다', state.project && state.project.render.cta_tail === EXPECT, state.project && state.project.render.cta_tail)
+  record('저장한 편집이 유지된다', settled && state.project.render.cta_tail === EXPECT, state.project && state.project.render.cta_tail)
   record('다시 연 직후에는 변경이 없다', state.unsaved === false)
+  network()
+  finish(0)
+}
+
+/**
+ * 장면 목록 · 3분할 · 프리뷰 (#27).
+ *
+ * **FFmpeg가 있어야 한다.** 이 시나리오가 확인하는 것의 절반이 실제 프레임이라, 명령만
+ * 맞는지 보는 대역으로 바꾸면 확인하려는 것이 확인되지 않는다. 명령이 최종 렌더 경로를 지나지
+ * 않는다는 것은 `tests/test_video_renderer.py`가 FFmpeg 없이도 지킨다.
+ */
+async function preview (host) {
+  const { window, evaluate, quote, attribute, text, record, finish, network } = host
+
+  const rect = (selector) => evaluate(
+    `(() => { const n = document.querySelector(${quote(selector)}); if (!n) return null;
+       const r = n.getBoundingClientRect(); return { w: r.width, h: r.height } })()`
+  )
+  const previewState = () => attribute('[data-testid="preview"]', 'data-state')
+  const ready = () => until(async () => await previewState() === 'ready', 120, 100)
+
+  record('장면이 있는 run을 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
+  // 실패하면 화면 상태를 그대로 남긴다 — `data-state`만으로는 기다린 것이 무엇이었는지
+  // (프레임이 안 왔는지, 실패했는지) 구분되지 않는다.
+  const firstFrame = await ready()
+  record('첫 프레임이 나온다', firstFrame, JSON.stringify(await evaluate(
+    '(() => { const s = window.__smoke.state();'
+    + ' return { selected: s.selected, pending: s.pending, frame: s.frame, error: s.previewError } })()'
+  )))
+
+  // 1. 3분할 폭 — 두 창 크기에서 확정 수치가 그대로 나오는지 (확정 스펙 3.1)
+  for (const [width, height, left, right] of [[1440, 900, 296, 340], [1280, 720, 264, 300]]) {
+    window.setContentSize(width, height)
+    await delay(300)
+    const scenes = await rect('[data-testid="scene-list"]')
+    const properties = await rect('[data-testid="properties"]')
+    const near = (value, want) => Math.abs(value - want) <= 1
+    record(
+      `${width}x${height}에서 좌 ${left} / 우 ${right}`,
+      near(scenes.w, left) && near(properties.w, right),
+      `${scenes.w.toFixed(1)} / ${properties.w.toFixed(1)}`
+    )
+
+    // 2. 9:16을 유지하고 **잘리지 않는다** — 폭이 아니라 높이에 맞춘다 (확정 스펙 3.1)
+    const stage = await rect('.preview__stage')
+    const frame = await rect('.preview__frame')
+    record(
+      `${width}x${height}에서 프리뷰가 9:16이다`,
+      Math.abs(frame.w / frame.h - 9 / 16) < 0.01,
+      `${frame.w.toFixed(1)}x${frame.h.toFixed(1)} = ${(frame.w / frame.h).toFixed(4)}`
+    )
+    record(
+      `${width}x${height}에서 프리뷰가 잘리지 않는다`,
+      frame.h <= stage.h + 1 && frame.w <= stage.w + 1,
+      `프레임 ${frame.h.toFixed(1)} ≤ 무대 ${stage.h.toFixed(1)}`
+    )
+  }
+  window.setContentSize(1440, 900)
+  await delay(300)
+
+  // 3. 역할 구분과 문제 그룹 (퀴즈 스펙 8장, 확정 스펙 3.1)
+  const roles = await evaluate(
+    '[...document.querySelectorAll(\'[data-testid="scene-row"]\')].map((n) => n.dataset.role)'
+  )
+  const wanted = ['hook', 'question', 'countdown', 'answer', 'cta']
+  record('다섯 역할이 모두 구분되어 보인다', wanted.every((role) => roles.includes(role)), roles.join(','))
+
+  const groups = await evaluate(
+    `[...document.querySelectorAll('.scene-group')].map((n) => ({
+       head: n.querySelector('[data-testid="question-head"]').textContent.trim(),
+       roles: [...n.querySelectorAll('[data-testid="scene-row"]')].map((r) => r.dataset.role)
+     }))`
+  )
+  record(
+    '문제마다 세 장면이 머리글 아래 한 그룹으로 묶인다',
+    groups.length === 2 && groups.every((group) =>
+      group.roles.join(',') === 'question,countdown,answer' && /^문제 \d+$/.test(group.head)),
+    JSON.stringify(groups)
+  )
+
+  // 4. 선택하면 그 장면의 프레임으로 바뀐다
+  const shown = () => evaluate('window.__smoke.state().frame')
+  const first = await shown()
+  await evaluate('window.__smoke.select(3)')
+  record('다른 장면을 고르면 프리뷰가 그 장면으로 간다', await until(async () => {
+    const frame = await shown()
+    return frame && frame.index === 3
+  }))
+  const answer = await shown()
+  record('장면마다 다른 프레임이다', first && answer && first.bytes !== answer.bytes,
+    `${first && first.bytes} → ${answer.bytes}`)
+  record('속성 패널이 고른 장면을 따라간다', (await text('[data-testid="properties-scene"]')).includes('answer'))
+
+  // 5. **대기 표현 2종.** 값을 고치면 캐시가 통째로 비므로 그때만 2초짜리 대기가 생기고,
+  //    두 표현이 화면에 오래 서 있어 관찰할 수 있다. 장면 이동만으로는 캐시가 답해서
+  //    (3~5ms) 어느 쪽이었는지 화면에서 구분되지 않는다 — 그것이 이 설계가 산 것이다
+  //    (`docs/spikes/27-preview-frames.md` 3장).
+  const before = await shown()
+
+  // (a) 같은 장면의 값 변경 → **이전 프레임을 유지한다.** 지우면 값 하나 고칠 때마다
+  //     화면이 비어 무엇이 어떻게 바뀌는지 비교할 수 없다.
+  await evaluate(`window.__smoke.edit('render','caption_style',${quote('neon_mint')})`)
+  const stale = await until(async () => await previewState() === 'stale')
+  const kept = await shown()
+  record(
+    '같은 장면의 값이 바뀌면 이전 프레임을 유지한 채 갱신 표시가 뜬다',
+    stale && kept !== null && kept.index === 3 && kept.bytes === before.bytes,
+    JSON.stringify(kept)
+  )
+  record('갱신 배지가 떠 있다', Boolean(await text('[data-testid="preview-refresh"]')))
+
+  // (b) 그 대기 중에 다른 장면으로 옮긴다 → **이전 프레임을 지운다.** 남겨 두면 방금 고른
+  //     장면의 그림으로 읽힌다.
+  await evaluate('window.__smoke.select(1)')
+  record(
+    '다른 장면을 고르면 이전 프레임이 지워진다',
+    await until(async () => await previewState() === 'loading' && await shown() === null)
+  )
+  record('그 뒤 새 장면의 프레임이 온다', await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === 1
+  }, 120, 100))
+
+  // **프레임 인덱스로 기다린다.** `ready`만 보면 직전 장면의 프레임이 서 있는 화면에서
+  // 곧바로 통과한다 — 상태는 이미 `ready`이기 때문이다.
+  await evaluate('window.__smoke.select(3)')
+  await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === 3
+  }, 120, 100)
+  const changed = await shown()
+  record('갱신된 프레임이 바뀐 값을 반영한다',
+    changed !== null && changed.index === 3 && changed.bytes !== before.bytes,
+    `${before.bytes} → ${changed && changed.bytes}`)
+
+  // 6. 총 길이 — 짧은 쪽은 정보, 넘치는 쪽만 경고다 (확정 스펙 1.8)
+  record('목표보다 짧아도 경고가 아니다',
+    await attribute('[data-testid="total-duration"]', 'data-state') === 'short',
+    await text('[data-testid="total-value"]'))
+
+  await capture(window, record)
+
+  record('상한을 넘는 run을 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
+  record('60초를 넘으면 경고로 바뀐다',
+    await until(async () => await attribute('[data-testid="total-duration"]', 'data-state') === 'over'),
+    await text('[data-testid="total-value"]'))
+
   network()
   finish(0)
 }
