@@ -1,0 +1,6 @@
+# 하니스와 프로토타입이 만드는 것 — 전부 다시 만들 수 있다.
+.work/
+sample-run/
+prototype/node_modules/
+prototype/dist/
+prototype-smoke.log

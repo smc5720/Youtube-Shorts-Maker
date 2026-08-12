@@ -403,6 +403,10 @@ total_frames = sum(frames_i)
 - 앱은 장면 목록을 보여주고, 장면별 텍스트, 자막, 배경, 길이를 수정할 수 있게 한다.
 - 편집 내용은 프로젝트 파일로 저장한다.
 - 미리보기 렌더링은 빠른 프리뷰와 최종 렌더링을 분리한다.
+  - **프레임마다 FFmpeg를 새로 띄우는 방식은 성립하지 않는다.** 프리뷰 1프레임이 0.8~2.4초이고
+    그 바닥이 프로세스 기동이라 해상도를 낮춰도 빨라지지 않는다 (스파이크 #25 6장, 14.1).
+  - 프리뷰 명령은 최종 렌더 명령에서 갈라져 나와야 한다. 다른 코드로 그리면 화면과 결과가
+    갈릴 수 있고, 지금은 `video_renderer.build_command` 하나가 두 경로의 출발점이다.
 - 최종 내보내기는 FFmpeg 렌더링 엔진을 사용한다.
 
 ### 7.10 프로젝트 파일
@@ -483,8 +487,8 @@ total_frames = sum(frames_i)
 ## 10. 제안 기술 스택
 
 - 언어: Python 3.11+
-- 앱: Electron + React 또는 Tauri + React
-- 렌더링 백엔드: Python 3.11+
+- 앱: Electron + React — 백엔드는 앱이 자식 프로세스로 띄우고 stdio JSON Lines로 말한다 (14.1 참조)
+- 렌더링 백엔드: Python 3.11+ — 앱 동봉은 PyInstaller onedir, FFmpeg는 동봉하지 않는다 (14.1 참조)
 - CLI: argparse
 - 설정: YAML
 - 영상 처리: FFmpeg — 명령을 직접 생성한다 (MoviePy 미사용, 14.1 참조)
@@ -541,7 +545,7 @@ Youtube-Shorts-Maker/
       video_renderer.py
       metadata_generator.py
       project.py
-      api.py
+      api.py             # 앱 백엔드 — stdio JSON Lines 디스패처. HTTP 서버가 아니다 (14.1)
       schemas/            # 산출물 JSON 계약 — quiz/scenes/project 스키마와 검증기
       types/
         quiz/             # 타입 전용 생성기와 장면 템플릿 (퀴즈 스펙 4장)
@@ -894,9 +898,34 @@ optional로 두고**, TTS 이후 상태를 요구하는 확정 검증(`validate_
 영향 — config `audio.sfx_volume` 키(#6 후속), 7.7·7.10, `project.json`의 `audio` 섹션(#19 후속),
 앱의 트랙 볼륨 편집(#29), 배경음악 ducking(#35)이 같은 리미터 뒤에 붙는다.
 
-### 14.2 남은 미해결 항목
+#### 앱 프레임워크와 백엔드 연결: Electron + React, 자식 프로세스 stdio (JSON Lines)
 
-- 앱 프레임워크를 Electron으로 할지 Tauri로 할지 결정해야 한다. (#25)
-- Python 백엔드와 앱 프론트엔드를 어떻게 연결할지 결정해야 한다. (#25)
+앱은 **Electron + React**로 만들고, Python 백엔드는 **앱이 자식 프로세스로 띄워 stdin/stdout
+JSON Lines로 말한다.** 로컬 HTTP 서버를 열지 않는다 — 11장의 `api.py`는 HTTP 서버가 아니라
+JSON Lines 디스패처다. Python 런타임은 **PyInstaller onedir로 동봉**하고 `assets/`를 실행 파일
+옆에 둔다. **FFmpeg는 동봉하지 않고** CLI와 같이 PATH에서 찾는다.
+
+근거 — 스파이크 #25(`docs/spikes/25-app-framework.md`)의 실측이다. Tauri v2는 Windows에서
+MSVC Build Tools와 Rust 툴체인을 요구하는데 개발 환경에 셋 다 없어 빌드 자체가 되지 않았고,
+Tauri의 크기 우위(Electron 런타임 348MB 대 수 MB)는 어느 쪽을 골라도 함께 지고 가는 Python
+백엔드(26.9MB)와 FFmpeg(전체 빌드 462MB) 앞에서 희석된다. 전송은 stdio가 왕복 지연
+0.033ms(HTTP 0.172ms / 파일 26.6ms)와 콜드 스타트 182ms(HTTP 673ms)로 앞서고, **부모를 강제
+종료했을 때 HTTP·파일 백엔드는 살아남은 반면 stdio 백엔드만 함께 죽었다** — 앱이 크래시하면
+렌더 중인 FFmpeg를 안은 백엔드가 남는다는 뜻이라 수명 관리 코드를 앱에 붙이지 않으려면 stdio다.
+전 경로(React → main → Python → 화면)는 프로토타입에서 왕복 100회 중앙값 0.2ms로 동작한다.
+
+**프레임 하나를 그릴 때마다 FFmpeg를 새로 띄우는 프리뷰는 성립하지 않는다.** 프리뷰 1프레임이
+0.8~2.4초인데 그 바닥이 프로세스 기동이라(아무 일도 하지 않는 `ffmpeg -version`이 1.1초),
+해상도를 1/4로 줄여도 빨라지지 않는다. #27은 장면 대표 프레임 캐시 / 상주 프레임 서버 /
+더 작은 FFmpeg 빌드 중에서 고른다.
+
+**되돌리는 비용이 작다는 것이 이 결정의 안전장치다.** 백엔드는 프레임워크를 모르는 stdio
+프로세스이므로, 설치 크기가 제품 요구가 되면 프론트 셸만 Tauri로 갈아 끼운다 — Tauri의
+사이드카도 stdout/stdin으로 말한다.
+
+영향 — 10장(기술 스택), 11장의 `api.py` 성격, 7.9의 프리뷰 구현 방식, 앱 이슈 #26~#30,
+7.10이 "앱 프레임워크가 정해진 뒤"로 미뤄 둔 `project.json`의 편집 상태 필드(#29).
+
+### 14.2 남은 미해결 항목
 - 링크 본문 추출을 어떤 라이브러리로 시작할지 결정해야 한다. (#31)
 - 유료 언론사, 로그인 필요 페이지, 동적 렌더링 페이지를 MVP에서 제외할지 결정해야 한다. (#31)
