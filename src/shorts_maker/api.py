@@ -141,7 +141,11 @@ def method_env(params: dict[str, Any]) -> Any:
 
 
 def method_presets(params: dict[str, Any]) -> Any:
-    """번들 프리셋 목록 — 자막 스타일과 배경 (#38, 이슈 #79).
+    """앱이 배경·자막 스타일로 **고를 수 있는 것들** (#38, 이슈 #79·#80).
+
+    번들 프리셋 둘과 사용자 파일의 지원 형식이 함께 온다. 셋 다 "앱이 적어 두면 안 되는
+    목록"이라는 같은 이유로 여기를 지난다 — 프리셋 이름은 `assets/`가, 형식 목록은 렌더러가
+    소유한다 (PRD 14.1).
 
     **이름을 앱에 적지 않게 하는 것이 이 메서드의 존재 이유다.** 프리셋은 `assets/`가
     소유하고(D1 확정 스펙 6장) 앱이 `assets/`를 직접 읽을 수는 없다 — 동결 배포(PyInstaller
@@ -186,6 +190,13 @@ def method_presets(params: dict[str, Any]) -> Any:
             # 종류를 따로 싣지 않는 것은 스톱 수와 어긋날 수 있는 값을 만들지 않기 위함이다.
             {"name": preset.name, "label": preset.label, "stops": list(preset.stops)}
             for preset in backgrounds.values()
+        ],
+        # 배경으로 받는 사용자 파일 (#80). **확장자가 `kind`를 정하므로 둘을 함께 보낸다** —
+        # 확장자 목록만 보내면 어느 것이 `image`이고 어느 것이 `video`인지를 앱이 다시
+        # 정하게 되고, 그 판단이 두 곳에 생긴다 (PRD 14.1).
+        "background_files": [
+            {"extension": extension, "kind": kind}
+            for extension, kind in video_renderer.BACKGROUND_FILE_KINDS.items()
         ],
     }
 

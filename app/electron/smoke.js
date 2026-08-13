@@ -1,8 +1,9 @@
-// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79의 완료 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80의 완료 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
-// 같은 `open` / `edit` / `save`이고, 확인 대화상자만 바꿔 끼운다(모달이 뜨면 자동 실행이
-// 거기서 멈춘다). 그래서 이 파일이 확인하는 것은 스모크용 코드가 아니라 제품 동작이다.
+// 같은 `open` / `edit` / `save`이고, **대화상자만 바꿔 끼운다**(모달이 뜨면 자동 실행이
+// 거기서 멈춘다) — 확인 대화상자(`setAsk`)와 파일 선택(`setPick`) 둘이다. 그래서 이 파일이
+// 확인하는 것은 스모크용 코드가 아니라 제품 동작이다.
 //
 // 시나리오는 `--smoke=<이름>`으로 고르고 나머지는 환경 변수로 받는다. 묶어서 도는 것은
 // `app/smoke/run.mjs`이고, **재시작 왕복이 필요해서 프로세스가 나뉜다** — 한 프로세스 안에서
@@ -18,6 +19,12 @@ const OUT = process.env.SHORTS_SMOKE_OUT
 const EXPECT = process.env.SHORTS_SMOKE_EXPECT
 const READY = process.env.SHORTS_SMOKE_READY
 const SHOT = process.env.SHORTS_SMOKE_SHOT
+// 배경 파일을 고른 뒤의 화면 (#80). 프리셋 상태와 다른 파일이라 둘을 나란히 볼 수 있다.
+const SHOT_BG = process.env.SHORTS_SMOKE_SHOT_BG
+// 배경 사용자 파일 셋 (#80) — 받는 것 / 받지 않는 것 / 고른 뒤 사라진 것.
+const BG = process.env.SHORTS_SMOKE_BG
+const BG_BAD = process.env.SHORTS_SMOKE_BG_BAD
+const BG_MISSING = process.env.SHORTS_SMOKE_BG_MISSING
 
 /** 편집이 파일까지 갔는지 보는 표식. 한글이라 인코딩 회귀도 함께 걸린다. */
 const MARKERS = {
@@ -43,7 +50,9 @@ async function until (predicate, attempts = 50, gap = 100) {
   return false
 }
 
-async function runSmoke ({ scenario, window, log, app, backendInfo, externalRequests, setAsk }) {
+async function runSmoke ({
+  scenario, window, log, app, backendInfo, externalRequests, setAsk, setPick
+}) {
   const checks = []
   const record = (name, ok, detail) => {
     checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? null : String(detail) })
@@ -93,7 +102,7 @@ async function runSmoke ({ scenario, window, log, app, backendInfo, externalRequ
     if (scenario === 'idle') return await idle({ backendInfo, record, finish })
     if (scenario === 'verify') return await verify({ evaluate, quote, record, finish, network })
     if (scenario === 'preview') {
-      return await preview({ window, evaluate, quote, attribute, text, record, finish, network })
+      return await preview({ window, evaluate, quote, attribute, text, record, finish, network, setPick })
     }
     if (scenario === 'questions') {
       return await questions({ window, evaluate, quote, attribute, text, saveState, record, finish, network })
@@ -183,14 +192,14 @@ async function verify ({ evaluate, quote, record, finish, network }) {
 }
 
 /**
- * 장면 목록 · 3분할 · 프리뷰 (#27).
+ * 장면 목록 · 3분할 · 프리뷰 (#27) · 장면 길이(#82) · 프리셋(#79) · 배경 파일(#80).
  *
  * **FFmpeg가 있어야 한다.** 이 시나리오가 확인하는 것의 절반이 실제 프레임이라, 명령만
  * 맞는지 보는 대역으로 바꾸면 확인하려는 것이 확인되지 않는다. 명령이 최종 렌더 경로를 지나지
  * 않는다는 것은 `tests/test_video_renderer.py`가 FFmpeg 없이도 지킨다.
  */
 async function preview (host) {
-  const { window, evaluate, quote, attribute, text, record, finish, network } = host
+  const { window, evaluate, quote, attribute, text, record, finish, network, setPick } = host
 
   const rect = (selector) => evaluate(
     `(() => { const n = document.querySelector(${quote(selector)}); if (!n) return null;
@@ -447,10 +456,106 @@ async function preview (host) {
 
   record('프리셋 교체를 저장한다', await evaluate('window.__smoke.save()') === true)
 
+  // 9. **배경 사용자 파일** (#80). 대화상자만 바꿔 끼운다 — 고른 경로를 무엇으로 판정하는지는
+  //    제품 코드가 그대로 지난다 (확인 대화상자를 `setAsk`로 바꾸는 것과 같은 자리다).
+  let asked = null
+  const pickReturns = (target) => setPick(async (options) => {
+    asked = options
+    return { canceled: false, filePaths: [target] }
+  })
+  const pick = async () => {
+    await evaluate('document.querySelector(\'[data-testid="pick-background"]\').click()')
+  }
+
+  // (a) 받지 않는 형식 — **거부이고 값이 적용되지 않는다**(확정 스펙 4장의 `danger`).
+  //     `warn`(낭독보다 짧은 길이)과 같은 표시를 쓰면 무엇이 반영됐는지가 화면에서 갈리지 않는다.
+  const bgBefore = JSON.stringify(await backgroundOf())
+  pickReturns(BG_BAD)
+  await pick()
+  const rejected = await until(async () =>
+    Boolean(await text('[data-testid="notice-background-reject"]')))
+  record('받지 않는 형식은 거부되고 받는 형식을 말한다', rejected,
+    await text('[data-testid="notice-background-reject"]'))
+  record('거부하면 배경 값은 그대로다', JSON.stringify(await backgroundOf()) === bgBefore, bgBefore)
+  // **필터 목록도 백엔드에서 온다.** main이 자기 목록을 들면 화면이 받는 형식과 렌더가 아는
+  // 형식이 갈린다 — 확장자를 이 파일에 적지 않는 이유가 그것이다.
+  record('대화상자 필터가 백엔드가 준 형식 목록이다',
+    asked.filters[0].extensions.join(',')
+    === presets.background_files.map((format) => format.extension.slice(1)).join(','),
+    JSON.stringify(asked.filters))
+
+  // (b) 받는 형식 — 확장자가 `kind`를 정하고 경로는 있는 자리를 가리킨다 (복사하지 않는다).
+  const beforeFile = await shown()
+  pickReturns(BG)
+  await pick()
+  const applied = await until(async () => (await backgroundOf()).value === BG)
+  record('고른 파일이 배경이 된다', applied, JSON.stringify(await backgroundOf()))
+  record('확장자가 kind를 정한다', (await backgroundOf()).kind === 'image',
+    JSON.stringify(await backgroundOf()))
+  record('거부 표시가 사라진다', (await text('[data-testid="notice-background-reject"]')) === null)
+  record('고른 파일 경로가 화면에 뜬다',
+    (await text('[data-testid="background-file"]')).includes('배경.png'),
+    await text('[data-testid="background-file"]'))
+
+  const withFile = await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === 3 && beforeFile !== null
+      && frame.bytes !== beforeFile.bytes
+  }, 120, 100)
+  record('고른 배경이 프리뷰 프레임까지 간다', withFile,
+    `${beforeFile && beforeFile.bytes} → ${JSON.stringify(await shown())}`)
+  // 프레임이 캔버스를 채우고 비율이 왜곡되지 않는지는 눈으로 봐야 한다 — 그 증거를 남긴다.
+  // 속성 패널을 끝까지 내리는 것은 이 컨트롤이 프리셋 목록 **아래**에 있기 때문이다.
+  await evaluate(
+    `(() => { const n = document.querySelector(${quote('[data-testid="properties"] .panel__scroll')});
+       n.scrollTop = n.scrollHeight })()`
+  )
+  await delay(100)
+  await capture(window, record, SHOT_BG)
+
+  // (c) **자막 스타일을 골라도 파일 배경은 그대로다** — 프리셋 이름으로 표현되지 않는 값이라
+  //     기본 짝으로 갈아 끼우면 사용자가 넣은 것이 사라진다 (PRD 7.9, #79).
+  const styleNow = await styleOf()
+  const another = presets.caption_styles.find((style) => style.name !== styleNow)
+  await evaluate(`document.querySelector('[data-testid="presets-caption-style"] .preset[data-value=${quote(another.name)}]').click()`)
+  await until(async () => await styleOf() === another.name)
+  record('스타일을 골라도 사용자 파일 배경은 그대로다',
+    (await backgroundOf()).value === BG, JSON.stringify(await backgroundOf()))
+
+  // (d) 고른 뒤 파일이 사라지면 — **원인이 경로와 함께 뜨고 앱은 살아 있다.** 앱이 고르는
+  //     순간 존재를 확인하지 않는 이유가 여기 있다: 확인해도 그 뒤에 지워질 수 있다.
+  pickReturns(BG_MISSING)
+  await pick()
+  const missing = await until(async () => {
+    const failure = await evaluate('window.__smoke.state().previewError')
+    return failure !== null && failure.message.includes('사라진배경.png')
+  }, 120, 100)
+  record('없는 배경 파일은 프리뷰가 경로와 함께 말한다', missing,
+    JSON.stringify(await evaluate('window.__smoke.state().previewError')))
+  record('그래도 앱은 살아 있다', await evaluate('Boolean(window.__smoke)') === true)
+
+  // (e) 프리셋으로 돌아온다 — 파일 배경에서 나가는 길이 목록뿐이라, 목록을 숨기면 앱에서
+  //     넣은 배경을 앱에서 되돌릴 수 없다.
+  const back = presets.backgrounds[0]
+  await evaluate(`document.querySelector('[data-testid="presets-background"] .preset[data-value=${quote(back.name)}]').click()`)
+  const restored = await until(async () => (await backgroundOf()).kind === 'preset')
+  record('프리셋 카드를 누르면 파일 배경에서 돌아온다', restored,
+    JSON.stringify(await backgroundOf()))
+  record('배경 파일 교체를 저장한다', await evaluate('window.__smoke.save()') === true)
+
   record('상한을 넘는 run을 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
   record('60초를 넘으면 경고로 바뀐다',
     await until(async () => await attribute('[data-testid="total-duration"]', 'data-state') === 'over'),
     await text('[data-testid="total-value"]'))
+
+  // **재시작 뒤 확인은 파일 배경으로 한다** (#80). 이쪽 run에 남기는 이유는 `run-smoke`가
+  // 프리셋 조합을 재시작 검증에 쓰고 있기 때문이다 (#79) — 한 run에 둘을 겹치면 어느 쪽도
+  // 확인되지 않는다.
+  pickReturns(BG)
+  await pick()
+  const longPicked = await until(async () => (await backgroundOf()).value === BG)
+  record('상한 run에도 배경 파일을 고른다', longPicked, JSON.stringify(await backgroundOf()))
+  record('그 배경을 저장한다', await evaluate('window.__smoke.save()') === true)
 
   network()
   finish(0)
@@ -619,7 +724,13 @@ async function questions (host) {
   finish(0)
 }
 
-/** 앱을 다시 띄운 쪽. 문제 편집이 두 파일에 남아 다시 열리는지 본다 (#28). */
+/**
+ * 앱을 다시 띄운 쪽. 문제 편집이 두 파일에 남아 다시 열리는지 본다 (#28).
+ *
+ * 뒤이어 배경 사용자 파일이 남았는지도 본다 (#80) — **그 파일은 이 앱이 뜨기 전에 지워졌다.**
+ * 사라진 배경은 프리뷰가 경로와 함께 말하고, 그 실패는 FFmpeg 없이도 난다 (`_source_file`은
+ * 명령을 만들기 전에 걸린다).
+ */
 async function questionsVerify ({ evaluate, quote, record, finish, network }) {
   record('재시작한 앱이 같은 프로젝트를 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
   const settled = await until(async () => Boolean((await evaluate('window.__smoke.state()')).content))
@@ -651,6 +762,31 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
     && state.project.background.value !== paired.background,
     `${state.project.render.caption_style} × ${JSON.stringify(state.project.background)}`)
   record('다시 연 직후에는 변경이 없다', state.unsaved === false)
+
+  // **배경 사용자 파일** (#80). `preview` 시나리오가 `run-smoke-long`에 고른 파일이고,
+  // 그 파일은 이 앱이 뜨기 전에 지워졌다 — 값은 그대로 남아 있고 원인은 프리뷰가 말한다.
+  // **다른 run에 남긴 이유**는 `run-smoke`가 프리셋 조합의 재시작 검증을 쓰고 있어서다 (#79).
+  record('상한 run도 다시 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
+  const withFile = await until(async () =>
+    (await evaluate('window.__smoke.state().project.background')).value === BG)
+  const background = await evaluate('window.__smoke.state().project.background')
+  record('고른 배경 파일이 재시작 뒤에도 유지된다',
+    withFile && background.kind === 'image' && path.isAbsolute(background.value),
+    JSON.stringify(background))
+  record('배경 파일은 run 디렉터리 밖을 가리킨다',
+    !background.value.startsWith(LONG), background.value)
+
+  // 파일이 사라진 뒤 연 프로젝트 — **원인이 경로와 함께 뜨고 앱은 죽지 않는다.**
+  // 프리뷰 캐시가 비어 있는 새 프로세스라 이 호출이 실제로 배경을 열러 간다.
+  const named = await until(async () => {
+    const failure = await evaluate('window.__smoke.state().previewError')
+    return failure !== null && failure.message.includes('배경.png')
+  }, 120, 100)
+  record('사라진 배경 파일의 경로가 화면에 뜬다', named,
+    JSON.stringify(await evaluate('window.__smoke.state().previewError')))
+  record('배경이 없어도 앱은 살아 있고 프로젝트는 열려 있다',
+    await evaluate('Boolean(window.__smoke.state().project)') === true)
+
   network()
   finish(0)
 }
@@ -667,11 +803,11 @@ async function idle ({ backendInfo, record, finish }) {
 }
 
 // 화면을 남긴다. **측정치를 먼저 쓰는 것과 같은 이유로 실패해도 시나리오를 멈추지 않는다.**
-async function capture (window, record) {
-  if (!SHOT) return
+async function capture (window, record, target = SHOT) {
+  if (!target) return
   try {
-    fs.writeFileSync(SHOT, (await window.webContents.capturePage()).toPNG())
-    record('화면을 캡처한다', true, SHOT)
+    fs.writeFileSync(target, (await window.webContents.capturePage()).toPNG())
+    record('화면을 캡처한다', true, target)
   } catch (failure) {
     record('화면을 캡처한다', false, failure && failure.message)
   }

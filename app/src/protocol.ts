@@ -156,9 +156,25 @@ export interface BackgroundPreset {
   stops: string[]
 }
 
+/**
+ * 배경으로 받는 사용자 파일 한 형식 (#80).
+ *
+ * **목록은 렌더러가 소유한다** (`video_renderer.BACKGROUND_FILE_KINDS`). 앱이 자기 목록을
+ * 들면 앱이 받은 파일을 렌더가 거부할 수 있고, 그 어긋남은 파일을 고르는 순간이 아니라
+ * 렌더 도중에 드러난다 (PRD 14.1).
+ */
+export interface BackgroundFileFormat {
+  /** 소문자 확장자, 점 포함 (`.png`). */
+  extension: string
+  /** 이 확장자가 정하는 `background.kind`. */
+  kind: string
+}
+
 export interface PresetsResult {
   caption_styles: CaptionStylePreset[]
   backgrounds: BackgroundPreset[]
+  /** 이 필드가 없는 백엔드 세대가 있을 수 있다 (동결 배포, `ready` 이벤트의 `protocol`). */
+  background_files?: BackgroundFileFormat[]
 }
 
 export interface ScenesResult {
@@ -210,6 +226,13 @@ export interface Bridge {
   call<T>(method: string, params?: Record<string, unknown>): Promise<Response<T>>
   context(): Promise<AppContext>
   pickRunDir(): Promise<string | null>
+  /**
+   * 배경 파일 하나를 고른다 (#80). 취소하면 `null`이다.
+   *
+   * **받는 확장자를 인자로 넘긴다.** 대화상자 필터를 main이 만들지만 목록은 백엔드가
+   * 소유하므로(`presets.background_files`), main이 자기 목록을 들면 그 순간 두 벌이 된다.
+   */
+  pickBackgroundFile(extensions: string[]): Promise<string | null>
   /** 동기다 — main이 아는 상태가 화면보다 늦으면 확인 없이 닫히는 틈이 생긴다. */
   setUnsaved(value: boolean): void
   saveResult(ok: boolean): Promise<void>

@@ -204,6 +204,11 @@ async function createWindow () {
 // 닫기를 막을지 판단하는 코드는 그대로 지난다.
 let ask = (options) => dialog.showMessageBox(mainWindow, options)
 
+// 파일·디렉터리 선택도 같은 자리를 지난다 (#80). 스모크가 여기를 바꿔 끼워 시나리오를 돌리고
+// (모달이 뜨면 자동 실행이 거기서 멈춘다), 바뀌는 것은 **경로를 얻는 방법**뿐이라 고른 값을
+// 무엇으로 판정하는지는 그대로 지난다.
+let pick = (options) => dialog.showOpenDialog(mainWindow, options)
+
 // 저장하지 않은 변경이 있는 채로 창을 닫을 때. **버리는 선택지만 주지 않는다** —
 // 이 앱에서 잃는 것은 사용자가 검수하며 고친 내용이다.
 async function confirmClose () {
@@ -299,10 +304,28 @@ app.whenReady().then(async () => {
     }
   })
   ipcMain.handle('pick-run-dir', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    const { canceled, filePaths } = await pick({
       title: '프로젝트를 열 run 디렉터리를 고른다',
       defaultPath: path.join(REPO_ROOT, 'outputs'),
       properties: ['openDirectory']
+    })
+    return canceled ? null : filePaths[0]
+  })
+  // 배경 사용자 파일 (#80). **받는 확장자를 렌더러에서 받는다** — 목록은 백엔드가 소유하고
+  // (`presets.background_files`) 여기서 다시 적으면 세 번째 사본이 생긴다.
+  //
+  // **필터가 거부를 대신하지 않는다.** "모든 파일"을 함께 두는 것은 사용자가 이름을 직접
+  // 입력할 수 있고 플랫폼마다 필터의 강제력이 다르기 때문이다 — 받지 않는 형식을 고르는
+  // 길이 실제로 있으므로, 판정은 값을 적용하는 쪽(렌더러 `App.pickBackground`)에 있다.
+  ipcMain.handle('pick-background-file', async (_event, extensions) => {
+    const accepted = Array.isArray(extensions) ? extensions : []
+    const { canceled, filePaths } = await pick({
+      title: '배경으로 쓸 이미지나 영상을 고른다',
+      properties: ['openFile'],
+      filters: [
+        { name: `배경 파일 (${accepted.map((name) => `.${name}`).join(' ')})`, extensions: accepted },
+        { name: '모든 파일', extensions: ['*'] }
+      ]
     })
     return canceled ? null : filePaths[0]
   })
@@ -329,7 +352,8 @@ app.whenReady().then(async () => {
       app,
       backendInfo: () => backendInfo,
       externalRequests: () => externalRequests,
-      setAsk: (handler) => { ask = handler }
+      setAsk: (handler) => { ask = handler },
+      setPick: (handler) => { pick = handler }
     })
   }
 })
