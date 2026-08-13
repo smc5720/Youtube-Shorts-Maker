@@ -514,6 +514,30 @@ def test_project_accepts_null_voice_when_nothing_is_narrated() -> None:
     validate_project(data)
 
 
+def test_project_opens_without_the_voice_gain() -> None:
+    """**이 필드가 생기기 전에 만들어진 run 디렉터리가 열려야 한다** (#81). 그때의 뜻은
+    `DEFAULT_VOICE_VOLUME`이고 렌더러가 그 값으로 읽는다."""
+    data = project()
+    assert "voice_volume" not in data["audio"]
+
+    validate_project(data)
+
+
+def test_project_takes_a_voice_gain_above_one() -> None:
+    """**상한이 없다** — 최종 오디오는 리미터가 -1 dBFS에서 잡는다 (#23, #81)."""
+    data = project()
+    data["audio"]["voice_volume"] = 3.5
+
+    validate_project(data)
+
+
+def test_project_rejects_a_negative_voice_gain() -> None:
+    data = project()
+    data["audio"]["voice_volume"] = -0.1
+
+    assert_reports(failures(validate_project, data), "audio.voice_volume")
+
+
 def test_project_rejects_unknown_background_kind() -> None:
     data = project()
     data["background"]["kind"] = "pexels"

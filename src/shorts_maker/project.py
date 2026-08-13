@@ -79,6 +79,10 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
             # 효과음 게인 (#23). 렌더러가 읽는 값이므로 배경·자막 스타일과 같은 자리를
             # 지난다 — config를 렌더가 다시 열면 앱이 편집한 값이 무시된다 (PRD 7.10).
             "sfx_volume": float(config.get("audio.sfx_volume")),
+            # 낭독 게인 (#81). **스키마에서는 선택이지만 여기서는 항상 쓴다** — 선택인 것은
+            # 이 필드가 생기기 전에 만들어진 run 디렉터리 때문이고, 새로 만드는 프로젝트가
+            # 값을 비워 두면 앱이 무엇을 보여 줄지 파일마다 갈린다.
+            "voice_volume": float(config.get("audio.voice_volume")),
         },
         # 6.3의 영상 규격. 값의 단일 진실 공급원은 렌더러이고 여기는 옮겨 담는다.
         "render": {

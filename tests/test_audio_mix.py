@@ -24,6 +24,7 @@ import pytest
 from shorts_maker import audio_mix, overlay, video_renderer
 from shorts_maker.assets import sfx_path
 from shorts_maker.audio_mix import AudioMixError, build, cues, voice_only
+from shorts_maker.schemas.project import DEFAULT_VOICE_VOLUME
 from shorts_maker.video_renderer import (
     CANVAS_HEIGHT,
     CANVAS_WIDTH,
@@ -94,9 +95,17 @@ def quiz_block() -> dict[str, Any]:
     )
 
 
-def chain_for(scenes: dict[str, Any], *, volume: float = 1.0) -> audio_mix.AudioChain:
+def chain_for(
+    scenes: dict[str, Any], *, sfx_volume: float = 1.0, voice_volume: float = 1.0
+) -> audio_mix.AudioChain:
     aligned = align(scenes)
-    return build(scenes, aligned.frame_spans, fps=aligned.fps, volume=volume)
+    return build(
+        scenes,
+        aligned.frame_spans,
+        fps=aligned.fps,
+        sfx_volume=sfx_volume,
+        voice_volume=voice_volume,
+    )
 
 
 def delays(chain: audio_mix.AudioChain) -> list[int]:
@@ -258,7 +267,7 @@ def test_the_limiter_neither_auto_levels_nor_delays() -> None:
 
 
 def test_the_gain_is_applied_once_before_the_split() -> None:
-    graph = " ".join(chain_for(quiz_block(), volume=0.5).steps)
+    graph = " ".join(chain_for(quiz_block(), sfx_volume=0.5).steps)
 
     assert graph.count("volume=0.5") == 2  # 효과음 두 종류에 각각 한 번
     assert graph.index("volume=0.5") < graph.index("asplit=3")
@@ -269,9 +278,58 @@ def test_the_default_gain_adds_no_volume_filter() -> None:
     assert "volume=" not in " ".join(chain_for(quiz_block()).steps)
 
 
+# --- 낭독 볼륨 (#81) ---------------------------------------------------------
+
+
+def test_the_voice_gain_lands_on_the_voice_branch_only() -> None:
+    """게인이 낭독 입력에만 걸린다 — 효과음 가지에 얹히면 두 트랙이 함께 움직인다."""
+    chain = chain_for(quiz_block(), voice_volume=0.5)
+
+    voice_step = chain.steps[0]
+    assert voice_step.startswith(f"[{audio_mix.VOICE_STREAM}]")
+    assert "volume=0.5" in voice_step
+    assert "volume=0.5" not in " ".join(chain.steps[1:])
+
+
+def test_the_default_voice_gain_adds_no_volume_filter() -> None:
+    """게인 1은 원본 레벨이고, 필터를 넣지 않는 것이 그 사실의 표현이다."""
+    assert "volume=" not in voice_only(audio_mix.UNITY_GAIN).steps[0]
+    assert voice_only() == voice_only(1)
+
+
+def test_a_lowered_voice_gain_needs_no_limiter() -> None:
+    """트랙 하나를 원본 레벨 아래로 내린 체인에는 넘칠 것이 없다."""
+    chain = voice_only(0.3)
+
+    assert "volume=0.3" in chain.steps[0]
+    assert "alimiter" not in chain.steps[0]
+
+
+def test_a_voice_gain_above_one_brings_the_limiter() -> None:
+    """**#23의 규칙이 넓어진 자리다** — 효과음이 없어도 게인이 1을 넘으면 클리핑이 가능하다."""
+    chain = voice_only(2.0)
+
+    assert "volume=2" in chain.steps[0]
+    assert f"alimiter=limit={audio_mix.LIMITER_CEILING}" in chain.steps[0]
+    assert "level=disabled" in chain.steps[0] and "latency=true" in chain.steps[0]
+
+
+def test_the_voice_gain_survives_when_the_sfx_are_off() -> None:
+    """`sfx_volume: 0`이 낭독 게인까지 지우지 않는다 — 두 값은 서로 무관하다."""
+    chain = chain_for(quiz_block(), sfx_volume=0, voice_volume=0.4)
+
+    assert chain == voice_only(0.4)
+    assert "volume=0.4" in chain.steps[0]
+
+
+def test_a_negative_voice_gain_says_which_key_is_wrong() -> None:
+    with pytest.raises(AudioMixError, match="audio.voice_volume"):
+        chain_for(quiz_block(), voice_volume=-0.1)
+
+
 def test_zero_volume_gives_the_voice_only_chain() -> None:
     """게인 0으로 섞어 두면 명령만 길어진다."""
-    chain = chain_for(quiz_block(), volume=0)
+    chain = chain_for(quiz_block(), sfx_volume=0)
 
     assert chain == voice_only()
     assert chain.inputs == ()
@@ -287,7 +345,7 @@ def test_a_scene_list_without_sfx_gives_the_voice_only_chain() -> None:
 
 def test_a_negative_gain_is_an_error() -> None:
     with pytest.raises(AudioMixError, match="0 이상"):
-        chain_for(quiz_block(), volume=-1.0)
+        chain_for(quiz_block(), sfx_volume=-1.0)
 
 
 def test_an_unknown_sound_lists_the_bundled_names() -> None:
@@ -464,6 +522,51 @@ def test_a_loud_gain_still_does_not_clip(tmp_path: Path) -> None:
     assert levels(output)["Peak"] <= ceiling + AAC_OVERSHOOT_DB
 
 
+def silent_block() -> dict[str, Any]:
+    """효과음이 없는 장면 목록. **낭독 게인만 재려면 필요하다** — 효과음이 있으면 낭독을
+    내렸을 때 피크가 그쪽에서 정해져 게인이 얼마나 걸렸는지가 측정에서 사라진다."""
+    scenes = quiz_block()
+    for scene in scenes["scenes"]:
+        scene.pop("sfx", None)
+    return scenes
+
+
+@needs_ffmpeg
+def test_lowering_the_voice_gain_lowers_the_narration(tmp_path: Path) -> None:
+    """슬라이더 100 → 50(게인 0.5)이 최종 mp4의 낭독을 6dB 내린다 (#81 완료 조건)."""
+    scenes = silent_block()
+    total = align(scenes).total_sec
+    for name in ("full", "half"):
+        (tmp_path / name).mkdir()
+        loud_voice_track(tmp_path / name, total_sec=total)
+
+    full = render(project_with(voice="voice.mp3"), scenes, run_dir=tmp_path / "full")
+    half = render(
+        project_with(voice="voice.mp3", voice_volume=0.5), scenes, run_dir=tmp_path / "half"
+    )
+
+    wanted = 20 * math.log10(2)  # 게인 0.5 = -6.02dB
+    loud, quiet = levels(full), levels(half)
+    assert loud["Peak"] - quiet["Peak"] == pytest.approx(wanted, abs=AAC_OVERSHOOT_DB)
+    assert loud["RMS"] - quiet["RMS"] == pytest.approx(wanted, abs=AAC_OVERSHOOT_DB)
+
+
+@needs_ffmpeg
+def test_a_loud_voice_gain_does_not_clip_without_any_sfx(tmp_path: Path) -> None:
+    """**효과음이 없어도 리미터가 붙는다** (#81). 넘칠 수 있는 경우가 하나 늘었다."""
+    scenes = silent_block()
+    track = loud_voice_track(tmp_path, total_sec=align(scenes).total_sec)
+    # 시험 조건을 확인한다. 낭독이 조용하면 4배로도 넘지 않아 통과가 의미를 잃는다.
+    assert levels(track)["Peak"] >= LOUD_FLOOR_DBFS
+
+    output = render(
+        project_with(voice="voice.mp3", voice_volume=4.0), scenes, run_dir=tmp_path
+    )
+
+    ceiling = 20 * math.log10(audio_mix.LIMITER_CEILING)
+    assert levels(output)["Peak"] <= ceiling + AAC_OVERSHOOT_DB
+
+
 @needs_ffmpeg
 def test_the_stream_count_does_not_change_when_sounds_are_added(tmp_path: Path) -> None:
     """오디오 스트림은 항상 정확히 하나다 (PRD 7.7)."""
@@ -498,3 +601,38 @@ def test_a_project_without_the_gain_says_which_key_is_missing(tmp_path: Path) ->
 
     with pytest.raises(RenderError, match="audio.sfx_volume"):
         video_renderer.build_audio(project, quiz_block(), timeline=align(quiz_block()))
+
+
+def test_a_project_without_the_voice_gain_renders_at_the_original_level() -> None:
+    """**없는 것이 계약 위반이 아니다** (#81) — 이 필드가 생기기 전의 run 디렉터리가 열린다.
+
+    `sfx_volume`과 갈리는 이유는 계약의 성격이 아니라 도입 시점뿐이고, 그때의 뜻은
+    `DEFAULT_VOICE_VOLUME`(원본 레벨)이다.
+    """
+    project = project_with()
+    assert "voice_volume" not in project["audio"]
+    scenes = quiz_block()
+
+    chain = video_renderer.build_audio(project, scenes, timeline=align(scenes))
+
+    assert chain == chain_for(scenes, voice_volume=DEFAULT_VOICE_VOLUME)
+
+
+def test_the_voice_gain_reaches_the_chain_from_the_project() -> None:
+    """`project.json` → 렌더러 경로. config에서 다시 읽으면 앱의 편집이 무시된다 (PRD 7.10)."""
+    scenes = quiz_block()
+
+    chain = video_renderer.build_audio(
+        project_with(voice_volume=0.25), scenes, timeline=align(scenes)
+    )
+
+    assert "volume=0.25" in chain.steps[0]
+
+
+def test_a_negative_voice_gain_in_the_project_is_a_render_error() -> None:
+    scenes = quiz_block()
+
+    with pytest.raises(RenderError, match="audio.voice_volume"):
+        video_renderer.build_audio(
+            project_with(voice_volume=-1.0), scenes, timeline=align(scenes)
+        )

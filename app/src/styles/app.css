@@ -991,6 +991,46 @@ body {
   gap: var(--s4);
 }
 
+/* 트랙 볼륨 (#81) — 슬라이더와 수치가 한 줄, 설명이 그 아래다. `.duration`과 같은 골격이라
+ * 속성 패널의 두 컨트롤이 같은 리듬으로 선다. */
+.volume {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.volume__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+
+/* 수치가 자리를 먼저 잡는다 — 폭이 값에 따라 흔들리면 슬라이더 끝이 드래그 중에 움직인다. */
+.volume__value {
+  flex: none;
+  width: 32px;
+  text-align: right;
+  font-size: 13px;
+}
+
+.volume__slider {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.volume__slider:focus-visible {
+  outline: 2px solid var(--select-border);
+  outline-offset: 2px;
+  border-radius: var(--r-badge);
+}
+
 .segmented {
   display: inline-flex;
   gap: 2px;

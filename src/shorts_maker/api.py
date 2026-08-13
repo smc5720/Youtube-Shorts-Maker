@@ -53,7 +53,7 @@ from .assets import AssetError, background_presets, caption_styles
 from .run_context import serialize_artifact
 from .schemas import SchemaError, load_project, validate_project
 from .schemas.core import Schema
-from .schemas.project import APP_STATE_SECTIONS, PROJECT_SCHEMA
+from .schemas.project import PREVIEW_BLIND_SECTIONS, PROJECT_SCHEMA
 from .schemas.scenes import SCENES_SCHEMA, load_scenes
 from .shorts_types import ShortsTypeError, get_type
 from .video_renderer import RenderError
@@ -449,20 +449,20 @@ run 디렉터리 **밖**이다 — TTS 캐시와 같은 이유가 아니라 반�
 def _signature(run_dir: Path, project: dict[str, Any], scenes: dict[str, Any]) -> str:
     """프레임을 정하는 입력 전부의 지문.
 
-    **프로젝트를 통째로 넣되 `APP_STATE_SECTIONS`만 뺀다.** 프리뷰에 영향을 주는 필드를 골라
-    적으면 렌더가 읽는 필드가 늘었을 때(#29의 볼륨, #34의 모션) 화면이 옛 그림에 머문다 —
-    틀린 그림을 캐시가 지켜 주는 쪽이 값을 하나 더 해싱하는 것보다 비싸다. 그래서 목록은
-    "렌더가 읽는 것"이 아니라 **"렌더가 읽지 않는 것"** 쪽으로 뒀다. 빼는 근거는 스키마가
-    들고 있고(`schemas/project.py`), 새 섹션은 아무것도 하지 않아도 지문에 들어간다.
+    **프로젝트를 통째로 넣되 `PREVIEW_BLIND_SECTIONS`만 뺀다.** 프리뷰에 영향을 주는 필드를
+    골라 적으면 렌더가 읽는 필드가 늘었을 때(#34의 모션) 화면이 옛 그림에 머문다 — 틀린 그림을
+    캐시가 지켜 주는 쪽이 값을 하나 더 해싱하는 것보다 비싸다. 그래서 목록은 "프레임에 닿는
+    것"이 아니라 **"프레임에 닿지 않는 것"** 쪽으로 뒀다. 빼는 근거는 스키마가 들고 있고
+    (`schemas/project.py`), 새 섹션은 아무것도 하지 않아도 지문에 들어간다.
 
-    빼지 않으면 확인 버튼 한 번이 프레임 11장을 다시 만들고(이 머신에서 2초대) 결과는 같은
-    그림이다 (#28).
+    빼지 않으면 확인 버튼 한 번(#28)이나 볼륨 슬라이더 한 칸(#81)이 프레임 11장을 다시 만들고
+    (이 머신에서 2초대) 결과는 같은 그림이다.
     """
     payload = "\n".join(
         [
             str(run_dir),
             serialize_artifact(
-                {k: v for k, v in project.items() if k not in APP_STATE_SECTIONS}
+                {k: v for k, v in project.items() if k not in PREVIEW_BLIND_SECTIONS}
             ),
             serialize_artifact(scenes),
         ]

@@ -10,12 +10,13 @@
   소리가 놓이는 프레임이 같아야 하고, 두 곳에서 각자 세면 반올림 하나로 그림과 소리가 갈린다.
   정답 효과음의 트리거 시각도 같은 이유로 `overlay.ANSWER_ONSET_SEC`을 읽는다 — 등장색이
   켜지는 프레임과 같은 값이다 (D1 확정 스펙 5.4).
-- **레벨을 여기서 정하지 않는다.** `sfx_volume`은 `project.json`의 `audio` 섹션에서 온다
-  (PRD 7.10). 번들 효과음이 낭독보다 peak 9.5dB / RMS 9~10dB 아래로 정규화돼 있어(#18)
-  기본값 1.0에서 추가 감쇠가 필요하지 않다 — 실측은 이슈 #23에 있다.
-- **효과음이 하나도 없으면 #19~#22와 같은 명령이 나온다.** 리미터도 그때는 붙지 않는다.
-  클리핑 위험은 트랙을 더하면서 생기는 것이고, 낭독 하나뿐인 체인에 리미터를 끼우면 이유 없이
-  오디오 전체가 필터를 하나 더 지난다.
+- **레벨을 여기서 정하지 않는다.** `sfx_volume`과 `voice_volume`은 `project.json`의 `audio`
+  섹션에서 온다 (PRD 7.10). 번들 효과음이 낭독보다 peak 9.5dB / RMS 9~10dB 아래로 정규화돼
+  있어(#18) 기본값 1.0에서 추가 감쇠가 필요하지 않다 — 실측은 이슈 #23에 있다.
+- **효과음이 하나도 없고 낭독 게인이 1이면 #19~#22와 같은 명령이 나온다.** 리미터도 그때는
+  붙지 않는다. 낭독 하나를 원본 레벨로 흘리는 체인에는 넘칠 것이 없고, 거기에 리미터를 끼우면
+  이유 없이 오디오 전체가 필터를 하나 더 지난다. **넘칠 수 있는 경우가 #81에서 하나 늘었다** —
+  트랙을 더하는 것(효과음)과 낭독 게인을 1 위로 올리는 것 둘이고, 어느 쪽이든 리미터가 붙는다.
 """
 
 from __future__ import annotations
@@ -43,9 +44,13 @@ OUTPUT_LABEL = "audio"
 
 FIRST_SFX_INPUT = 2
 
+UNITY_GAIN = 1.0
+"""게인을 걸지 않은 상태. 두 트랙 모두 이 값이 "원본 레벨 그대로"이고, 그래서 필터를 아예
+넣지 않는 것이 그 사실의 표현이다 (#23, #81)."""
+
 LIMITER_CEILING = 0.891
 """리미터 상한 (≈-1 dBFS). 기본 설정에서는 동시 피크가 -2.3 dBFS라 걸리지 않는다 — 이 값이
-막는 것은 사람이 `sfx_volume`을 올린 경우와 낭독 레벨이 다른 TTS provider다.
+막는 것은 사람이 볼륨을 올린 경우와 낭독 레벨이 다른 TTS provider다.
 
 **`level=disabled`와 `latency=true`가 둘 다 필요하다** (#23 실측). `level`의 기본값 `true`는
 auto level이라 최종 오디오가 0dB로 정규화되어 낭독 레벨이 달라지고, `latency`를 빼면
@@ -81,12 +86,20 @@ class AudioChain:
     """효과음 입력 인자. 낭독 입력 뒤에 이 순서로 붙는다."""
 
 
-def voice_only() -> AudioChain:
+def voice_only(volume: float = UNITY_GAIN) -> AudioChain:
     """낭독만 담은 체인. 효과음이 없을 때와 `sfx_volume`이 0일 때의 결과다.
 
     `apad`는 합성 트랙이 프레임 정렬 길이보다 반 프레임쯤 짧을 수 있어 필요하다 (#19).
+
+    Args:
+        volume: 낭독 선형 게인 (`audio.voice_volume`, #81). **1 위로 올릴 때만 리미터가
+            붙는다** — 원본 레벨이나 그 아래로 내린 트랙 하나는 넘칠 수 없고, 거기에 리미터를
+            끼우면 이유 없이 오디오 전체가 필터를 하나 더 지난다.
     """
-    return AudioChain(steps=(f"[{VOICE_STREAM}]{_format()},apad[{OUTPUT_LABEL}]",))
+    chain = f"{_voice(volume)},apad"
+    if volume > UNITY_GAIN:
+        chain += f",{_limiter()}"
+    return AudioChain(steps=(f"[{VOICE_STREAM}]{chain}[{OUTPUT_LABEL}]",))
 
 
 def build(
@@ -94,7 +107,8 @@ def build(
     frame_spans: Sequence[tuple[int, int]],
     *,
     fps: int,
-    volume: float,
+    sfx_volume: float,
+    voice_volume: float = UNITY_GAIN,
 ) -> AudioChain:
     """장면 목록의 `sfx`를 낭독 위에 얹는 체인을 만든다.
 
@@ -103,19 +117,22 @@ def build(
             이미 했다.
         frame_spans: 장면별 (시작 프레임, 끝 프레임). `video_renderer.align`이 소유한다.
         fps: 프레임 번호를 시각으로 바꾸는 분모.
-        volume: 효과음 선형 게인 (`project.json`의 `audio.sfx_volume`). 0이면 효과음 입력과
-            필터를 아예 만들지 않는다 — 게인 0으로 섞어 두면 명령만 길어진다.
+        sfx_volume: 효과음 선형 게인 (`project.json`의 `audio.sfx_volume`). 0이면 효과음
+            입력과 필터를 아예 만들지 않는다 — 게인 0으로 섞어 두면 명령만 길어진다.
+        voice_volume: 낭독 선형 게인 (`audio.voice_volume`, #81). **두 게인을 한 인자로 묶지
+            않는다** — 이름이 `volume` 하나였을 때 어느 트랙의 값인지가 호출부에서만 보였다.
 
     Raises:
         AudioMixError: 장면 수와 구간 수가 어긋나거나, `sfx` 값이 번들에 없는 이름일 때.
             **인코딩을 시작하기 전에 걸린다** (#20의 폰트 검증과 같은 자리).
     """
-    if volume < 0:
-        raise AudioMixError(f"audio.sfx_volume은 0 이상이어야 한다. 받은 값: {volume}")
+    for key, value in (("sfx_volume", sfx_volume), ("voice_volume", voice_volume)):
+        if value < 0:
+            raise AudioMixError(f"audio.{key}는 0 이상이어야 한다. 받은 값: {value}")
 
-    cue_list = [] if volume == 0 else cues(scenes, frame_spans, fps=fps)
+    cue_list = [] if sfx_volume == 0 else cues(scenes, frame_spans, fps=fps)
     if not cue_list:
-        return voice_only()
+        return voice_only(voice_volume)
 
     # 같은 소리를 여러 번 놓아도 입력은 하나다. 디코드를 나누는 것은 `asplit`이고, 입력을
     # 이름마다 하나로 묶으면 비프 3개에 파일을 세 번 열지 않는다.
@@ -125,7 +142,7 @@ def build(
             order.append(cue.name)
 
     inputs: list[str] = []
-    steps: list[str] = [f"[{VOICE_STREAM}]{_format()}[voice]"]
+    steps: list[str] = [f"[{VOICE_STREAM}]{_voice(voice_volume)}[voice]"]
     labels: list[str] = ["[voice]"]
 
     for position, name in enumerate(order):
@@ -139,8 +156,8 @@ def build(
         branches = [f"sfx{index}_{number}" for number in range(len(frames))]
 
         chain = _format()
-        if volume != 1:
-            chain += f",volume={volume:g}"
+        if sfx_volume != UNITY_GAIN:
+            chain += f",volume={sfx_volume:g}"
         if len(branches) > 1:
             chain += f",asplit={len(branches)}"
         steps.append(f"[{index}:a]{chain}" + "".join(f"[{name}]" for name in branches))
@@ -157,11 +174,12 @@ def build(
         # `apad`가 그 뒤를 프레임 정렬 길이까지 메운다 — 총 길이는 렌더의 `-t`가 끊는다.
         "".join(labels)
         + f"amix=inputs={len(labels)}:normalize=0:duration=longest,apad,"
-        + f"alimiter=limit={LIMITER_CEILING}:level=disabled:latency=true[{OUTPUT_LABEL}]"
+        + f"{_limiter()}[{OUTPUT_LABEL}]"
     )
 
     LOGGER.debug(
-        "효과음 %d개 배치 — 게인 %g, 입력 %d개", len(cue_list), volume, len(order)
+        "효과음 %d개 배치 — 효과음 게인 %g, 낭독 게인 %g, 입력 %d개",
+        len(cue_list), sfx_volume, voice_volume, len(order),
     )
     return AudioChain(steps=tuple(steps), inputs=tuple(inputs))
 
@@ -246,3 +264,20 @@ def _frames(seconds: float, fps: int) -> int:
 def _format() -> str:
     """입력을 최종 오디오 규격으로 맞추는 필터."""
     return f"aformat=sample_rates={SAMPLE_RATE}:channel_layouts={CHANNEL_LAYOUT}"
+
+
+def _voice(volume: float) -> str:
+    """낭독 입력을 규격에 맞추고 게인을 건다 (#81).
+
+    **게인은 규격 변환 다음, 지연·믹스 앞이다.** 효과음이 `volume`을 `asplit` 앞에 두는 것과
+    같은 자리라, 트랙 하나에 게인이 한 번만 걸린다.
+    """
+    chain = _format()
+    if volume != UNITY_GAIN:
+        chain += f",volume={volume:g}"
+    return chain
+
+
+def _limiter() -> str:
+    """최종 단의 리미터. 낭독만 있는 체인과 믹스가 같은 문자열을 쓴다 (#23, #81)."""
+    return f"alimiter=limit={LIMITER_CEILING}:level=disabled:latency=true"

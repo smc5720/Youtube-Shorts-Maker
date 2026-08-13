@@ -31,7 +31,7 @@ from . import PACKAGE_LOGGER, audio_mix, overlay
 from .assets import AssetError, background_presets
 from .audio_mix import AudioChain, AudioMixError
 from .overlay import OverlayError
-from .schemas.project import BACKGROUND_KINDS
+from .schemas.project import BACKGROUND_KINDS, DEFAULT_VOICE_VOLUME
 from .schemas.scenes import validate_scenes_final
 
 LOGGER = logging.getLogger(f"{PACKAGE_LOGGER}.video_renderer")
@@ -373,8 +373,8 @@ def build_audio(
 ) -> AudioChain:
     """낭독 위에 효과음을 얹는 오디오 체인 (#23). 트리거 시각은 `audio_mix`가 소유한다.
 
-    **게인을 `project.json`에서 읽는다.** 배경·자막 스타일과 같은 이유로 config를 다시 열지
-    않는다 — 앱(#29)이 트랙 볼륨을 편집하면 CLI 렌더가 그 값으로 돌아야 한다 (PRD 7.10).
+    **게인 둘을 `project.json`에서 읽는다.** 배경·자막 스타일과 같은 이유로 config를 다시 열지
+    않는다 — 앱(#81)이 트랙 볼륨을 편집하면 CLI 렌더가 그 값으로 돌아야 한다 (PRD 7.10).
 
     Raises:
         RenderError: `sfx` 이름이 번들에 없거나 게인 값이 음수일 때.
@@ -384,7 +384,12 @@ def build_audio(
             scenes,
             timeline.frame_spans,
             fps=timeline.fps,
-            volume=_audio_number(project, "sfx_volume"),
+            sfx_volume=_audio_number(project, "sfx_volume"),
+            # **없으면 기본값이다** (#81). 이 필드가 생기기 전에 만들어진 run 디렉터리가
+            # 렌더까지 가야 하므로, 없는 것은 계약 위반이 아니라 "원본 레벨"이다.
+            voice_volume=_audio_number(
+                project, "voice_volume", default=DEFAULT_VOICE_VOLUME
+            ),
         )
     except AudioMixError as error:
         # 오디오 체인 실패도 렌더 실패다. 부르는 쪽(main)이 잡는 예외를 하나로 유지한다.
@@ -816,15 +821,24 @@ def _number_field(project: Mapping[str, Any], key: str) -> float:
     return float(value)
 
 
-def _audio_number(project: Mapping[str, Any], key: str) -> float:
+def _audio_number(
+    project: Mapping[str, Any], key: str, *, default: float | None = None
+) -> float:
     """`audio` 섹션의 실수 값 (#23). 정수도 받는다 — `sfx_volume: 1`은 1.0이다.
 
-    `render` 섹션이 아닌 이유는 이것이 트랙의 성격을 정하는 값이기 때문이다. 앱(#26)이 붙일
-    트랙별 볼륨도 같은 자리에 온다 (PRD 7.10).
+    `render` 섹션이 아닌 이유는 이것이 트랙의 성격을 정하는 값이기 때문이다. 트랙별 볼륨이
+    같은 자리에 있다 (PRD 7.10, #81).
+
+    Args:
+        default: 키가 없을 때 쓸 값. **스키마에서 선택인 필드에만 준다** (#81의
+            `voice_volume`) — 필수 필드에 기본값을 주면 앱이 만든 잘못된 프로젝트가 조용히
+            다른 레벨로 렌더된다.
     """
     try:
         value = project["audio"][key]
     except (KeyError, TypeError):
+        if default is not None:
+            return default
         raise RenderError(f"project.json의 audio.{key}가 없다") from None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
         raise RenderError(f"audio.{key}는 0 이상의 수여야 한다. 받은 값: {value!r}")

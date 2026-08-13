@@ -10,15 +10,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 import type { BackgroundReject } from '../background'
-import type {
-  BackgroundFileFormat, CaptionStylePreset, PresetsResult, Project, Scene
+import {
+  voiceVolume,
+  type BackgroundFileFormat, type CaptionStylePreset, type PresetsResult, type Project, type Scene
 } from '../protocol'
 import { cutsNarration, FIXED_DURATION_ROLES, narrationLength, seconds } from '../scenes'
 import { Notice } from './Notice'
 
 export function Properties ({
   project, scene, index, runDir, presets,
-  onDuration, onStyle, onBackground, onPickBackground, backgroundReject
+  onDuration, onVolume, onStyle, onBackground, onPickBackground, backgroundReject
 }: {
   project: Project
   scene: Scene | null
@@ -28,6 +29,8 @@ export function Properties ({
   presets: PresetsResult | null
   /** 장면 길이 조정 (#82). `null`이면 읽기 전용 표시만 남는다. */
   onDuration: ((scene: Scene, duration: number) => void) | null
+  /** 트랙 볼륨 (#81). 받는 값은 눈금이 아니라 **선형 게인**이다. */
+  onVolume: (track: 'voice_volume' | 'sfx_volume', gain: number) => void
   onStyle: (style: CaptionStylePreset) => void
   onBackground: (name: string) => void
   /** 배경 사용자 파일 고르기 (#80). 대화상자는 main이 연다. */
@@ -70,7 +73,20 @@ export function Properties ({
                 <Field label="배경" value={`${project.background.kind} · ${project.background.value}`} />
               </>
               )}
-          <Field label="효과음 게인" value={String(project.audio.sfx_volume)} />
+          {/* 볼륨 둘도 전역이다 (#81, 확정 스펙 1.5) — 장면마다 다를 수 있는 것은 길이뿐이다. */}
+          <VolumeField
+            label="낭독 볼륨"
+            testid="voice"
+            gain={voiceVolume(project)}
+            onChange={(gain) => onVolume('voice_volume', gain)}
+          />
+          <VolumeField
+            label="효과음 볼륨"
+            testid="sfx"
+            gain={project.audio.sfx_volume}
+            onChange={(gain) => onVolume('sfx_volume', gain)}
+            zeroHint="효과음 없이 렌더한다"
+          />
           <Field label="낭독 트랙" value={project.audio.voice ?? '(없음)'} />
           <Field label="영상 규격" value={`${project.render.width}x${project.render.height} · ${project.render.fps}fps`} />
           <Field label="출력 파일" value={project.render.output} />
@@ -80,7 +96,7 @@ export function Properties ({
         </Section>
       </div>
       <div className="panel__foot t-caption">
-        볼륨(#81)·자막 문구(#83)는 다음 단계에서 이 자리에 들어온다.
+        자막 문구와 텍스트 오버레이(#83)는 다음 단계에서 이 자리에 들어온다.
       </div>
     </aside>
   )
@@ -173,6 +189,69 @@ function DurationField ({ scene, onDuration }: {
             낭독 {seconds(narration)}보다 짧아 문장 끝이 잘린다. 값은 적용됐다.
           </Notice>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** 눈금 100 = 게인 1.0 (D2 확정 스펙 5장). 파일에 사는 값은 눈금이 아니라 선형 게인이다. */
+const UI_PER_GAIN = 100
+
+/**
+ * 슬라이더가 끌 수 있는 최대 눈금.
+ *
+ * **계약의 상한이 아니다.** `audio.voice_volume`·`audio.sfx_volume`에는 상한이 없고(최종
+ * 오디오는 `alimiter`가 -1 dBFS에서 잡는다) 손으로 더 큰 값을 적은 `project.json`도 열린다 —
+ * 그때 이 컨트롤은 값을 깎지 않고 손잡이만 끝에 두고 수치는 실제 값을 적는다. 시안이 0~100으로
+ * 그렸지만 그 범위로는 **원본보다 키우는 조작이 화면에서 불가능해진다** (확정 스펙 5장이
+ * "상한을 두지 않는다"고 적은 값이다).
+ */
+const SLIDER_MAX_UI = 200
+
+/**
+ * 트랙 볼륨 하나 (#81).
+ *
+ * **입력 중인 문자열을 들지 않는다** — `DurationField`와 달리 슬라이더는 중간 상태가 없다.
+ * 값이 곧 눈금이고, 눈금은 정수라 `"3."` 같은 것이 나올 자리가 없다.
+ */
+function VolumeField ({ label, testid, gain, onChange, zeroHint }: {
+  label: string
+  testid: string
+  gain: number
+  onChange: (gain: number) => void
+  /** 0의 뜻이 트랙마다 다르다 — 효과음은 아예 만들지 않고, 낭독은 트랙이 흐르되 들리지 않는다. */
+  zeroHint?: string
+}) {
+  const ui = Math.round(gain * UI_PER_GAIN)
+  return (
+    <div className="field" data-field={label}>
+      <div className="t-label field__label">{label}</div>
+      <div className="volume">
+        <div className="volume__row">
+          <input
+            type="range"
+            className="volume__slider"
+            data-testid={`slider-${testid}`}
+            min={0}
+            max={SLIDER_MAX_UI}
+            step={1}
+            // 범위 밖 값(손으로 고친 파일)에서는 손잡이가 끝에 선다. 값을 깎지 않는 것이
+            // 요점이다 — 화면에 들어오는 순간 `project.json`이 조용히 달라지면 안 된다.
+            value={Math.min(ui, SLIDER_MAX_UI)}
+            aria-label={label}
+            onChange={(event) => onChange(Number(event.target.value) / UI_PER_GAIN)}
+          />
+          <span className="mono volume__value" data-testid={`volume-${testid}`}>{ui}</span>
+        </div>
+        {/* 100이 원본 레벨이라는 것과, 넘겨도 되는 이유를 값 옆에 둔다. `text/2`다 — 읽는
+            11px 문구에 `text/3`을 쓰면 소형 텍스트 AA에 미달한다 (확정 스펙 1.7). */}
+        <div className="t-caption">
+          {ui === 0
+            ? zeroHint ?? '들리지 않는다'
+            : ui > UI_PER_GAIN
+              ? '100이 원본 레벨 · 넘는 만큼은 리미터가 -1 dBFS에서 잡는다'
+              : '100이 원본 레벨'}
+        </div>
       </div>
     </div>
   )
