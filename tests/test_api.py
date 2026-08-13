@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from shorts_maker import api, project
+from shorts_maker import api, project, video_renderer
 from shorts_maker.assets import (
     CAPTION_COLOR_ROLES,
     AssetError,
@@ -32,7 +32,7 @@ from shorts_maker.assets import (
 )
 from shorts_maker.config import load_config
 from shorts_maker.run_context import serialize_artifact, write_artifact
-from shorts_maker.schemas.project import PROJECT_SCHEMA
+from shorts_maker.schemas.project import BACKGROUND_KINDS, PROJECT_SCHEMA
 from shorts_maker.schemas.scenes import SCENES_SCHEMA
 from shorts_maker.shorts_types import DEFAULT_TYPE, get_type
 
@@ -334,6 +334,24 @@ def test_presets_carry_the_colors_the_app_draws_swatches_with() -> None:
     for preset in result["backgrounds"]:
         # 1개면 단색, 2개면 위→아래 2스톱이다 (D1 확정 스펙 6.2).
         assert 1 <= len(preset["stops"]) <= 2
+
+
+def test_presets_carry_the_background_file_formats_the_app_may_offer() -> None:
+    """**형식 목록의 출처가 렌더러 하나여야 한다** (#80, PRD 14.1).
+
+    앱이 자기 목록을 들면 앱이 받은 파일을 렌더가 거부할 수 있고, 그 어긋남은 파일을 고르는
+    순간이 아니라 수십 초 걸리는 렌더 도중에 드러난다.
+    """
+    result = result_of(call("presets"))
+
+    formats = {entry["extension"]: entry["kind"] for entry in result["background_files"]}
+    assert formats == video_renderer.BACKGROUND_FILE_KINDS
+    # `kind`는 확장자가 정한다 — 앱이 그 판단을 다시 하지 않도록 둘을 함께 보낸다.
+    assert set(formats.values()) <= set(BACKGROUND_KINDS)
+    # 순서도 그대로다. 앱이 다시 정렬하면 화면의 순서가 두 곳에서 정해진다.
+    assert [entry["extension"] for entry in result["background_files"]] == list(
+        video_renderer.BACKGROUND_FILE_KINDS
+    )
 
 
 def test_presets_does_not_need_a_run_directory() -> None:

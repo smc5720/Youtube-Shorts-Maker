@@ -1,13 +1,15 @@
-// 앱 스모크 (#26, #27, #28, #82, #79) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
+// 앱 스모크 (#26, #27, #28, #82, #79, #80) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
 //
 // 여섯 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
 //   1. edit             — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
 //   2. verify           — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
 //   3. preview          — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27),
-//                         장면 길이 조정 (#82), 자막 스타일·배경 프리셋 교체 (#79)
+//                         장면 길이 조정 (#82), 자막 스타일·배경 프리셋 교체 (#79),
+//                         배경 사용자 파일과 미지원 형식 거부 (#80)
 //   4. questions        — 2분할 · 세 상태 표기 · 확인 기록 · 재생성 표시 · 순서·추가·삭제 (#28)
-//   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋이 파일에 남았는지 (#28, #82, #79)
+//   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋·배경 파일이 남았는지
+//                         (#28, #82, #79, #80)
 //   6. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
 //
 // **3번은 FFmpeg를 요구한다.** 실제 프레임이 나오는지가 그 시나리오의 절반이라 대역으로
@@ -82,9 +84,15 @@ if (made.status !== 0) {
   console.error(made.stderr || made.error)
   process.exit(1)
 }
-const { run: RUN, long: LONG } = JSON.parse(made.stdout.trim())
+const { run: RUN, long: LONG, background: BG, unsupported: BG_BAD } = JSON.parse(made.stdout.trim())
 record('스모크가 열 run 디렉터리를 만든다', fs.existsSync(path.join(RUN, 'project.json')), RUN)
 record('상한을 넘는 run 디렉터리도 만든다', fs.existsSync(path.join(LONG, 'scenes.json')), LONG)
+// **run 디렉터리 밖이다** (#80). 앱은 고른 파일을 복사하지 않고 있는 자리를 가리킨다.
+record('배경 파일이 run 디렉터리 밖에 있다',
+  fs.existsSync(BG) && !BG.startsWith(RUN) && !BG.startsWith(LONG), BG)
+
+// 고른 순간 거부되는 형식. **디코드되지 않는 내용이어도 된다** — 확장자만으로 걸린다.
+const BG_MISSING = path.join(WORK, '배경', '사라진배경.png')
 
 // 계약을 어긴 사본. **원본을 망가뜨리지 않는다** — 같은 디렉터리를 고쳤다 되돌리면 앞선
 // 단계가 무엇을 봤는지가 순서에 좌우된다.
@@ -135,8 +143,13 @@ const previewOut = path.join(WORK, 'preview.json')
 const preview = await wait(electron('preview', {
   SHORTS_SMOKE_RUN: RUN,
   SHORTS_SMOKE_LONG: LONG,
+  // 배경 사용자 파일 (#80) — 받는 것 / 받지 않는 것 / 없는 것 셋을 시나리오가 차례로 고른다.
+  SHORTS_SMOKE_BG: BG,
+  SHORTS_SMOKE_BG_BAD: BG_BAD,
+  SHORTS_SMOKE_BG_MISSING: BG_MISSING,
   SHORTS_SMOKE_OUT: previewOut,
   SHORTS_SMOKE_SHOT: path.join(APP_DIR, 'smoke', 'screenshot-preview.png'),
+  SHORTS_SMOKE_SHOT_BG: path.join(APP_DIR, 'smoke', 'screenshot-background.png'),
   SHORTS_APP_LOG: path.join(WORK, 'app.log')
 }), 240000)
 
@@ -149,6 +162,16 @@ record('프리뷰 시나리오가 끝난다', previewResult && previewResult.ok 
 // 여기 mp4가 있다면 프리뷰 명령이 인코더까지 들고 갔다는 뜻이다 (#27 완료 조건).
 const leaked = fs.readdirSync(RUN).filter((name) => name.endsWith('.mp4'))
 record('프리뷰가 최종 렌더 산출물을 만들지 않는다', leaked.length === 0, leaked.join(', '))
+
+// **배경 파일은 복사되지 않는다** (#80). 시나리오가 `run-smoke-long`에 고른 파일을 저장했고,
+// 값은 있는 자리를 가리키는 절대 경로여야 한다 (PRD 14.1).
+const longProject = JSON.parse(fs.readFileSync(path.join(LONG, 'project.json'), 'utf8'))
+record('고른 배경이 project.json에 절대 경로로 남는다',
+  longProject.background.kind === 'image' && longProject.background.value === BG
+  && path.isAbsolute(longProject.background.value),
+  JSON.stringify(longProject.background))
+record('배경 파일이 run 디렉터리로 복사되지 않는다',
+  !fs.readdirSync(LONG).some((name) => name.includes('배경')), fs.readdirSync(LONG).join(', '))
 
 // --- 4. 문제 편집 (#28) -------------------------------------------------------------
 
@@ -195,9 +218,16 @@ record('확인 기록이 project.json의 review로 간다',
 
 // --- 5. 재시작하고 문제 편집 확인 ---------------------------------------------------
 
+// **배경 파일을 지우고 넘긴다** (#80 완료 조건 — 파일이 사라진 뒤 프로젝트를 열면).
+// 다음 시나리오는 새 프로세스라 프리뷰 캐시가 비어 있어, 사라진 배경이 실제로 프리뷰 경로를
+// 지난다 — 같은 프로세스에서 지우면 캐시가 옛 프레임으로 답해 아무 일도 일어나지 않는다.
+fs.rmSync(BG)
+
 const qVerifyOut = path.join(WORK, 'questions-verify.json')
 const qVerify = await wait(electron('questions-verify', {
   SHORTS_SMOKE_RUN: RUN,
+  SHORTS_SMOKE_LONG: LONG,
+  SHORTS_SMOKE_BG: BG,
   SHORTS_SMOKE_OUT: qVerifyOut,
   SHORTS_APP_LOG: path.join(WORK, 'app.log')
 }), 120000)

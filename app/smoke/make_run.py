@@ -22,15 +22,21 @@
 렌더 산출물은 만들지 않는다. `final_short.mp4`가 없는 것이 프리뷰가 최종 렌더 경로를 지나지
 않는다는 증거이기도 하다 (#27).
 
+**배경 사용자 파일도 함께 만든다** (#80). run 디렉터리 밖에 두는 것이 그 기능의 계약이라
+(파일을 복사하지 않고 있는 자리를 가리킨다) 여기서도 밖에 둔다.
+
 사용법:
-    python app/smoke/make_run.py --out DIR   → {"run": ..., "long": ...} 한 줄
+    python app/smoke/make_run.py --out DIR
+        → {"run": ..., "long": ..., "background": ..., "unsupported": ...} 한 줄
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import struct
 import sys
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -185,18 +191,67 @@ def build_run(out: Path, name: str, scenes: dict[str, Any]) -> Path:
     return run_dir
 
 
+def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+    """단색 PNG 한 장. **의존성 없이 만든다** — 스모크에 이미지 라이브러리를 들이지 않는다.
+
+    작아도 된다. 렌더러가 비율을 유지한 채 캔버스를 채우므로(`video_renderer._fill`) 확인
+    대상은 해상도가 아니라 "고른 파일이 프레임에 들어왔는가"다 (#80).
+    """
+    raw = b"".join(b"\x00" + bytes(rgb) * width for _ in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    return b"".join(
+        [
+            b"\x89PNG\r\n\x1a\n",
+            chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)),
+            chunk(b"IDAT", zlib.compress(raw)),
+            chunk(b"IEND", b""),
+        ]
+    )
+
+
+def build_backgrounds(out: Path) -> dict[str, str]:
+    """배경 사용자 파일 두 개 (#80). **run 디렉터리 밖이다** — 그것이 이 기능의 계약이다.
+
+    앱은 파일을 run 디렉터리로 복사하지 않고 있는 자리를 절대 경로로 가리킨다 (PRD 14.1).
+    받지 않는 형식(`.webm`)은 확장자만으로 거부되므로 내용이 필요 없다 — 열어 보기 전에
+    거부하는 것이 이 결정의 핵심이다.
+    """
+    files = out / "배경"
+    files.mkdir(parents=True, exist_ok=True)
+    # 배경 프리셋과 눈에 띄게 다른 색이라 프레임이 바뀐 것이 바이트 수로 드러난다.
+    (files / "배경.png").write_bytes(_solid_png(16, 16, (255, 0, 170)))
+    (files / "배경.webm").write_bytes(b"decoded by nobody")
+    return {
+        "background": str(files / "배경.png"),
+        "unsupported": str(files / "배경.webm"),
+    }
+
+
 def build(out: Path) -> dict[str, str]:
     return {
         # 2.5 + (2.0 + 3.0 + 2.5) x 3 + 3.0 = 28.0초
         "run": str(build_run(out, "run-smoke", scenes_for(answer_sec=2.5))),
         # 2.5 + (2.0 + 3.0 + 24.0) x 3 + 3.0 = 92.5초 — 상한 초과
         "long": str(build_run(out, "run-smoke-long", scenes_for(answer_sec=24.0))),
+        **build_backgrounds(out),
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True, help="run 디렉터리를 만들 위치")
+    # **UTF-8을 명시한다.** 이 줄은 파이프로 Node가 읽고, Windows에서 파이프 stdout의 기본
+    # 인코딩은 콘솔 코드페이지(cp949)라 한글이 든 경로가 **에러 없이 값만 깨진다**
+    # (스파이크 #25 4.3, `api._use_utf8`과 같은 이유다).
+    sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(build(parser.parse_args().out), ensure_ascii=False))
 
 

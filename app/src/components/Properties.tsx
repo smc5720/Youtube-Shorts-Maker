@@ -4,17 +4,21 @@
 // 장면 속성이 아니라 `project.json`의 프로젝트 전역 값이다. 역할 표시 밑에 두면 "이 장면의
 // 자막 스타일"로 읽힌다. 장면에 따라 달라질 수 있는 것은 길이 하나뿐이다.
 //
-// **장면 길이 편집이 #82에서, 자막 스타일·배경 프리셋 교체가 #79에서 들어왔다.** 나머지 편집
-// 컨트롤은 #80·#81과 #83이 같은 구획 안에 들어온다.
+// **장면 길이 편집이 #82에서, 자막 스타일·배경 프리셋 교체가 #79에서, 배경 사용자 파일이
+// #80에서 들어왔다.** 나머지 편집 컨트롤은 #81과 #83이 같은 구획 안에 들어온다.
 
 import { useEffect, useState, type ReactNode } from 'react'
 
-import type { CaptionStylePreset, PresetsResult, Project, Scene } from '../protocol'
+import type { BackgroundReject } from '../background'
+import type {
+  BackgroundFileFormat, CaptionStylePreset, PresetsResult, Project, Scene
+} from '../protocol'
 import { cutsNarration, FIXED_DURATION_ROLES, narrationLength, seconds } from '../scenes'
 import { Notice } from './Notice'
 
 export function Properties ({
-  project, scene, index, runDir, presets, onDuration, onStyle, onBackground
+  project, scene, index, runDir, presets,
+  onDuration, onStyle, onBackground, onPickBackground, backgroundReject
 }: {
   project: Project
   scene: Scene | null
@@ -26,6 +30,10 @@ export function Properties ({
   onDuration: ((scene: Scene, duration: number) => void) | null
   onStyle: (style: CaptionStylePreset) => void
   onBackground: (name: string) => void
+  /** 배경 사용자 파일 고르기 (#80). 대화상자는 main이 연다. */
+  onPickBackground: () => void
+  /** 받지 않는 형식을 골랐을 때만 값이 있다 (#80). */
+  backgroundReject: BackgroundReject | null
 }) {
   return (
     <aside className="panel panel--properties" data-testid="properties">
@@ -49,6 +57,8 @@ export function Properties ({
                 presets={presets}
                 onStyle={onStyle}
                 onBackground={onBackground}
+                onPickBackground={onPickBackground}
+                backgroundReject={backgroundReject}
               />
               )
             : (
@@ -70,7 +80,7 @@ export function Properties ({
         </Section>
       </div>
       <div className="panel__foot t-caption">
-        배경 파일(#80)·볼륨(#81)·자막 문구(#83)는 다음 단계에서 이 자리에 들어온다.
+        볼륨(#81)·자막 문구(#83)는 다음 단계에서 이 자리에 들어온다.
       </div>
     </aside>
   )
@@ -178,15 +188,20 @@ function DurationField ({ scene, onDuration }: {
  * **둘은 독립이다** — 스타일이 배경을 끌고 오지만(기본 짝) 그 뒤 배경만 다시 고를 수 있다.
  * 차단할 조합이 없다 (D1 확정 스펙 6.3의 매트릭스).
  */
-function PresetFields ({ project, presets, onStyle, onBackground }: {
+function PresetFields ({
+  project, presets, onStyle, onBackground, onPickBackground, backgroundReject
+}: {
   project: Project
   presets: PresetsResult
   onStyle: (style: CaptionStylePreset) => void
   onBackground: (name: string) => void
+  onPickBackground: () => void
+  backgroundReject: BackgroundReject | null
 }) {
   const backgrounds = new Map(presets.backgrounds.map((preset) => [preset.name, preset]))
-  // 프리셋이 아닌 배경(사용자 파일 #80, 색)은 이 목록으로 표현되지 않는다. 그때는 값을 보여
-  // 주기만 하고 스타일을 골라도 배경이 따라가지 않는다 (`App.editStyle`).
+  // 프리셋이 아닌 배경(사용자 파일 #80, 색)은 프리셋 이름으로 표현되지 않는다. 그때는
+  // 스타일을 골라도 배경이 따라가지 않고(`App.editStyle`) 기본 배경 문구도 띄우지 않는다 —
+  // 따라가지 않는데 무엇으로 바뀐다고 적으면 그것이 거짓말이 된다.
   const isPreset = project.background.kind === 'preset'
 
   return (
@@ -217,28 +232,79 @@ function PresetFields ({ project, presets, onStyle, onBackground }: {
           if (target) onStyle(target)
         }}
       />
-      {isPreset
-        ? (
-          <PresetList
-            label="배경"
-            testid="background"
-            selected={project.background.value}
-            options={presets.backgrounds.map((preset) => ({
-              name: preset.name,
-              label: preset.label,
-              swatch: <Swatch stops={preset.stops} />
-            }))}
-            onPick={onBackground}
-          />
-          )
-        : (
-          <Field
-            label="배경"
-            value={`${project.background.kind} · ${project.background.value}`}
-            hint="프리셋이 아닌 배경은 이 목록에 없다"
-          />
-          )}
+      {/* **목록은 배경이 파일일 때도 그린다** (#80). 사용자 파일에서 프리셋으로 돌아오는 길이
+          여기뿐이라, 숨기면 앱에서 넣은 배경을 앱에서 되돌릴 수 없다. 그때는 고른 카드가
+          없을 뿐이다. */}
+      <PresetList
+        label="배경"
+        testid="background"
+        selected={isPreset ? project.background.value : ''}
+        options={presets.backgrounds.map((preset) => ({
+          name: preset.name,
+          label: preset.label,
+          swatch: <Swatch stops={preset.stops} />
+        }))}
+        onPick={onBackground}
+      />
+      <BackgroundFile
+        background={project.background}
+        formats={presets.background_files ?? []}
+        onPick={onPickBackground}
+        reject={backgroundReject}
+      />
     </>
+  )
+}
+
+/**
+ * 배경 사용자 파일 (#80).
+ *
+ * **받는 형식을 앱이 정하지 않는다.** 목록은 백엔드가 보내고(`presets.background_files`,
+ * 출처는 `video_renderer.BACKGROUND_FILE_KINDS`) 이 컴포넌트는 그것을 화면에 옮길 뿐이다 —
+ * 앱과 렌더러가 각자 목록을 들면 앱이 받은 파일을 렌더가 거부할 수 있다 (PRD 14.1).
+ *
+ * 거부는 `danger`다. 낭독보다 짧은 길이(#82)는 값이 적용되는 `warn`이고 이쪽은 값이 적용되지
+ * 않으므로, 두 상황에 같은 표시를 쓰면 무엇이 반영됐는지가 화면에서 갈리지 않는다
+ * (확정 스펙 4장).
+ */
+function BackgroundFile ({ background, formats, onPick, reject }: {
+  background: Project['background']
+  formats: BackgroundFileFormat[]
+  onPick: () => void
+  reject: BackgroundReject | null
+}) {
+  const accepted = formats.map((format) => format.extension).join(' · ')
+  const isFile = background.kind === 'image' || background.kind === 'video'
+  return (
+    <div className="bgfile" data-control="배경 파일">
+      <div className="bgfile__row">
+        <button
+          type="button"
+          className="button"
+          data-testid="pick-background"
+          onClick={onPick}
+          // 형식 목록을 받지 못한 백엔드 세대에서는 무엇을 받는지 말할 수 없다. 고르게 두면
+          // 화면이 아니라 렌더에서 걸린다.
+          disabled={formats.length === 0}
+        >
+          파일 고르기…
+        </button>
+        <span className="t-caption">{accepted || '받는 형식을 읽지 못했다'}</span>
+      </div>
+      {isFile && (
+        // **경로를 그대로 보여 준다.** run 디렉터리로 복사하지 않으므로 지금 어느 파일을
+        // 가리키는지가 화면에 없으면, 그 파일이 사라졌을 때 원인이 프리뷰 실패에만 남는다.
+        <div className="bgfile__current" data-testid="background-file">
+          <span className="t-label">{background.kind}</span>
+          <span className="mono bgfile__path" title={background.value}>{background.value}</span>
+        </div>
+      )}
+      {reject && (
+        <Notice kind="danger" title="받지 않는 형식이다" testid="notice-background-reject">
+          {reject.path} — 배경은 그대로 두었다. 받는 형식: {reject.accepted.join(' · ')}
+        </Notice>
+      )}
+    </div>
   )
 }
 

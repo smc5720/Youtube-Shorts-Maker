@@ -76,9 +76,45 @@ _HEX_COLOR = re.compile(r"^#?([0-9A-Fa-f]{6})$")
 """`background.kind`가 `color`일 때의 값. 번들 프리셋(`assets.HEX_COLOR`)보다 느슨하다 —
 사람이 `project.json`에 직접 적는 값이라 대소문자와 `#` 유무를 가리지 않는다."""
 
+BACKGROUND_FILE_KINDS: dict[str, str] = {
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".mp4": "video",
+}
+"""배경으로 받는 사용자 파일의 확장자 → `background.kind` (PRD 14.1, 이슈 #80).
+
+**이 표가 목록의 유일한 소유자다.** 앱은 백엔드를 지나 조회하고(`api.method_presets`) 자기
+목록을 들지 않는다 — 두 벌이 되면 앱이 받은 파일을 렌더가 거부할 수 있고, 그 어긋남은 파일을
+고르는 순간이 아니라 렌더 도중에 드러난다.
+
+**좁게 시작한 이유는 실패 시점이다.** FFmpeg는 동봉하지 않고 PATH에서 찾으므로 사용자 빌드가
+무엇을 디코드하는지 알 수 없다. 넓게 열면 수십 초 걸리는 렌더 중간에 실패한다 (PRD 14.1).
+
+순서가 화면의 순서다 — 앱이 다시 정렬하면 목록 순서가 두 곳에서 정해진다.
+"""
+
 
 class RenderError(Exception):
     """최종 영상을 만들 수 없다."""
+
+
+def background_kind(value: str) -> str:
+    """배경 파일 경로 → `background.kind`. **확장자가 종류를 정한다** (PRD 14.1).
+
+    파일이 있는지는 보지 않는다 — 이름만으로 답할 수 있어야 앱이 고르는 순간에 거부할 수
+    있고, 없는 파일은 렌더·프리뷰가 `_source_file`에서 경로와 함께 말한다.
+
+    Raises:
+        RenderError: 목록에 없는 확장자일 때. 받는 형식을 함께 말한다.
+    """
+    kind = BACKGROUND_FILE_KINDS.get(Path(value).suffix.lower())
+    if kind is None:
+        raise RenderError(
+            f"배경으로 받지 않는 형식이다: {value}. "
+            f"받는 형식: {', '.join(BACKGROUND_FILE_KINDS)}"
+        )
+    return kind
 
 
 @dataclass(frozen=True)
@@ -632,8 +668,9 @@ def _background(
 ) -> tuple[list[str], str]:
     """배경 하나를 (입력 인자, `[0:v]`에 걸 필터 체인)으로 옮긴다 (PRD 14.1의 배경 소스).
 
-    **CLI 경로가 실제로 지나는 것은 `preset`뿐이다** — `project.json`을 편집하는 주체가 아직
-    없다 (#29, #30). 나머지 세 종류는 앱이 붙기 전까지 단위 테스트가 지킨다.
+    **CLI 경로가 실제로 지나는 것은 `preset`뿐이다** — 파이프라인이 만드는 초기 상태가 그것이고,
+    `image`·`video`로 바꾸는 주체는 앱이다 (#80). `color`는 아직 사람이 `project.json`을 손으로
+    고치는 경로뿐이라 단위 테스트가 지킨다.
     """
     kind = background.get("kind")
     value = str(background.get("value", ""))
@@ -670,7 +707,7 @@ def _background(
 
     if kind == "image":
         # 정지 이미지를 영상 길이만큼 반복한다.
-        path = str(_source_file(value, run_dir))
+        path = str(_background_file(value, kind, run_dir))
         return (
             ["-loop", "1", "-framerate", str(fps), "-t", length, "-i", path],
             _fill(width, height),
@@ -678,7 +715,7 @@ def _background(
 
     if kind == "video":
         # 배경 영상이 짧으면 되감아 채운다. 길면 `-t`가 끊는다.
-        path = str(_source_file(value, run_dir))
+        path = str(_background_file(value, kind, run_dir))
         return (
             ["-stream_loop", "-1", "-t", length, "-i", path],
             f"{_fill(width, height)},fps={fps}",
@@ -715,6 +752,21 @@ def _audio_input(
 
     path = _source_file(str(voice), run_dir)
     return ["-i", str(path)]
+
+
+def _background_file(value: str, kind: str, run_dir: Path) -> Path:
+    """배경 파일 경로를 확인하고 푼다 (#80).
+
+    **선언한 `kind`와 확장자가 같은 것을 가리켜야 한다.** 앱은 확장자에서 `kind`를 정하지만
+    (`background_kind`) 사람이 손으로 고친 `project.json`도 열리므로, `.png`에 `video`가 붙은
+    상태를 그대로 두면 `-stream_loop`가 정지 이미지에 걸려 결과가 조용히 달라진다.
+    """
+    declared = background_kind(value)
+    if declared != kind:
+        raise RenderError(
+            f"배경 파일의 확장자가 {declared}인데 kind는 {kind!r}이다: {value}"
+        )
+    return _source_file(value, run_dir)
 
 
 def _source_file(value: str, run_dir: Path) -> Path:

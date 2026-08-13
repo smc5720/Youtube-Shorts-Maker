@@ -308,12 +308,12 @@ def test_a_malformed_color_is_rejected(tmp_path: Path) -> None:
         build_command(project, run_dir=tmp_path, total_sec=5.0)
 
 
-@pytest.mark.parametrize("kind", ["image", "video"])
+@pytest.mark.parametrize(("kind", "name"), [("image", "bg.png"), ("video", "bg.mp4")])
 def test_a_file_background_fills_the_canvas_without_distortion(
-    tmp_path: Path, kind: str
+    tmp_path: Path, kind: str, name: str
 ) -> None:
     """비율을 유지한 채 넘치는 쪽을 자른다 — 빈 영역이 남지 않는다."""
-    source = tmp_path / f"bg.{kind}"
+    source = tmp_path / name
     source.write_text("명령을 만들 때는 파일 내용을 보지 않는다", encoding="utf-8")
     project = project_with(background={"kind": kind, "value": source.name})
 
@@ -325,10 +325,64 @@ def test_a_file_background_fills_the_canvas_without_distortion(
     assert str(source) in command
 
 
+def test_a_background_file_outside_the_run_directory_is_taken_as_is(
+    tmp_path: Path,
+) -> None:
+    """사용자 파일은 있는 자리를 가리킨다 — run 디렉터리로 복사하지 않는다 (#80, PRD 14.1)."""
+    outside = tmp_path / "사진" / "배경.jpg"
+    outside.parent.mkdir()
+    outside.write_text("어디에 있든 절대 경로면 그대로 읽는다", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    project = project_with(background={"kind": "image", "value": str(outside)})
+
+    command = build_command(project, run_dir=run_dir, total_sec=5.0)
+
+    assert str(outside) in command
+
+
 def test_a_missing_background_file_names_the_path(tmp_path: Path) -> None:
     project = project_with(background={"kind": "image", "value": "없는파일.png"})
 
     with pytest.raises(RenderError, match="없는파일.png"):
+        build_command(project, run_dir=tmp_path, total_sec=5.0)
+
+
+@pytest.mark.parametrize(
+    ("name", "kind"),
+    [("사진.png", "image"), ("PHOTO.JPG", "image"), ("clip.jpeg", "image"), ("clip.mp4", "video")],
+)
+def test_the_extension_decides_the_background_kind(name: str, kind: str) -> None:
+    """대소문자를 가리지 않는다 — `.PNG`는 다른 형식이 아니다 (#80, PRD 14.1)."""
+    assert video_renderer.background_kind(name) == kind
+
+
+@pytest.mark.parametrize("name", ["clip.webm", "사진.gif", "확장자없음"])
+def test_an_unsupported_background_file_says_what_is_accepted(name: str) -> None:
+    """목록을 화면에 옮기는 것은 앱이지만(#80), 문구는 목록을 소유한 쪽이 만든다."""
+    with pytest.raises(RenderError, match=r"\.png, \.jpg, \.jpeg, \.mp4"):
+        video_renderer.background_kind(name)
+
+
+def test_a_background_file_with_an_unsupported_extension_stops_before_ffmpeg(
+    tmp_path: Path,
+) -> None:
+    """손으로 고친 `project.json`도 열린다 — 앱만 막으면 렌더 도중에 실패한다."""
+    source = tmp_path / "bg.webm"
+    source.write_text("내용은 읽지 않는다", encoding="utf-8")
+    project = project_with(background={"kind": "video", "value": source.name})
+
+    with pytest.raises(RenderError, match="받지 않는 형식"):
+        build_command(project, run_dir=tmp_path, total_sec=5.0)
+
+
+def test_a_background_file_must_match_the_declared_kind(tmp_path: Path) -> None:
+    """`.png`에 `video`가 붙으면 `-stream_loop`가 정지 이미지에 걸려 결과가 조용히 달라진다."""
+    source = tmp_path / "bg.png"
+    source.write_text("내용은 읽지 않는다", encoding="utf-8")
+    project = project_with(background={"kind": "video", "value": source.name})
+
+    with pytest.raises(RenderError, match="image"):
         build_command(project, run_dir=tmp_path, total_sec=5.0)
 
 

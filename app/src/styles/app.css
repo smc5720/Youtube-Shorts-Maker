@@ -703,6 +703,42 @@ body {
   font-size: 13px;
 }
 
+/* --- 배경 사용자 파일 (#80) --------------------------------------------------- */
+
+/* 프리셋 목록 바로 아래에 붙는다 — 배경 하나를 정하는 두 방법이라 구획을 나누지 않는다. */
+.bgfile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.bgfile__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+/* 지금 가리키는 파일. 경로가 길어도 패널이 넓어지지 않아야 한다 — 340px가 확정 수치다
+ * (확정 스펙 3.1). 줄바꿈이 아니라 앞을 자르는 것은 파일 이름이 뒤에 있기 때문이다. */
+.bgfile__current {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.bgfile__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--text);
+  user-select: text;
+}
+
 /* --- 화면 전환 (S2 ↔ S3) --------------------------------------------------- */
 
 /* 확정 스펙 3.1과 3.2가 서로 다른 분할이라 두 화면이 갈린다. 탭은 헤더에 두고 제목 옆에

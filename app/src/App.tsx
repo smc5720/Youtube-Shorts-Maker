@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
+import { acceptedExtensions, kindForFile, type BackgroundReject } from './background'
 import { Header, type View } from './components/Header'
 import { ErrorNotice, Notice } from './components/Notice'
 import { OpenScreen } from './components/OpenScreen'
@@ -60,6 +61,9 @@ export function App () {
   const [baseline, setBaseline] = useState<string | null>(null)
   const [contentBaseline, setContentBaseline] = useState<string | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
+  // 받지 않는 형식을 고른 기록 (#80). **프로젝트에 남지 않는다** — 거부는 값이 적용되지 않은
+  // 상태이고(확정 스펙 4장) 파일에 남길 것이 없다.
+  const [backgroundReject, setBackgroundReject] = useState<BackgroundReject | null>(null)
   const [busy, setBusy] = useState(false)
 
   const [view, setView] = useState<View>('scenes')
@@ -134,6 +138,7 @@ export function App () {
     setFrame(null)
     setPending(null)
     setPreviewError(null)
+    setBackgroundReject(null)
     setError(listed.error ?? null)
     return true
   }, [api])
@@ -203,11 +208,43 @@ export function App () {
 
   /** 배경 프리셋 교체 (#79). 스타일과 독립이다 — 차단할 조합이 없다 (D1 확정 스펙 6.3). */
   const editBackground = useCallback((name: string) => {
+    // 프리셋으로 돌아오면 거부 표시도 사라진다 — 고칠 것이 없어진 자리에 남아 있으면
+    // 지금 배경이 거부된 것으로 읽힌다.
+    setBackgroundReject(null)
     setProject((previous) => previous && {
       ...previous,
       background: { ...previous.background, kind: 'preset', value: name }
     })
   }, [])
+
+  /**
+   * 배경을 사용자 파일로 교체한다 (#80).
+   *
+   * **`kind`는 확장자가 정하고 그 표는 백엔드가 보낸다** (`presets.background_files`).
+   * 목록 밖 형식은 값을 적용하지 않고 거부를 남긴다 — D2 확정 스펙 4장의 `danger`이고,
+   * 값이 적용되는 `warn`(낭독보다 짧은 길이)과 같은 표시를 쓰지 않는다.
+   *
+   * **파일을 run 디렉터리로 복사하지 않는다.** 대화상자가 준 절대 경로를 그대로 적고,
+   * 렌더러는 상대·절대 둘 다 받는다 (`video_renderer._source_file`). 파일이 나중에
+   * 사라지면 프리뷰가 그 경로를 말하며 실패하고, 나머지 편집은 그대로 된다.
+   */
+  const pickBackground = useCallback(async () => {
+    const formats = presets?.background_files ?? []
+    if (formats.length === 0) return
+    const picked = await api.pickBackgroundFile(acceptedExtensions(formats))
+    if (!picked) return
+
+    const kind = kindForFile(picked, formats)
+    if (kind === null) {
+      setBackgroundReject({ path: picked, accepted: formats.map((format) => format.extension) })
+      return
+    }
+    setBackgroundReject(null)
+    setProject((previous) => previous && {
+      ...previous,
+      background: { ...previous.background, kind, value: picked }
+    })
+  }, [api, presets])
 
   /**
    * 장면 길이 조정 (#82).
@@ -439,7 +476,10 @@ export function App () {
         project,
         // **프리셋 교체에는 손잡이를 두지 않았다** (#79). 스모크가 카드를 직접 누르므로 —
         // 컨트롤이 카드 셋이라 클릭이 곧 제품 경로다. 목록만 여기서 읽어 이름을 적지 않는다.
+        // 배경 파일(#80)도 같다 — 버튼을 누르고 대화상자는 main에서 바꿔 끼운다.
         presets,
+        // 받지 않는 형식을 골랐을 때만 값이 있다. 화면의 거부 카드와 같은 값이다 (#80).
+        backgroundReject,
         scenes,
         // 사람이 얹은 편집이 반영된 길이. **`scenes`는 파일 그대로다** — 스모크가 둘을
         // 비교해 `scenes.json`이 바뀌지 않았음을 확인한다 (#82).
@@ -550,6 +590,8 @@ export function App () {
                     onDuration={editDuration}
                     onStyle={editStyle}
                     onBackground={editBackground}
+                    onPickBackground={() => { void pickBackground() }}
+                    backgroundReject={backgroundReject}
                   />
                 </div>
                 ))
