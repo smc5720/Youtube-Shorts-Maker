@@ -320,6 +320,64 @@ async function preview (host) {
 
   await capture(window, record)
 
+  // 7. **장면 길이 조정** (#82). 값이 `scenes.json`이 아니라 `project.json`에 쌓인다 —
+  //    낭독보다 짧은 값은 확정 검증이 거부하므로 그쪽에 쓰면 저장이 실패한다 (PRD 14.1).
+  const totalBefore = await text('[data-testid="total-value"]')
+
+  // (a) `countdown`은 고칠 수 없다 — `duration`이 `seconds`와 같아야 하고 그 값은 콘텐츠
+  //     필드다 (확정 스펙 7.1). 값은 보이지만 컨트롤이 없다.
+  await evaluate('window.__smoke.select(2)')
+  await until(async () => (await text('[data-testid="properties-scene"]')).includes('countdown'))
+  record('카운트다운에는 길이 입력이 없다',
+    await evaluate('document.querySelector(\'[data-testid="input-길이"]\') === null'))
+  record('카운트다운도 길이는 보인다',
+    (await text('[data-testid="properties-scene"]')).includes('초'))
+
+  // (b) 낭독이 있는 장면 — 낭독보다 짧게 줄이면 **경고하고 값은 받는다** (확정 스펙 4장)
+  await evaluate('window.__smoke.select(3)')
+  await until(async () => (await text('[data-testid="properties-scene"]')).includes('answer'))
+  const narrated = await evaluate('window.__smoke.state().scenes.scenes[3]')
+  record('낭독 길이가 표시된다',
+    typeof narrated.audio_duration === 'number'
+    && (await text('[data-testid="properties-scene"]')).includes('낭독'),
+    JSON.stringify(narrated.audio_duration))
+
+  const short = Math.max(0.4, Number((narrated.audio_duration - 1).toFixed(1)))
+  await evaluate(`window.__smoke.editDuration(3, ${short})`)
+  const warned = await until(async () =>
+    Boolean(await text('[data-testid="notice-duration-warn"]')))
+  const edited = await evaluate('window.__smoke.state()')
+  record('낭독보다 짧으면 경고가 뜬다', warned, await text('[data-testid="notice-duration-warn"]'))
+  record('그래도 값은 적용된다', edited.shownDurations[3] === short,
+    `${edited.shownDurations[3]} (요청 ${short})`)
+  record('scenes.json의 duration은 그대로다',
+    edited.scenes.scenes[3].duration === narrated.duration
+    && narrated.duration !== short,
+    `${edited.scenes.scenes[3].duration} vs ${short}`)
+  record('값은 project.json의 render.scene_overrides에 쌓인다',
+    edited.project.render.scene_overrides.some((item) =>
+      item.role === 'answer' && item.question_id === narrated.question_id
+      && item.duration === short),
+    JSON.stringify(edited.project.render.scene_overrides))
+  // **목록이 아니라 참·거짓이다** — 길이 하나를 고치면 그 뒤 장면의 시작 시각이 전부 밀려
+  // 낡는 대상이 타임라인 전체다 (PRD 14.1).
+  record('타임라인이 낡았다는 표시가 걸린다', edited.project.review.timeline_stale === true,
+    JSON.stringify(edited.project.review))
+  record('총 길이가 그 값을 따라간다',
+    (await text('[data-testid="total-value"]')) !== totalBefore,
+    `${totalBefore} → ${await text('[data-testid="total-value"]')}`)
+
+  // (c) 프리뷰가 다시 만들어진다 — 장면의 대표 프레임은 그 장면의 한가운데다
+  const shortened = await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === 3 && frame.bytes !== changed.bytes
+  }, 120, 100)
+  record('고친 길이가 프리뷰 프레임까지 간다', shortened,
+    `${changed && changed.bytes} → ${JSON.stringify(await shown())}`)
+
+  // (d) 파일까지 간다. 재시작 뒤 확인은 `questions-verify`가 한다.
+  record('길이 조정을 저장한다', await evaluate('window.__smoke.save()') === true)
+
   record('상한을 넘는 run을 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
   record('60초를 넘으면 경고로 바뀐다',
     await until(async () => await attribute('[data-testid="total-duration"]', 'data-state') === 'over'),
@@ -506,6 +564,14 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
   // 순서를 바꾼 뒤 저장했으므로 장면과 어긋난 상태가 그대로 열려야 한다.
   record('장면 구성이 낡았다는 판단이 재시작 뒤에도 같다', state.orderStale === true,
     JSON.stringify(state.items.map((item) => item.id)))
+  // **`preview` 시나리오가 얹은 값이다** (#82). 앱을 세 번 띄운 뒤에도 남아 있어야 한다 —
+  // 같은 프로세스에서 다시 여는 것은 "재시작하고 다시 열었다"의 증거가 되지 못한다.
+  const overrides = state.project.render.scene_overrides ?? []
+  record('조정한 장면 길이가 재시작 뒤에도 유지된다',
+    overrides.some((item) => typeof item.duration === 'number'),
+    JSON.stringify(overrides))
+  record('타임라인이 낡았다는 표시도 유지된다', state.project.review.timeline_stale === true,
+    JSON.stringify(state.project.review))
   record('다시 연 직후에는 변경이 없다', state.unsaved === false)
   network()
   finish(0)

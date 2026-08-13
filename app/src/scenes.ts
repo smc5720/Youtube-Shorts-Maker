@@ -4,7 +4,77 @@
 // 것 하나이고(`schemas/scenes.py`의 통과 필드), 그 번호가 무엇의 번호인지는 앱도 모른다 —
 // 퀴즈 스펙 1.1의 경계가 앱 쪽에서도 같은 모양이다.
 
-import type { Scene } from './protocol'
+import type { Project, Scene, SceneOverride } from './protocol'
+
+/** 문제에 속한 장면. 이 셋만 `question_id`로 특정된다 (`schemas/project.py`의 `GROUPED_ROLES`). */
+const GROUPED_ROLES: ReadonlyArray<Scene['role']> = ['question', 'countdown', 'answer']
+
+/**
+ * 길이를 사람이 고칠 수 없는 역할 (`schemas/project.py`의 `FIXED_DURATION_ROLES`).
+ *
+ * `countdown`의 `duration`은 `seconds`와 같아야 하고 그 값은 콘텐츠 필드다 — 문제 편집(#28)이
+ * 소유한다 (D2 확정 스펙 7.1).
+ */
+export const FIXED_DURATION_ROLES: ReadonlyArray<Scene['role']> = ['countdown']
+
+/** 이 장면을 가리키는 오버라이드 키. 인덱스가 아니라 역할 + 문제 번호다 (PRD 14.1). */
+export function overrideKey (scene: Scene): SceneOverride {
+  return GROUPED_ROLES.includes(scene.role) && scene.question_id !== undefined
+    ? { role: scene.role, question_id: scene.question_id }
+    : { role: scene.role }
+}
+
+/** 두 오버라이드가 같은 장면을 가리키는가. `undefined`와 `null`을 같게 본다. */
+export function sameOverride (a: SceneOverride, b: SceneOverride): boolean {
+  return a.role === b.role && (a.question_id ?? null) === (b.question_id ?? null)
+}
+
+function sameScene (override: SceneOverride, scene: Scene): boolean {
+  return sameOverride(override, overrideKey(scene))
+}
+
+export function overrideFor (project: Project, scene: Scene): SceneOverride | null {
+  return (project.render.scene_overrides ?? []).find((item) => sameScene(item, scene)) ?? null
+}
+
+/**
+ * 사람이 얹은 편집을 반영한 장면 목록.
+ *
+ * **백엔드의 `video_renderer.apply_scene_overrides`와 같은 규칙이다.** 두 곳에 두는 이유는
+ * 프리뷰가 왕복이라서다 — 방금 입력한 길이가 장면 목록과 총 길이에 즉시 보여야 하는데, 그
+ * 값을 백엔드에 물어 오는 동안 화면이 옛 값에 머물면 편집 도구가 되지 못한다. 규칙이 "키가
+ * 맞는 장면의 값을 갈아 끼운다" 한 줄이고 키·필드 이름이 스키마에서 오므로 갈릴 여지가 좁다.
+ */
+export function effectiveScenes (scenes: Scene[], project: Project): Scene[] {
+  const overrides = project.render.scene_overrides ?? []
+  if (overrides.length === 0) return scenes
+  return scenes.map((scene) => {
+    const override = overrides.find((item) => sameScene(item, scene))
+    return override?.duration === undefined ? scene : { ...scene, duration: override.duration }
+  })
+}
+
+/**
+ * 이 장면의 낭독 길이. 낭독이 없는 장면은 `null`이다.
+ *
+ * **`hook`·`cta`·`countdown`에는 없다** — `narrate: true`는 `question`·`answer`뿐이고 나머지는
+ * 고정 길이 장면이다. 2차 시안이 hook 2.1 / cta 2.6을 적었지만 그 값은 존재하지 않으며,
+ * 없는 낭독을 근거로 경고를 띄우면 고칠 것이 없는 사용자가 경고를 본다 (확정 스펙 7.1).
+ */
+export function narrationLength (scene: Scene): number | null {
+  return scene.narrate === true ? scene.audio_duration ?? null : null
+}
+
+/**
+ * 이 길이가 낭독을 자르는가. 자르더라도 **값은 받는다** (확정 스펙 4장의 `warn`).
+ *
+ * 허용 오차는 `schemas/scenes.py`의 `_TOLERANCE`와 같은 값이다 — 두 값 모두 소수 셋째
+ * 자리로 반올림해 기록하므로 같은 값이 부동소수점 비교에서 어긋날 수 있다.
+ */
+export function cutsNarration (scene: Scene, duration: number): boolean {
+  const narration = narrationLength(scene)
+  return narration !== null && duration + 1e-6 < narration
+}
 
 export interface SceneRow {
   index: number

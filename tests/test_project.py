@@ -49,6 +49,9 @@ def test_the_render_section_is_the_format_spec(tmp_path: Path) -> None:
         "cta_punch": "구독 · 좋아요",
         "cta_tail": "매일 새 상식 퀴즈",
         "caption_onset_sec": 0.90,
+        # 사람이 얹은 장면 편집 (#82). 생성 직후에는 비어 있고, 렌더러가 읽는 값이라
+        # `review`와 달리 이 섹션에 있다.
+        "scene_overrides": [],
     }
     assert (content["render"]["width"], content["render"]["height"]) == (1080, 1920)
     assert content["render"]["fps"] == 30
@@ -165,6 +168,104 @@ def test_a_new_project_has_nothing_acknowledged_or_stale(tmp_path: Path) -> None
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
 
     assert content["review"] == {"acknowledged": [], "stale": []}
+
+
+def test_a_new_project_has_no_scene_overrides(tmp_path: Path) -> None:
+    """생성 직후에는 사람이 얹은 편집이 없다 (#82)."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+
+    assert content["render"]["scene_overrides"] == []
+
+
+# --- 사람이 얹은 장면 편집 (#82) ---------------------------------------------
+
+
+def with_overrides(tmp_path: Path, *overrides: dict[str, Any]) -> dict[str, Any]:
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+    content["render"]["scene_overrides"] = list(overrides)
+    return content
+
+
+def test_a_scene_override_is_keyed_by_role_and_question_id(tmp_path: Path) -> None:
+    """장면 인덱스로 잡으면 문제를 추가·삭제할 때 밀린다 (PRD 14.1)."""
+    validate_project(with_overrides(tmp_path, {"role": "hook", "duration": 2.0}))
+    validate_project(
+        with_overrides(tmp_path, {"role": "answer", "question_id": 2, "duration": 4.0})
+    )
+
+
+def test_a_grouped_role_without_a_question_id_is_rejected(tmp_path: Path) -> None:
+    """`question`·`countdown`·`answer`는 번호 없이 특정되지 않는다."""
+    with pytest.raises(SchemaError) as failure:
+        validate_project(with_overrides(tmp_path, {"role": "answer", "duration": 4.0}))
+
+    assert "문제 번호" in str(failure.value)
+
+
+def test_a_lone_role_with_a_question_id_is_rejected(tmp_path: Path) -> None:
+    """`hook`·`cta`는 영상에 하나뿐이라 번호를 받지 않는다."""
+    with pytest.raises(SchemaError):
+        validate_project(
+            with_overrides(tmp_path, {"role": "hook", "question_id": 1, "duration": 2.0})
+        )
+
+
+def test_a_countdown_duration_override_is_rejected(tmp_path: Path) -> None:
+    """`duration`이 `seconds`와 같아야 하고 그 값은 콘텐츠가 소유한다 (확정 스펙 7.1).
+
+    **UI에서 빼는 것만으로는 부족하다** — 손으로 고친 `project.json`도 열린다.
+    """
+    with pytest.raises(SchemaError) as failure:
+        validate_project(
+            with_overrides(
+                tmp_path, {"role": "countdown", "question_id": 1, "duration": 2.0}
+            )
+        )
+
+    assert "고칠 수 없다" in str(failure.value)
+
+
+def test_an_override_that_lays_nothing_on_is_rejected(tmp_path: Path) -> None:
+    """얹는 값이 없는 항목은 뜻이 없다. 조용히 통과시키면 앱의 버그가 파일에 남는다."""
+    with pytest.raises(SchemaError):
+        validate_project(with_overrides(tmp_path, {"role": "hook"}))
+
+
+def test_two_overrides_for_the_same_scene_are_rejected(tmp_path: Path) -> None:
+    """어느 값이 이기는지 모호해진다."""
+    with pytest.raises(SchemaError) as failure:
+        validate_project(
+            with_overrides(
+                tmp_path,
+                {"role": "hook", "duration": 2.0},
+                {"role": "hook", "duration": 3.0},
+            )
+        )
+
+    assert "두 번" in str(failure.value)
+
+
+def test_a_zero_duration_override_is_rejected(tmp_path: Path) -> None:
+    """0프레임 장면은 다음 장면과 시작 시각이 같아져 오버레이 구간이 빈다."""
+    with pytest.raises(SchemaError):
+        validate_project(with_overrides(tmp_path, {"role": "hook", "duration": 0.0}))
+
+
+def test_a_project_without_the_overrides_field_still_opens(tmp_path: Path) -> None:
+    """이 필드가 생기기 전에 만들어진 run 디렉터리가 열려야 한다."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+    del content["render"]["scene_overrides"]
+
+    validate_project(content)
+
+
+def test_the_timeline_stale_flag_is_optional(tmp_path: Path) -> None:
+    """길이를 고친 적 없는 프로젝트에는 이 값이 없다 (#82)."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+    validate_project(content)
+
+    content["review"]["timeline_stale"] = True
+    validate_project(content)
 
 
 def test_a_draft_scene_list_is_rejected(tmp_path: Path) -> None:

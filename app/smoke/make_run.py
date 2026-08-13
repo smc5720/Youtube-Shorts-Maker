@@ -79,8 +79,14 @@ QUESTIONS = [
 def scenes_for(*, answer_sec: float, hook_sec: float = 2.5, cta_sec: float = 3.0) -> dict[str, Any]:
     """퀴즈 장면 템플릿과 같은 역할 구성. 길이만 인자로 받는다.
 
-    낭독 장면이 아니므로(`narrate` 없음) 오디오 필드도 없다 — 확정 검증이 요구하는 것은
-    모든 장면의 `duration`과 **낭독 장면의** 오디오 필드다 (`schemas/scenes.py`).
+    **`question`과 `answer`는 낭독 장면이다** — 장면 템플릿과 같다(`narrate: true`는 그 둘
+    뿐이다). 확정 검증이 요구하는 오디오 필드를 함께 채우고, **세그먼트 파일은 만들지
+    않는다** — 검증은 이름이 장면 인덱스와 맞는지만 보고(`schemas/scenes.py`) 앱과 프리뷰는
+    오디오를 열지 않는다 (프리뷰 명령에는 오디오 체인이 아예 없다, #27).
+
+    낭독 길이를 채워 두는 이유는 **#82의 경고 경로가 낭독 없이는 관찰되지 않는다**는 것이다.
+    `hook`·`countdown`·`cta`에는 낭독이 없으므로 비교 대상이 없고, 그것이 확정 스펙 7.1이
+    2차 시안에서 고친 지점이다.
     """
     scenes: list[dict[str, Any]] = [
         {"role": "hook", "kicker": "세계 지리 상식", "text": "이 문제 맞힐 수 있나", "duration": hook_sec},
@@ -93,6 +99,8 @@ def scenes_for(*, answer_sec: float, hook_sec: float = 2.5, cta_sec: float = 3.0
                 "heading": question["heading"],
                 "text": question["heading"],
                 "duration": 2.0,
+                "narrate": True,
+                "target_duration": 3.0,
             },
             # countdown의 `duration`은 `seconds`와 같아야 한다 (확정 검증).
             {
@@ -109,10 +117,28 @@ def scenes_for(*, answer_sec: float, hook_sec: float = 2.5, cta_sec: float = 3.0
                 "text": question["answer"],
                 "caption": question["explanation"],
                 "duration": answer_sec,
+                "narrate": True,
+                "target_duration": 3.0,
             },
         ]
     scenes.append({"role": "cta", "text": "다음 문제도 풀어보자", "duration": cta_sec})
-    return {"schema_version": 1, "type": "quiz", "scenes": scenes}
+    return _with_audio_fields({"schema_version": 1, "type": "quiz", "scenes": scenes})
+
+
+def _with_audio_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """낭독 장면에 TTS가 채우는 필드를 넣는다 (#15, #16).
+
+    `audio`는 **장면 인덱스**로 매기고(확정 검증이 강제한다), 낭독 길이는 장면 길이보다
+    0.4초 짧게 둔다 — 실측 오디오 + 패딩으로 확정된 상태의 모양이다 (PRD 7.5.1).
+    """
+    elapsed = 0.0
+    for index, scene in enumerate(data["scenes"]):
+        if scene.get("narrate"):
+            scene["audio"] = f"audio/seg-{index:03d}.mp3"
+            scene["audio_duration"] = round(scene["duration"] - 0.4, 3)
+            scene["narration_offset"] = round(elapsed + 0.2, 3)
+        elapsed += scene["duration"]
+    return data
 
 
 def content_for() -> dict[str, Any]:
