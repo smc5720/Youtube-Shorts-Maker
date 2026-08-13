@@ -436,7 +436,8 @@ total_frames = sum(frames_i)
     "width": 1080, "height": 1920, "fps": 30, "output": "final_short.mp4",
     "caption_style": "impact_yellow", "font_path": null,
     "cta_punch": "구독 · 좋아요", "cta_tail": "매일 새 상식 퀴즈",
-    "caption_onset_sec": 0.90
+    "caption_onset_sec": 0.90,
+    "scene_overrides": []
   },
   "review": { "acknowledged": [], "stale": [] }
 }
@@ -451,7 +452,9 @@ total_frames = sum(frames_i)
 | `audio.sfx_volume` | 효과음의 선형 게인. `config`의 `audio.sfx_volume`에서 오고 **렌더러가 읽는 유일한 자리다** (#23). `0`이면 효과음 없이 렌더한다. 앱이 붙일 트랙별 볼륨도 이 섹션에 온다 |
 | `render` | 6.3의 영상 규격과 출력 파일명, 그리고 번인 오버레이가 읽는 값 — 자막 스타일·폰트 경로·cta 문구·`caption_onset_sec` |
 | `render.caption_onset_sec` | 해설 자막이 뜨는 시각(장면 시작 기준 초). `timing.caption_onset_sec`에서 오고, **장면 길이 하한을 계산한 7.5.1의 공식이 읽은 값과 같은 값이다** — 렌더러가 상수를 갖거나 config를 다시 열면 화면과 길이 계산이 갈린다 |
+| `render.scene_overrides` | 사람이 얹은 장면 편집 (#82, #83). 항목마다 `role` + `question_id`로 장면을 가리키고 `duration`(그리고 #83의 문구·오버레이)을 얹는다. **`scenes.json`을 덮지 않는다** — 낭독보다 짧은 `duration`은 확정 검증이 거부하므로 그쪽에 쓰면 앱의 저장이 실패한다 (14.1). **선택 필드다.** 키가 인덱스가 아닌 이유는 문제를 추가·삭제하면 인덱스가 밀려 조정한 값이 다른 장면에 붙기 때문이다 |
 | `review` | **앱이 소유하는 편집 상태이고 렌더러가 읽지 않는 유일한 섹션이다** (#28). `acknowledged`는 사람이 `flagged`/`unverified`를 확인한 항목 번호, `stale`은 낭독 문구가 바뀌어 오디오·자막이 낡은 항목 번호. 둘 다 `scenes.json`의 `question_id`와 같은 값이고 중복을 허용하지 않는다. **선택 필드다** — 이 값이 생기기 전에 만들어진 run 디렉터리가 그대로 열려야 한다 |
+| `review.timeline_stale` | 사람이 장면 길이를 고쳐 `captions.srt`·`voice.mp3`가 어긋난 상태 (#82). **목록이 아니라 참·거짓이다** — 길이 하나를 고치면 그 뒤 장면의 시작 시각이 전부 밀려 낡는 대상이 타임라인 전체다. 지우는 것은 `stale`과 같이 재생성(#77) |
 
 - 경로 값은 모두 **run 디렉터리 기준 상대 경로**다. 디렉터리를 옮겨도 프로젝트가 열려야 한다.
 - **초기 상태를 쓰는 것은 `project.py`이고, 렌더보다 먼저 쓴다** (#19). `project.json`은 항상
@@ -461,9 +464,10 @@ total_frames = sum(frames_i)
   값을 정하는 경로가 둘이 되면 앱이 편집한 프로젝트와 CLI 렌더가 갈린다. `render.background`
   설정이 만드는 `background.kind`는 `preset` 하나이고, 나머지 세 종류는 사람이나 앱(#29)이
   이 파일을 편집해 넣는다.
-- **편집 상태로 열린 것은 `review` 하나다** (#28). 나머지 — 텍스트 오버레이 편집 이력,
-  트랙별 볼륨 — 은 #29가 붙인다. **자막 스타일 선택은 편집 상태가 아니다**: 렌더러가 읽는
-  값이라 `render.caption_style`이 이미 그 자리다.
+- **편집 상태로 열린 것은 `review` 하나다** (#28). **앱이 쓰는 것과 편집 상태인 것은 다르다** —
+  `render.scene_overrides`는 앱만 쓰지만 렌더러가 읽으므로 `render`에 있고 지문에도 들어간다
+  (#82). **자막 스타일 선택도 편집 상태가 아니다**: 렌더러가 읽는 값이라
+  `render.caption_style`이 이미 그 자리다. 트랙별 볼륨은 #81이 `audio`에 붙인다.
 - **`review`가 렌더러가 읽지 않는 유일한 섹션이라는 사실에 프리뷰 캐시가 기댄다.**
   `schemas/project.py`의 `APP_STATE_SECTIONS`가 그 목록이고 `api._signature`가 지문에서
   뺀다 — 빼지 않으면 확인 버튼 한 번이 프레임 전부를 다시 만들고 결과는 같은 그림이다.

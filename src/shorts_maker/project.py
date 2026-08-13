@@ -96,6 +96,10 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
             # 같아야 해설을 다 읽기 전에 장면이 끝나지 않는다 — 그래서 렌더러가 자기
             # 상수를 갖지 않고 이 자리를 지난다 (확정 스펙 4장).
             "caption_onset_sec": float(config.get("timing.caption_onset_sec")),
+            # 사람이 얹은 장면 편집 (#82, #83). 생성 직후에는 아무것도 얹혀 있지 않다.
+            # **`review`와 달리 렌더러가 읽는다** — 앱이 쓰는 값이라고 편집 상태인 것은
+            # 아니다 (PRD 7.10).
+            "scene_overrides": [],
         },
         # **여기만 렌더러가 읽지 않는다** (#28). 사람이 `flagged`를 확인한 기록과 낭독 문구가
         # 바뀐 항목을 앱이 여기 남긴다 — 검증기가 소유하는 `verify`에 쓸 수 없기 때문이다

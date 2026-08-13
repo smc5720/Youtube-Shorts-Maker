@@ -23,6 +23,7 @@ import { Preview, type PreviewFrame } from './components/Preview'
 import { Properties } from './components/Properties'
 import { QuestionScreen } from './components/QuestionScreen'
 import { SceneList } from './components/SceneList'
+import { effectiveScenes, overrideKey, sameOverride } from './scenes'
 import { contentModule } from './types'
 import {
   bridge,
@@ -37,6 +38,7 @@ import {
   type Project,
   type Review,
   type SaveContentResult,
+  type Scene,
   type Scenes,
   type ScenesResult,
   type SaveResult
@@ -78,6 +80,18 @@ export function App () {
   // 프리뷰를 다시 만들 근거. 백엔드도 같은 판단을 하므로 이 값이 바뀌었는데 그림이 같으면
   // 캐시가 답하고 왕복이 몇 ms로 끝난다.
   const projectKey = useMemo(() => (project === null ? null : JSON.stringify(project)), [project])
+
+  /**
+   * 화면이 그리는 장면 목록 — 사람이 얹은 편집을 반영한 것 (#82).
+   *
+   * **`scenes`는 파일 그대로 둔다.** 장면 목록·총 길이·속성 패널이 이 값을 쓰고, 프리뷰는
+   * 백엔드가 같은 규칙으로 얹은 결과를 그린다(`video_renderer.apply_scene_overrides`).
+   * 원본을 갈아 끼우면 `orderStale`처럼 파일끼리 비교하는 판정이 편집된 값을 보게 된다.
+   */
+  const shownScenes = useMemo(
+    () => (scenes && project ? effectiveScenes(scenes.scenes, project) : []),
+    [scenes, project]
+  )
 
   const open = useCallback(async (target?: string) => {
     const runDir = target ?? await api.pickRunDir()
@@ -162,6 +176,35 @@ export function App () {
   }, [])
 
   /**
+   * 장면 길이 조정 (#82).
+   *
+   * **`scenes.json`을 고치지 않는다.** 낭독보다 짧은 값은 `validate_scenes_final`이 거부하므로
+   * 그쪽에 쓰면 저장이 실패하고 그 run 디렉터리가 다시 열리지 않는다 — 값이 살 수 있는 자리는
+   * `render.scene_overrides`뿐이다 (PRD 14.1). 렌더러가 읽는 값이라 프리뷰 지문에 들어가고,
+   * 그래서 고치면 프레임이 다시 만들어진다.
+   *
+   * 함께 `review.timeline_stale`을 건다. 길이 하나를 고치면 그 뒤 장면의 시작 시각이 전부
+   * 밀려 `captions.srt`·`voice.mp3`가 어긋나고, 낡는 대상이 특정 항목이 아니라 타임라인
+   * 전체다 — 그래서 항목 번호 목록인 `stale`이 아니다. 지우는 것은 재생성(#77)이다.
+   */
+  const editDuration = useCallback((scene: Scene, duration: number) => {
+    setProject((previous) => {
+      if (!previous) return previous
+      const key = overrideKey(scene)
+      const current = previous.render.scene_overrides ?? []
+      const matched = current.some((item) => sameOverride(item, key))
+      const next = matched
+        ? current.map((item) => (sameOverride(item, key) ? { ...item, duration } : item))
+        : [...current, { ...key, duration }]
+      return {
+        ...previous,
+        render: { ...previous.render, scene_overrides: next },
+        review: { ...review(previous), timeline_stale: true }
+      }
+    })
+  }, [])
+
+  /**
    * `scenes.json`이 아직 참조하는 항목 번호.
    *
    * **콘텐츠에서 지운 번호도 여기 남는다.** 그래서 새 항목이 그 번호를 가져가지 못하고,
@@ -201,7 +244,10 @@ export function App () {
       .map((item) => item.id)
     setContent(next)
     if (changed.length > 0) {
+      // **`current`를 펼친다.** 두 목록만 골라 새 객체를 만들면 `timeline_stale`처럼 나중에
+      // 늘어난 칸이 조용히 사라진다 — 스모크가 저장·재시작 뒤에 그것을 밟았다 (#82).
       patchReview((current) => ({
+        ...current,
         acknowledged: current.acknowledged.filter((id) => !changed.includes(id)),
         stale: union(current.stale, changed)
       }))
@@ -225,6 +271,7 @@ export function App () {
     // 지운 번호는 두 목록에서도 빠진다. 남겨 두면 나중에 같은 번호가 다시 생겼을 때
     // 옛 판단이 새 항목에 붙는다 — 번호를 재사용하지 않는 것과 같은 이유다.
     patchReview((current) => ({
+      ...current,
       acknowledged: current.acknowledged.filter((value) => value !== id),
       stale: current.stale.filter((value) => value !== id)
     }))
@@ -337,6 +384,12 @@ export function App () {
       // 확인한 것이 제품 동작이 아니게 된다.
       view: (next: View) => setView(next),
       selectItem: (id: number) => setSelectedItem(id),
+      // **UI가 부르는 것과 같은 함수다.** 스모크는 장면 객체 대신 인덱스로 가리킬 뿐이다 —
+      // 별도 저장 경로를 두면 확인한 것이 제품 동작이 아니게 된다.
+      editDuration: (index: number, duration: number) => {
+        const target = shownScenes[index]
+        if (target) editDuration(target, duration)
+      },
       editContent,
       acknowledge,
       addItem,
@@ -346,6 +399,9 @@ export function App () {
         unsaved,
         project,
         scenes,
+        // 사람이 얹은 편집이 반영된 길이. **`scenes`는 파일 그대로다** — 스모크가 둘을
+        // 비교해 `scenes.json`이 바뀌지 않았음을 확인한다 (#82).
+        shownDurations: shownScenes.map((item) => item.duration),
         content,
         items,
         error,
@@ -363,7 +419,7 @@ export function App () {
   })
 
   const ffmpeg = environment?.tools.ffmpeg
-  const scene = scenes && selected !== null ? scenes.scenes[selected] ?? null : null
+  const scene = selected !== null ? shownScenes[selected] ?? null : null
   return (
     <div className="app">
       <Header
@@ -431,7 +487,7 @@ export function App () {
                   {scenes
                     ? (
                       <SceneList
-                        scenes={scenes.scenes}
+                        scenes={shownScenes}
                         selected={selected}
                         items={items}
                         review={review(project)}
@@ -443,7 +499,13 @@ export function App () {
                       )
                     : <aside className="panel panel--scenes"><div className="panel__head"><span className="t-heading">장면</span></div></aside>}
                   <Preview frame={frame} scene={scene} pending={pending} error={previewError} />
-                  <Properties project={project} scene={scene} index={selected} runDir={opened.runDir} />
+                  <Properties
+                    project={project}
+                    scene={scene}
+                    index={selected}
+                    runDir={opened.runDir}
+                    onDuration={editDuration}
+                  />
                 </div>
                 ))
           : <OpenScreen busy={busy} onOpen={() => { void open() }} />}

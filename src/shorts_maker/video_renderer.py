@@ -141,6 +141,52 @@ class Timeline:
         return tuple(spans)
 
 
+def apply_scene_overrides(
+    project: Mapping[str, Any], scenes: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """사람이 얹은 장면 편집을 반영한 장면 목록 사본 (#82, PRD 14.1).
+
+    **`align()`보다 먼저, 확정 검증보다 나중에 부른다.** 낭독보다 짧은 길이는
+    `validate_scenes_final`이 거부하는 값이므로(그래서 `scenes.json`에 쓸 수 없다) 검증을
+    지난 뒤에 얹어야 하고, 프레임 정렬은 여전히 `align()` 하나가 소유해야 하므로 그 앞이다.
+
+    얹을 것이 없으면 **받은 객체를 그대로 돌려준다** — 사본을 만들면 오버라이드가 없는
+    경로에서도 장면 배열이 두 벌 생긴다.
+
+    Args:
+        project: `project.json` 내용. `render.scene_overrides`를 읽는다.
+        scenes: 확정 `scenes.json` 내용.
+
+    Returns:
+        `duration`이 갈린 장면 목록. 원본은 바뀌지 않는다.
+    """
+    overrides = project.get("render", {}).get("scene_overrides") or []
+    if not overrides:
+        return scenes
+
+    # 키는 `(role, question_id)`다. 장면 인덱스로 잡으면 문제를 추가·삭제할 때 밀린다.
+    pending = {
+        (str(item["role"]), item.get("question_id")): item for item in overrides
+    }
+    applied: list[dict[str, Any]] = []
+    for scene in scenes["scenes"]:
+        key = (str(scene["role"]), scene.get("question_id"))
+        override = pending.pop(key, None)
+        if override is None or "duration" not in override:
+            applied.append(dict(scene))
+            continue
+        applied.append({**scene, "duration": float(override["duration"])})
+
+    # **남은 오버라이드를 조용히 버리지 않는다.** 문제를 지우면 그 문제의 오버라이드가 가리킬
+    # 장면이 없어지고, 그 상태로 렌더가 도는 것은 정상이지만(#77이 정리한다) 왜 값이 반영되지
+    # 않았는지는 로그에 남아야 한다.
+    for role, question_id in pending:
+        LOGGER.warning(
+            "가리키는 장면이 없는 scene_overrides — role=%s question_id=%s", role, question_id
+        )
+    return {**scenes, "scenes": applied}
+
+
 def align(scenes: Mapping[str, Any], *, fps: int = FPS) -> Timeline:
     """확정 장면 목록을 프레임 경계에 맞춘다.
 
@@ -193,6 +239,9 @@ def render(
     """
     # 입구에서 확정 검증을 한다. 이 함수는 CLI 말고도 앱 백엔드와 테스트가 직접 부른다.
     validate_scenes_final(scenes)
+    # **검증 다음이다** (#82). 사람이 얹은 길이는 낭독보다 짧을 수 있고 그것은 확정 검증이
+    # 거부하는 값이다 — 그래서 `scenes.json`이 아니라 `project.json`에 산다 (PRD 14.1).
+    scenes = apply_scene_overrides(project, scenes)
 
     fps = _int_field(project, "fps")
     timeline = align(scenes, fps=fps)
@@ -477,6 +526,9 @@ def preview(
         SchemaError: 장면 목록이 확정 상태가 아닐 때.
     """
     validate_scenes_final(scenes)
+    # 최종 렌더와 같은 자리다 (#82). 여기서 얹지 않으면 사람이 길이를 고쳐도 프레임의 장면
+    # 경계가 옛 값에 머문다 — 편집이 프리뷰에 반영되지 않는다.
+    scenes = apply_scene_overrides(project, scenes)
 
     timeline = align(scenes, fps=_int_field(project, "fps"))
     numbers = representative_frames(timeline)
