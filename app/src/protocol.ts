@@ -103,8 +103,8 @@ export interface Scenes {
 /** 실패는 예외가 아니라 값이다. `code`가 화면 분기의 기준이다 (D2 확정 스펙 4장). */
 export interface ApiError {
   /**
-   * `not_found` | `schema` | `io` | `render` | `bad_request` | `unknown_method` |
-   * `internal` | `backend`
+   * `not_found` | `schema` | `io` | `render` | `assets` | `bad_request` |
+   * `unknown_method` | `internal` | `backend`
    */
   code: string
   message: string
@@ -129,6 +129,36 @@ export interface EnvResult {
 export interface SaveResult {
   project_path: string
   bytes: number
+}
+
+/**
+ * 번들 자막 스타일 프리셋 하나 (#79).
+ *
+ * **이름도 색도 백엔드에서 온다.** 프리셋은 `assets/`가 소유하고(D1 확정 스펙 6장) 앱은
+ * `assets/`를 직접 읽지 못한다 — 동결 배포에서 그 디렉터리는 백엔드 실행 파일 옆이다.
+ */
+export interface CaptionStylePreset {
+  name: string
+  label: string
+  /**
+   * **기본으로 짝지어진 배경 프리셋 이름이다** (D1 확정 스펙 6.3의 ◎). 조합을 막는 값이
+   * 아니라 스타일을 고를 때 배경이 함께 가는 근거다 — 9조합 전부 고를 수 있다.
+   */
+  background: string
+  /** 색 역할 → `#RRGGBB` (`assets.CAPTION_COLOR_ROLES`). 견본을 그리는 데 쓴다. */
+  colors: Record<string, string>
+}
+
+export interface BackgroundPreset {
+  name: string
+  label: string
+  /** 1개면 단색, 2개면 위→아래 2스톱 그라디언트다 (D1 확정 스펙 6.2). */
+  stops: string[]
+}
+
+export interface PresetsResult {
+  caption_styles: CaptionStylePreset[]
+  backgrounds: BackgroundPreset[]
 }
 
 export interface ScenesResult {

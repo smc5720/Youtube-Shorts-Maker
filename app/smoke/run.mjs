@@ -1,12 +1,13 @@
-// 앱 스모크 (#26, #27, #28) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
+// 앱 스모크 (#26, #27, #28, #82, #79) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
 //
 // 여섯 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
 //   1. edit             — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
 //   2. verify           — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
-//   3. preview          — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27)
+//   3. preview          — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27),
+//                         장면 길이 조정 (#82), 자막 스타일·배경 프리셋 교체 (#79)
 //   4. questions        — 2분할 · 세 상태 표기 · 확인 기록 · 재생성 표시 · 순서·추가·삭제 (#28)
-//   5. questions-verify — 다시 띄워서 문제 편집이 두 파일에 남았는지 (#28)
+//   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋이 파일에 남았는지 (#28, #82, #79)
 //   6. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
 //
 // **3번은 FFmpeg를 요구한다.** 실제 프레임이 나오는지가 그 시나리오의 절반이라 대역으로
@@ -259,6 +260,32 @@ record('CSS가 원격 폰트를 부르지 않는다', remote.length === 0, remot
 
 const fonts = bundled.filter((name) => name.endsWith('.otf'))
 record('번들 폰트가 dist에 들어간다', fonts.length === 3, fonts.join(', '))
+
+// --- 8. 프리셋 이름이 앱 코드에 없는가 (#79) -----------------------------------------
+
+// **목록의 출처가 하나여야 한다.** 프리셋은 `assets/`가 소유하고(D1 확정 스펙 6장) 앱은
+// 백엔드를 지나서만 그것을 안다 — 동결 배포에서 `assets/`는 백엔드 실행 파일 옆이라 앱에서
+// 본 경로와 다르다. 이름을 앱에 적으면 프리셋을 하나 더할 때 **화면의 목록과 렌더가 아는
+// 목록이 갈리고**, 그것은 화면만 보고는 드러나지 않는다.
+const presetNames = ['caption-styles', 'backgrounds'].flatMap((dir) => Object.keys(
+  JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'assets', dir, 'presets.json'), 'utf8')).presets
+))
+
+const sources = []
+const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).forEach((entry) => {
+  const full = path.join(dir, entry.name)
+  if (entry.isDirectory()) walk(full)
+  else if (/\.(ts|tsx|js|mjs|css|html)$/.test(entry.name)) sources.push(full)
+})
+walk(path.join(APP_DIR, 'src'))
+walk(path.join(APP_DIR, 'electron'))
+walk(path.join(APP_DIR, 'smoke'))
+
+const hits = sources
+  .map((file) => ({ file, found: presetNames.filter((name) => fs.readFileSync(file, 'utf8').includes(name)) }))
+  .filter((entry) => entry.found.length > 0)
+  .map((entry) => `${path.relative(APP_DIR, entry.file)}: ${entry.found.join(' ')}`)
+record('앱 코드에 프리셋 이름이 없다', hits.length === 0, hits.join(' / '))
 
 // --- 결과 -----------------------------------------------------------------------
 

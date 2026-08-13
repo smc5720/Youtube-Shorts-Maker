@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import video_renderer
+from .assets import AssetError, background_presets, caption_styles
 from .run_context import serialize_artifact
 from .schemas import SchemaError, load_project, validate_project
 from .schemas.core import Schema
@@ -136,6 +137,56 @@ def method_env(params: dict[str, Any]) -> Any:
             name: {"found": (found := shutil.which(name)) is not None, "path": found}
             for name in REQUIRED_TOOLS
         },
+    }
+
+
+def method_presets(params: dict[str, Any]) -> Any:
+    """번들 프리셋 목록 — 자막 스타일과 배경 (#38, 이슈 #79).
+
+    **이름을 앱에 적지 않게 하는 것이 이 메서드의 존재 이유다.** 프리셋은 `assets/`가
+    소유하고(D1 확정 스펙 6장) 앱이 `assets/`를 직접 읽을 수는 없다 — 동결 배포(PyInstaller
+    onedir)에서 `assets/`는 백엔드 실행 파일 옆이라 앱에서 본 경로와 다르다 (스파이크 5.1).
+    이름을 앱에도 적으면 프리셋을 하나 더할 때 고칠 곳이 둘이 되고, 그때 갈리는 것은 화면에
+    보이는 목록과 렌더가 아는 목록이다.
+
+    색까지 함께 준다. 앱이 스타일·배경 견본을 그리므로 색이 필요한데, 그것을 앱 CSS에 적으면
+    같은 표가 두 번째로 생긴다 (`assets.py` 머리말).
+
+    `caption_styles[].background`는 그 스타일의 **기본 짝**이고 조합을 막는 값이 아니다 —
+    9조합 전부 사용 가능하다 (D1 확정 스펙 6.3). 앱이 스타일을 고를 때 배경을 함께 바꾸는
+    근거가 이 필드다.
+
+    Raises:
+        ApiError: 프리셋 파일이 없거나 계약을 어겼을 때(`assets`). 동결 배포에서 `assets/`가
+            실행 파일 옆에 없는 것이 실제 실패 경로다.
+    """
+    try:
+        styles = caption_styles()
+        backgrounds = background_presets()
+    except AssetError as error:
+        raise ApiError(
+            "assets",
+            f"번들 프리셋을 읽을 수 없다 — {error}",
+            ["동결 배포에서는 assets/가 백엔드 실행 파일 옆에 있어야 한다"],
+        ) from error
+
+    return {
+        # **파일 정의 순서 그대로다.** 앱이 다시 정렬하면 목록 순서가 두 곳에서 정해진다.
+        "caption_styles": [
+            {
+                "name": style.name,
+                "label": style.label,
+                "background": style.background,
+                "colors": dict(style.colors),
+            }
+            for style in styles.values()
+        ],
+        "backgrounds": [
+            # `stops`가 1개면 단색, 2개면 위→아래 2스톱 그라디언트다 (확정 스펙 6.2).
+            # 종류를 따로 싣지 않는 것은 스톱 수와 어긋날 수 있는 값을 만들지 않기 위함이다.
+            {"name": preset.name, "label": preset.label, "stops": list(preset.stops)}
+            for preset in backgrounds.values()
+        ],
     }
 
 
@@ -351,6 +402,7 @@ def method_preview(params: dict[str, Any]) -> Any:
 METHODS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "ping": method_ping,
     "env": method_env,
+    "presets": method_presets,
     "open": method_open,
     "save": method_save,
     "scenes": method_scenes,

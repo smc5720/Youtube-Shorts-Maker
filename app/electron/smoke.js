@@ -1,4 +1,4 @@
-// 스모크 시나리오 — 사람 없이 #26 · #27 · #28의 완료 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79의 완료 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
 // 같은 `open` / `edit` / `save`이고, 확인 대화상자만 바꿔 끼운다(모달이 뜨면 자동 실행이
@@ -277,9 +277,25 @@ async function preview (host) {
   //    (`docs/spikes/27-preview-frames.md` 3장).
   const before = await shown()
 
+  // **프리셋 이름을 여기 적지 않는다** (#79). 목록은 백엔드가 `assets/`에서 읽어 보내므로,
+  // 이름을 스모크에 박으면 프리셋이 바뀔 때 이 파일도 고쳐야 한다 — 그리고 확인하려는 것
+  // (출처가 하나)이 확인되지 않는다.
+  const presets = await evaluate('window.__smoke.state().presets')
+  record('프리셋 목록이 백엔드에서 온다',
+    presets !== null && presets.caption_styles.length === 3 && presets.backgrounds.length === 3,
+    JSON.stringify(presets && {
+      styles: presets.caption_styles.map((style) => style.name),
+      backgrounds: presets.backgrounds.map((preset) => preset.name)
+    }))
+
+  const styleOf = () => evaluate('window.__smoke.state().project.render.caption_style')
+  const backgroundOf = () => evaluate('window.__smoke.state().project.background')
+  const opening = await styleOf()
+  const otherStyle = presets.caption_styles.find((style) => style.name !== opening)
+
   // (a) 같은 장면의 값 변경 → **이전 프레임을 유지한다.** 지우면 값 하나 고칠 때마다
   //     화면이 비어 무엇이 어떻게 바뀌는지 비교할 수 없다.
-  await evaluate(`window.__smoke.edit('render','caption_style',${quote('neon_mint')})`)
+  await evaluate(`window.__smoke.edit('render','caption_style',${quote(otherStyle.name)})`)
   const stale = await until(async () => await previewState() === 'stale')
   const kept = await shown()
   record(
@@ -377,6 +393,59 @@ async function preview (host) {
 
   // (d) 파일까지 간다. 재시작 뒤 확인은 `questions-verify`가 한다.
   record('길이 조정을 저장한다', await evaluate('window.__smoke.save()') === true)
+
+  // 8. **자막 스타일과 배경 프리셋 교체** (#79). 목록은 5(a)에서 이미 받았다 — 프리셋 이름을
+  //    이 파일에 적지 않는 이유가 거기 있다.
+  // **화면의 목록이 백엔드 목록과 같은지**를 본다 — 개수만 세면 셋 중 둘만 그려도 통과한다.
+  const drawn = (testid) => evaluate(
+    `[...document.querySelectorAll('[data-testid=${quote(`presets-${testid}`)}] .preset')].map((n) => n.dataset.value)`
+  )
+  record('화면의 스타일 목록이 백엔드 목록과 같다',
+    (await drawn('caption-style')).join(',') === presets.caption_styles.map((s) => s.name).join(','),
+    (await drawn('caption-style')).join(','))
+  record('화면의 배경 목록이 백엔드 목록과 같다',
+    (await drawn('background')).join(',') === presets.backgrounds.map((p) => p.name).join(','),
+    (await drawn('background')).join(','))
+
+  // 지금 고른 것이 아닌 스타일 — 5(a)가 `otherStyle`을 이미 골라 뒀으므로 값이 바뀌는 쪽이다.
+  const current = await styleOf()
+  const other = presets.caption_styles.find((style) => style.name !== current)
+  const frameBefore = await shown()
+
+  await evaluate(`document.querySelector('[data-testid="presets-caption-style"] .preset[data-value=${quote(other.name)}]').click()`)
+  const picked = await until(async () => await styleOf() === other.name)
+  record('자막 스타일을 눌러서 고른다', picked, `${current} → ${await styleOf()}`)
+  record('고른 카드만 선택 표시가 붙는다',
+    (await evaluate(
+      `[...document.querySelectorAll('[data-testid="presets-caption-style"] .preset')]
+         .filter((n) => n.dataset.selected === "true").map((n) => n.dataset.value)`
+    )).join(',') === other.name)
+
+  // **기본 짝은 `presets.json`이 정한다** — 시안이 적은 짝은 민트와 오렌지가 서로 바뀐
+  // 값이라, 그것을 옮기면 사용자가 스타일 선택만으로 △ 조합에 들어간다 (확정 스펙 1.1).
+  record('스타일을 고르면 배경이 기본 짝으로 함께 바뀐다',
+    await until(async () => (await backgroundOf()).value === other.background),
+    JSON.stringify(await backgroundOf()))
+
+  // 기본 짝이 **아닌** 조합도 고를 수 있다 — 매트릭스에 차단 대상이 없다 (D1 확정 스펙 6.3).
+  const off = presets.backgrounds.find((preset) => preset.name !== other.background)
+  await evaluate(`document.querySelector('[data-testid="presets-background"] .preset[data-value=${quote(off.name)}]').click()`)
+  const combined = await until(async () => (await backgroundOf()).value === off.name)
+  record('기본 짝이 아닌 조합도 고를 수 있다', combined,
+    `${other.name} × ${JSON.stringify(await backgroundOf())}`)
+  record('배경만 바꿔도 자막 스타일은 그대로다', await styleOf() === other.name)
+  record('배경 kind는 preset으로 남는다', (await backgroundOf()).kind === 'preset')
+
+  // 프리뷰까지 간다 — 두 값 모두 렌더러가 읽으므로 지문이 바뀌고 프레임이 다시 만들어진다.
+  const restyled = await until(async () => {
+    const frame = await shown()
+    return frame !== null && frameBefore !== null && frame.index === 3
+      && frame.bytes !== frameBefore.bytes
+  }, 120, 100)
+  record('고른 스타일·배경이 프리뷰 프레임까지 간다', restyled,
+    `${frameBefore && frameBefore.bytes} → ${JSON.stringify(await shown())}`)
+
+  record('프리셋 교체를 저장한다', await evaluate('window.__smoke.save()') === true)
 
   record('상한을 넘는 run을 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
   record('60초를 넘으면 경고로 바뀐다',
@@ -572,6 +641,15 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
     JSON.stringify(overrides))
   record('타임라인이 낡았다는 표시도 유지된다', state.project.review.timeline_stale === true,
     JSON.stringify(state.project.review))
+
+  // **`preview` 시나리오가 고른 프리셋이다** (#79). 그쪽이 기본 짝이 아닌 조합을 남겼으므로,
+  // 짝을 다시 맞추는 코드가 어딘가에 있으면 여기서 갈린다.
+  const paired = (await evaluate('window.__smoke.state().presets'))
+    .caption_styles.find((style) => style.name === state.project.render.caption_style)
+  record('고른 자막 스타일과 배경이 재시작 뒤에도 유지된다',
+    Boolean(paired) && state.project.background.kind === 'preset'
+    && state.project.background.value !== paired.background,
+    `${state.project.render.caption_style} × ${JSON.stringify(state.project.background)}`)
   record('다시 연 직후에는 변경이 없다', state.unsaved === false)
   network()
   finish(0)

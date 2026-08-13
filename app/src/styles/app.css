@@ -622,6 +622,87 @@ body {
   font-size: 13px;
 }
 
+.field__hint {
+  margin-top: var(--s1);
+}
+
+/* --- 프리셋 선택 — 자막 스타일 · 배경 (#79) ---------------------------------- */
+
+/* **`.field`의 두 칸 격자를 쓰지 않는다.** 88px 레이블 옆에 남는 폭으로는 견본과 이름이
+ * 한 줄에 들어가지 않는다 — 340px 패널에서 이름이 잘린다 (확정 스펙 3.1). 레이블을 위로
+ * 올리고 목록이 폭을 다 쓴다. */
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.presets__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.preset {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s2);
+  border: 1px solid transparent;
+  border-radius: var(--r-card);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.preset:hover {
+  background: var(--bg-hover);
+}
+
+/* 선택된 카드는 `card-bg` + `accent` 테두리다 (확정 스펙 2.1). */
+.preset--on,
+.preset--on:hover {
+  border-color: var(--accent);
+  background: var(--card-bg);
+}
+
+/* 견본의 색은 인라인 style로 온다 — `assets/`가 소유하는 값이라 여기 적지 않는다
+ * (D1 확정 스펙 6장). 배경이 비어 있는 경우(짝을 찾지 못함)의 바탕만 여기 있다. */
+.preset__swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* 9:16을 줄인 비율이다. 정사각형으로 두면 세로형 배경의 그라디언트가 실제보다 급해 보인다. */
+  width: 24px;
+  height: 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-badge);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+/* 외곽선이 이 디자인의 지배적 요소라 견본에도 넣는다 (확정 스펙 2.1). `paint-order`가 없으면
+ * 획이 글자 안쪽까지 덮어 24px 견본에서 글자가 사라진다. */
+.preset__glyph {
+  font-size: 17px;
+  font-weight: 800;
+  paint-order: stroke fill;
+}
+
+.preset__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.preset__label {
+  font-size: 13px;
+}
+
 /* --- 화면 전환 (S2 ↔ S3) --------------------------------------------------- */
 
 /* 확정 스펙 3.1과 3.2가 서로 다른 분할이라 두 화면이 갈린다. 탭은 헤더에 두고 제목 옆에
