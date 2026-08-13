@@ -178,12 +178,27 @@ export function App () {
     return true
   }, [api, opened, project, content])
 
-  const edit = useCallback((section: 'render', field: string, value: unknown) => {
+  const edit = useCallback((section: 'render' | 'audio', field: string, value: unknown) => {
     setProject((previous) => previous && {
       ...previous,
       [section]: { ...previous[section], [field]: value }
     })
   }, [])
+
+  /**
+   * 트랙 볼륨 (#81). **선형 게인을 그대로 쌓는다** — 슬라이더의 0~100은 화면의 눈금이고,
+   * `project.json`에 사는 값은 게인이다 (D2 확정 스펙 5장).
+   *
+   * **`review`를 건드리지 않는다.** 볼륨은 `scenes.json`도 `captions.srt`도 낡게 하지 않는다 —
+   * 렌더가 오디오를 섞을 때 걸리는 값이라 다시 만들 산출물이 없다 (#82의 장면 길이와 갈린다).
+   *
+   * 프리뷰도 다시 만들어지지 않는다. 앱이 그 판단을 하는 것이 아니라(프로젝트가 바뀌었으니
+   * 요청은 나간다) 백엔드의 지문이 `audio`를 빼기 때문이고, 그래서 왕복이 캐시 적중으로 끝난다
+   * (`api._signature`, `PREVIEW_BLIND_SECTIONS`).
+   */
+  const editVolume = useCallback((track: 'voice_volume' | 'sfx_volume', gain: number) => {
+    edit('audio', track, gain)
+  }, [edit])
 
   /**
    * 자막 스타일 교체 — **배경이 기본 짝으로 함께 간다** (#79, D2 확정 스펙 1.1).
@@ -466,6 +481,9 @@ export function App () {
         const target = shownScenes[index]
         if (target) editDuration(target, duration)
       },
+      // **UI가 부르는 것과 같은 함수다** (#81). 화면의 슬라이더는 눈금을 게인으로 바꿔 이
+      // 함수를 부르고, 스모크는 게인을 직접 준다 — 눈금과 게인의 매핑은 화면의 지식이다.
+      editVolume,
       editContent,
       acknowledge,
       addItem,
@@ -588,6 +606,7 @@ export function App () {
                     runDir={opened.runDir}
                     presets={presets}
                     onDuration={editDuration}
+                    onVolume={editVolume}
                     onStyle={editStyle}
                     onBackground={editBackground}
                     onPickBackground={() => { void pickBackground() }}

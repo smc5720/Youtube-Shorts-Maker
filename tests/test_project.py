@@ -102,22 +102,36 @@ def test_without_a_voice_track_the_audio_is_null(tmp_path: Path) -> None:
     """낭독 장면이 없으면 `voice.mp3`가 생성되지 않는다 (PRD 6.2 표)."""
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
 
-    assert content["audio"] == {"voice": None, "music": None, "sfx_volume": 1.0}
+    assert content["audio"] == {
+        "voice": None,
+        "music": None,
+        "sfx_volume": 1.0,
+        "voice_volume": 1.0,
+    }
 
 
-def test_the_sfx_gain_comes_from_the_config(tmp_path: Path) -> None:
-    """값이 config → `project.json` → 렌더러 한 방향으로 흐른다 (#23, PRD 7.10).
+def test_the_track_gains_come_from_the_config(tmp_path: Path) -> None:
+    """값이 config → `project.json` → 렌더러 한 방향으로 흐른다 (#23, #81, PRD 7.10).
 
-    렌더러가 `audio.sfx_volume`을 config에서 다시 읽으면 앱이 편집한 프로젝트와 CLI 렌더가
-    갈린다 — 그 방향을 지키는지는 여기와 `test_audio_mix.py`가 함께 본다.
+    렌더러가 두 게인을 config에서 다시 읽으면 앱이 편집한 프로젝트와 CLI 렌더가 갈린다 —
+    그 방향을 지키는지는 여기와 `test_audio_mix.py`가 함께 본다.
     """
     content = project.build(
         FINAL_SCENES,
-        config=config_of(tmp_path, **{"audio.sfx_volume": 0.0}),
+        config=config_of(tmp_path, **{"audio.sfx_volume": 0.0, "audio.voice_volume": 0.4}),
         run_dir=tmp_path,
     )
 
     assert content["audio"]["sfx_volume"] == 0.0
+    assert content["audio"]["voice_volume"] == 0.4
+
+
+def test_a_new_project_always_writes_the_voice_gain(tmp_path: Path) -> None:
+    """**스키마에서는 선택이지만 여기서는 항상 쓴다** (#81). 선택인 것은 이 필드가 생기기 전에
+    만들어진 run 디렉터리 때문이고, 새 프로젝트가 비워 두면 앱이 보여 줄 값이 파일마다 갈린다."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+
+    assert "voice_volume" in content["audio"]
 
 
 def test_an_existing_voice_track_is_referenced(tmp_path: Path) -> None:
@@ -146,8 +160,9 @@ def test_the_only_edit_state_section_is_review(tmp_path: Path) -> None:
     """앱이 소유하는 섹션은 `review` 하나다 (#28).
 
     자막 스타일·폰트·cta 문구는 편집 상태가 아니라 렌더러가 읽는 초기 상태라 `render` 안에
-    있고(#20), 트랙별 볼륨도 같은 이유로 `audio`로 간다(#29). 여기 이름이 늘어나면 렌더러가
-    읽지 않는 값이 하나 더 생겼다는 뜻이므로 `APP_STATE_SECTIONS`도 함께 움직여야 한다.
+    있고(#20), 트랙별 볼륨도 같은 이유로 `audio`에 있다(#81). 여기 이름이 늘어나면 렌더러가
+    읽지 않는 값이 하나 더 생겼다는 뜻이다 — 프리뷰 지문에서 빠지는 조건은 그것과 다르므로
+    (`PREVIEW_BLIND_SECTIONS`는 "프레임에 닿지 않는 것"이다) 두 목록을 같이 움직이지 않는다.
     """
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
 

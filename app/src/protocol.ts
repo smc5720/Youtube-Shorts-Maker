@@ -10,7 +10,17 @@ export interface Project {
   language: string
   scenes: string
   background: { kind: string; value: string }
-  audio: { voice: string | null; music: string | null; sfx_volume: number }
+  audio: {
+    voice: string | null
+    music: string | null
+    sfx_volume: number
+    /**
+     * 낭독의 선형 게인 (#81). **이 필드가 생기기 전에 만들어진 run 디렉터리가 있으므로 없을
+     * 수 있고**, 그때의 뜻은 `DEFAULT_VOICE_VOLUME`이다 — 읽는 쪽은 `voiceVolume(project)`를
+     * 쓴다.
+     */
+    voice_volume?: number
+  }
   render: {
     width: number
     height: number
@@ -31,7 +41,7 @@ export interface Project {
   }
   /**
    * **앱이 소유하는 유일한 섹션이다** (#28). 렌더러가 읽지 않으므로 프리뷰 지문에서도 빠진다
-   * (`api.APP_STATE_SECTIONS`).
+   * (`schemas/project.py`의 `PREVIEW_BLIND_SECTIONS` — `audio`도 같은 이유로 빠져 있다, #81).
    *
    * 이 필드가 생기기 전에 만들어진 run 디렉터리가 있으므로 없을 수 있다. 읽는 쪽은
    * `review(project)`를 쓴다.
@@ -73,6 +83,20 @@ const EMPTY_REVIEW: Review = { acknowledged: [], stale: [] }
 /** 없는 `review`를 빈 값으로 읽는다. 호출부마다 `?? []`를 쓰면 한 곳을 빠뜨린다. */
 export function review (project: Project): Review {
   return project.review ?? EMPTY_REVIEW
+}
+
+/**
+ * `voice_volume`이 없는 프로젝트가 뜻하는 값 (`schemas/project.py`의 `DEFAULT_VOICE_VOLUME`).
+ *
+ * **여기 적힌 수가 백엔드와 갈리면 화면이 렌더와 다른 레벨을 말한다** — 프리셋 이름을 앱에
+ * 적지 않는 것과 같은 종류의 위험이지만, 이 값은 목록이 아니라 "게인 1.0이 원본 레벨"이라는
+ * 사실 하나라 백엔드 왕복을 두지 않는다 (`scenes.ts`의 `FIXED_DURATION_ROLES`와 같은 자리).
+ */
+export const DEFAULT_VOICE_VOLUME = 1
+
+/** 없는 `voice_volume`을 기본값으로 읽는다. 호출부마다 `?? 1`을 쓰면 한 곳을 빠뜨린다. */
+export function voiceVolume (project: Project): number {
+  return project.audio.voice_volume ?? DEFAULT_VOICE_VOLUME
 }
 
 /** `scenes.json`의 장면 하나 (`schemas/scenes.py`). 확정 상태만 앱에 온다. */

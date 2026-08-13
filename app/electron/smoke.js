@@ -1,4 +1,4 @@
-// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80의 완료 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81의 완료 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
 // 같은 `open` / `edit` / `save`이고, **대화상자만 바꿔 끼운다**(모달이 뜨면 자동 실행이
@@ -192,7 +192,8 @@ async function verify ({ evaluate, quote, record, finish, network }) {
 }
 
 /**
- * 장면 목록 · 3분할 · 프리뷰 (#27) · 장면 길이(#82) · 프리셋(#79) · 배경 파일(#80).
+ * 장면 목록 · 3분할 · 프리뷰 (#27) · 장면 길이(#82) · 프리셋(#79) · 배경 파일(#80) ·
+ * 트랙 볼륨(#81).
  *
  * **FFmpeg가 있어야 한다.** 이 시나리오가 확인하는 것의 절반이 실제 프레임이라, 명령만
  * 맞는지 보는 대역으로 바꾸면 확인하려는 것이 확인되지 않는다. 명령이 최종 렌더 경로를 지나지
@@ -543,6 +544,85 @@ async function preview (host) {
     JSON.stringify(await backgroundOf()))
   record('배경 파일 교체를 저장한다', await evaluate('window.__smoke.save()') === true)
 
+  // 10. **트랙 볼륨** (#81). 슬라이더의 눈금은 화면의 것이고 파일에 사는 값은 **선형 게인**이다
+  //     (확정 스펙 5장). 그래서 여기서 확인하는 것은 "눈금이 게인으로 바뀌어 저장되는가"와
+  //     "그 값이 프리뷰 프레임을 다시 만들지 않는가" 둘이다.
+  const audioOf = () => evaluate('window.__smoke.state().project.audio')
+  const slide = (testid, value) => evaluate(
+    `(() => { const el = document.querySelector('[data-testid="slider-${testid}"]');
+       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+       setter.call(el, String(${value}));
+       el.dispatchEvent(new Event('input', { bubbles: true }));
+       return el.value })()`
+  )
+
+  record('낭독·효과음 볼륨 슬라이더가 둘 다 있다',
+    await evaluate(
+      '[...document.querySelectorAll(\'.volume__slider\')].length'
+    ) === 2)
+
+  // (a) 눈금 → 게인. **앱이 부르는 것과 같은 경로다** — 손잡이를 직접 움직인다.
+  await slide('voice', 40)
+  const lowered = await until(async () => (await audioOf()).voice_volume === 0.4)
+  record('슬라이더 눈금이 선형 게인으로 저장된다', lowered, JSON.stringify(await audioOf()))
+  record('화면의 수치가 눈금으로 표시된다',
+    (await text('[data-testid="volume-voice"]')) === '40',
+    await text('[data-testid="volume-voice"]'))
+
+  await slide('sfx', 0)
+  record('효과음 볼륨도 따로 움직인다',
+    await until(async () => (await audioOf()).sfx_volume === 0),
+    JSON.stringify(await audioOf()))
+
+  // (b) **프레임을 다시 만들지 않는다** — 프리뷰 명령에는 오디오 체인이 아예 없다 (#27).
+  //     먼저 프레임이 실제로 만들어지는 편집을 하나 해서 비교 기준을 세운다. 그 편집 뒤에는
+  //     `elapsedMs`가 수이고, 볼륨 편집 뒤에도 수로 남으면 캐시가 비었다는 뜻이다.
+  // **기본 짝이 아닌 배경을 고른다.** 재시작 쪽(#79)이 "짝을 다시 맞추는 코드가 없다"를
+  // 이 run의 조합으로 확인하므로, 여기서 짝으로 되돌리면 그 확인이 통과할 수 없게 된다.
+  const nowBackground = (await backgroundOf()).value
+  const pickedStyle = await styleOf()
+  const nowStyle = presets.caption_styles.find((style) => style.name === pickedStyle)
+  const otherBackground = presets.backgrounds.find(
+    (preset) => preset.name !== nowBackground && preset.name !== nowStyle.background
+  )
+  await evaluate(`document.querySelector('[data-testid="presets-background"] .preset[data-value=${quote(otherBackground.name)}]').click()`)
+  const regenerated = await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.elapsedMs !== null
+  }, 120, 100)
+  const madeAgain = await shown()
+  record('배경을 바꾸면 프레임이 실제로 다시 만들어진다', regenerated, JSON.stringify(madeAgain))
+
+  await slide('voice', 70)
+  const cached = await until(async () => {
+    const state = await evaluate('window.__smoke.state()')
+    return state.pending === null && state.frame !== null && state.frame.elapsedMs === null
+  })
+  record('볼륨만 고치면 프레임이 캐시에서 온다', cached, JSON.stringify(await shown()))
+  record('그 프레임이 방금 만든 것과 같다',
+    (await shown()).bytes === madeAgain.bytes,
+    `${madeAgain.bytes} → ${(await shown()).bytes}`)
+
+  // (c) **원본보다 키울 수 있다** — 상한은 리미터가 잡으므로 계약에 없다 (확정 스펙 5장).
+  await slide('voice', 150)
+  record('100을 넘겨도 값이 깎이지 않는다',
+    await until(async () => (await audioOf()).voice_volume === 1.5),
+    JSON.stringify(await audioOf()))
+
+  // (d) 슬라이더 범위 밖 값(손으로 고친 project.json)도 화면이 깎지 않는다.
+  await evaluate('window.__smoke.editVolume(\'voice_volume\', 3)')
+  const beyond = await until(async () => (await text('[data-testid="volume-voice"]')) === '300')
+  record('범위 밖 값은 수치로 그대로 보인다', beyond, await text('[data-testid="volume-voice"]'))
+  record('그때 손잡이는 끝에 서고 값은 그대로다',
+    await evaluate('document.querySelector(\'[data-testid="slider-voice"]\').value') === '200'
+    && (await audioOf()).voice_volume === 3,
+    JSON.stringify(await audioOf()))
+
+  // 재시작 확인이 보는 값을 하나로 둔다. 저장 뒤 확인은 `questions-verify`가 한다.
+  await slide('voice', 60)
+  await until(async () => (await audioOf()).voice_volume === 0.6)
+  record('볼륨을 저장한다', await evaluate('window.__smoke.save()') === true)
+
   record('상한을 넘는 run을 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
   record('60초를 넘으면 경고로 바뀐다',
     await until(async () => await attribute('[data-testid="total-duration"]', 'data-state') === 'over'),
@@ -752,6 +832,16 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
     JSON.stringify(overrides))
   record('타임라인이 낡았다는 표시도 유지된다', state.project.review.timeline_stale === true,
     JSON.stringify(state.project.review))
+
+  // **`preview` 시나리오가 움직인 볼륨이다** (#81). 파일에 사는 값은 눈금이 아니라 선형
+  // 게인이므로, 눈금이 그대로 저장되는 회귀가 있으면 여기서 60이 되어 갈린다.
+  record('조정한 볼륨이 재시작 뒤에도 유지된다',
+    state.project.audio.voice_volume === 0.6 && state.project.audio.sfx_volume === 0,
+    JSON.stringify(state.project.audio))
+  record('그 값이 화면의 눈금으로 다시 뜬다',
+    await until(async () => await evaluate(
+      '(() => { const n = document.querySelector(\'[data-testid="volume-voice"]\'); return n && n.textContent })()'
+    ) === '60'))
 
   // **`preview` 시나리오가 고른 프리셋이다** (#79). 그쪽이 기본 짝이 아닌 조합을 남겼으므로,
   // 짝을 다시 맞추는 코드가 어딘가에 있으면 여기서 갈린다.

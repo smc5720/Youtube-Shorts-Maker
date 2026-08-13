@@ -573,6 +573,22 @@ def test_the_review_section_does_not_reach_the_preview_signature(run_dir: Path) 
     assert api._signature(run_dir, restyled, FINAL_SCENES) != signature
 
 
+def test_the_audio_section_does_not_reach_the_preview_signature(run_dir: Path) -> None:
+    """**렌더러는 읽지만 프리뷰 명령에는 오디오 체인이 아예 없다** (#81, #27).
+
+    볼륨은 슬라이더라 값이 연속으로 바뀐다 — 지문에 넣으면 드래그 한 번마다 프레임 11장이
+    2초대에 다시 만들어지고 결과는 같은 그림이다. 그래서 목록의 기준이 "렌더가 읽지 않는 것"이
+    아니라 "프레임에 닿지 않는 것"이다.
+    """
+    body = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    signature = api._signature(run_dir, body, FINAL_SCENES)
+
+    louder = json.loads(json.dumps(body))
+    louder["audio"] = {**louder["audio"], "voice_volume": 0.3, "sfx_volume": 2.0}
+
+    assert api._signature(run_dir, louder, FINAL_SCENES) == signature
+
+
 def test_a_scene_override_reaches_the_preview_signature(run_dir: Path) -> None:
     """**앱이 쓰지만 렌더러가 읽는다** (#82). `review`와 달리 프레임을 바꾸므로 지문에 있어야
     하고, 없으면 사람이 길이를 고쳐도 화면이 옛 그림에 머문다."""
