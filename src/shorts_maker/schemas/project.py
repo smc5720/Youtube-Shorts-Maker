@@ -7,6 +7,10 @@
 PRD 7.10이 "앱 프레임워크가 정해진 뒤 추가한다"고 미뤄 둔 자리이며, 프레임워크는 #25에서
 정해졌다.
 
+**`render.scene_overrides`는 앱이 쓰지만 렌더러가 읽는다** (#82, #83). 그래서 `review`와 달리
+`APP_STATE_SECTIONS`에 들어가지 않는다 — 사람이 얹은 길이·문구·오버레이가 프리뷰 프레임을
+바꾸므로 지문에 들어가야 화면이 옛 그림에 머물지 않는다.
+
 경로 값은 모두 **run 디렉터리 기준 상대 경로**다. run 디렉터리를 옮기거나 이름을 바꿔도
 프로젝트가 열려야 한다.
 """
@@ -18,16 +22,19 @@ from typing import Any
 
 from ..shorts_types import available_types
 from .core import (
+    Field,
     Object,
     Scalar,
     Schema,
     choices_from,
+    flag,
     integer,
     items,
     number,
     section,
     text,
 )
+from .scenes import ROLES
 
 SCHEMA_VERSION = 1
 KNOWN_VERSIONS = (1,)
@@ -56,6 +63,41 @@ _AUDIO_FIELDS = {
     "sfx_volume": number(minimum=0),
 }
 
+_ITEM_ID = Scalar("int", minimum=1)
+"""검수 단위 하나를 가리키는 번호.
+
+`scenes.json`의 `question_id`와 **같은 값**이고, 그것이 이미 공통 스키마의 어휘라
+(`schemas/scenes.py`) 타입 경계를 넘지 않는다. 이 모듈은 그 번호가 무엇의 번호인지 모른다.
+"""
+
+OVERRIDE_EDITS = ("duration",)
+"""오버라이드 항목이 실제로 얹는 값. **#83이 `text`·`overlays`를 여기 더한다.**
+
+빈 항목을 거부하는 근거이므로 편집 필드를 추가할 때 이 목록도 함께 늘린다 — 빠뜨리면
+아무것도 얹지 않는 항목이 조용히 저장된다.
+"""
+
+_SCENE_OVERRIDE = Object(
+    {
+        # **키가 장면 인덱스가 아니다.** 인덱스는 문제를 추가·삭제하면 밀리고, 그러면 사람이
+        # 조정한 값이 다른 장면에 붙는다 (#28이 새 문제 번호에서 같은 함정을 밟았다).
+        # `role`과 `question_id`는 이미 `scenes.json`의 공통 어휘다 (PRD 7.4.1).
+        "role": text(choices=ROLES),
+        # 문제에 속한 장면(`question`·`countdown`·`answer`)에만 있다. 아래 검증이 강제한다.
+        "question_id": Field(_ITEM_ID, required=False),
+        # 사람이 조정한 장면 길이 (#82). **`scenes.json`의 `duration`을 덮지 않는다** —
+        # `validate_scenes_final`이 낭독보다 짧은 값을 거부하므로 그쪽에 쓰면 앱의 저장이
+        # 실패하고 그 run 디렉터리가 다시 열리지 않는다 (PRD 14.1). 낭독보다 짧아도 받는
+        # 것은 화면이 경고하고 사람이 결정하기 때문이다.
+        "duration": number(exclusive_minimum=0.0, required=False),
+    }
+)
+"""장면 하나에 사람이 얹은 편집 (PRD 14.1).
+
+**세 편집이 항목 하나를 공유한다** — 길이(#82)와 문구·오버레이(#83)가 같은 장면을 가리키므로,
+저장 위치를 나누면 같은 장면을 가리키는 키가 세 벌 생긴다.
+"""
+
 _RENDER_FIELDS = {
     "width": integer(minimum=1),
     "height": integer(minimum=1),
@@ -76,14 +118,10 @@ _RENDER_FIELDS = {
     # 읽고 이미 확정된 `duration`에 반영했다. 앱(#29)이 이 값을 키우면 렌더는 따라오지만
     # 장면 길이는 그대로이므로, 늘릴 수 있는 폭은 그 장면의 여유만큼이다.
     "caption_onset_sec": number(minimum=0),
+    # 사람이 얹은 장면 편집 (#82, #83). **선택이다** — 이 필드가 생기기 전에 만들어진 run
+    # 디렉터리의 `project.json`이 열려야 한다.
+    "scene_overrides": items(_SCENE_OVERRIDE, required=False),
 }
-
-_ITEM_ID = Scalar("int", minimum=1)
-"""검수 단위 하나를 가리키는 번호.
-
-`scenes.json`의 `question_id`와 **같은 값**이고, 그것이 이미 공통 스키마의 어휘라
-(`schemas/scenes.py`) 타입 경계를 넘지 않는다. 이 모듈은 그 번호가 무엇의 번호인지 모른다.
-"""
 
 _REVIEW_FIELDS = {
     # 사람이 `flagged`/`unverified`를 보고 넘어가기로 한 항목 (#28).
@@ -99,6 +137,12 @@ _REVIEW_FIELDS = {
     # 장면 **순서·개수**가 낡았는지는 여기 두지 않는다 — `scenes.json`의 `question_id`
     # 나열과 비교하면 나오는 값이라, 적어 두면 두 곳이 다른 말을 할 수 있다.
     "stale": items(_ITEM_ID),
+    # 사람이 장면 길이를 고쳐 `captions.srt`·`voice.mp3`가 어긋난 상태 (#82).
+    #
+    # **목록이 아니라 참·거짓이다.** 길이를 하나 고치면 그 뒤 장면의 시작 시각이 전부 밀리므로
+    # 낡는 대상이 특정 항목이 아니라 타임라인 전체다. 항목 번호로 적을 수 있는 값이 아니다
+    # (PRD 14.1). 지우는 것은 `stale`과 같이 재생성(#77)이다.
+    "timeline_stale": flag(required=False),
 }
 
 APP_STATE_SECTIONS = ("review",)
@@ -131,6 +175,68 @@ def _check_review_ids_are_unique(data: Any, errors: list[str]) -> None:
             seen.add(value)
 
 
+GROUPED_ROLES = ("question", "countdown", "answer")
+"""문제 하나에 속한 장면. `question_id` 없이는 어느 장면인지 특정되지 않는다.
+
+목록이 `scenes.json`의 `question_id` 유무와 같아야 하므로 장면 템플릿이 바뀌면 함께 본다 —
+공통 계층이 아는 것은 "번호가 있는 역할"까지고 그 번호가 무엇인지는 모른다.
+"""
+
+FIXED_DURATION_ROLES = ("countdown",)
+"""길이를 사람이 고칠 수 없는 역할.
+
+`countdown`의 `duration`은 `seconds`와 정확히 같아야 하고(`schemas/scenes.py`) 그 값은 콘텐츠
+필드다 — 문제 편집(#28)이 소유한다. **UI에서 빼는 것만으로는 부족하다** — 손으로 고친
+`project.json`도 열리므로 계약이 거부해야 한다 (D2 확정 스펙 7.1).
+"""
+
+
+def _check_scene_overrides(data: Any, errors: list[str]) -> None:
+    """오버라이드가 장면 하나를 가리키고, 뜻이 있고, 겹치지 않는지 (#82).
+
+    구조 검증 다음이므로 타입은 이미 맞다. 여기서 보는 것은 **키의 뜻**이다.
+    """
+    render = data.get("render")
+    if not isinstance(render, dict):
+        return
+    overrides = render.get("scene_overrides")
+    if not isinstance(overrides, list):
+        return
+
+    seen: set[tuple[Any, Any]] = set()
+    for index, override in enumerate(overrides):
+        if not isinstance(override, dict):
+            continue
+        path = f"render.scene_overrides[{index}]"
+        role = override.get("role")
+        question_id = override.get("question_id")
+
+        if role in GROUPED_ROLES and question_id is None:
+            errors.append(
+                f"{path}.question_id: {role} 장면은 문제 번호로 특정된다 — 번호가 없으면 "
+                f"어느 장면인지 정해지지 않는다"
+            )
+        if role not in GROUPED_ROLES and question_id is not None:
+            errors.append(
+                f"{path}.question_id: {role} 장면은 영상에 하나뿐이라 번호를 받지 않는다. "
+                f"받은 값: {question_id}"
+            )
+        if role in FIXED_DURATION_ROLES and "duration" in override:
+            errors.append(
+                f"{path}.duration: {role}의 길이는 사람이 고칠 수 없다 — seconds와 같아야 "
+                f"하고 그 값은 콘텐츠가 소유한다"
+            )
+        if not any(key in override for key in OVERRIDE_EDITS):
+            errors.append(
+                f"{path}: 얹는 값이 없다. 쓸 수 있는 값: {', '.join(OVERRIDE_EDITS)}"
+            )
+
+        key = (role, question_id)
+        if key in seen:
+            errors.append(f"{path}: 같은 장면에 오버라이드가 두 번 있다 — {role} {question_id}")
+        seen.add(key)
+
+
 _ROOT = Object(
     {
         "schema_version": integer(minimum=1),
@@ -152,7 +258,7 @@ PROJECT_SCHEMA = Schema(
     name="project.json",
     versions=KNOWN_VERSIONS,
     root=_ROOT,
-    checks=(_check_review_ids_are_unique,),
+    checks=(_check_review_ids_are_unique, _check_scene_overrides),
 )
 
 

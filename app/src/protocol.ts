@@ -21,6 +21,13 @@ export interface Project {
     cta_punch: string
     cta_tail: string
     caption_onset_sec: number
+    /**
+     * 사람이 얹은 장면 편집 (#82). **앱이 쓰지만 렌더러가 읽으므로 편집 상태가 아니다** —
+     * `review`와 달리 프리뷰 지문에 들어간다.
+     *
+     * 이 필드가 생기기 전에 만들어진 run 디렉터리가 있으므로 없을 수 있다.
+     */
+    scene_overrides?: SceneOverride[]
   }
   /**
    * **앱이 소유하는 유일한 섹션이다** (#28). 렌더러가 읽지 않으므로 프리뷰 지문에서도 빠진다
@@ -32,12 +39,33 @@ export interface Project {
   review?: Review
 }
 
+/**
+ * 장면 하나에 사람이 얹은 편집 (`schemas/project.py`의 `_SCENE_OVERRIDE`).
+ *
+ * **키가 장면 인덱스가 아니다.** 인덱스는 문제를 추가·삭제하면 밀리고, 그러면 조정한 값이
+ * 다른 장면에 붙는다 (#28이 새 문제 번호에서 같은 함정을 밟았다).
+ */
+export interface SceneOverride {
+  role: Scene['role']
+  /** `question`·`countdown`·`answer`에만 있다. 그 셋은 번호 없이 특정되지 않는다. */
+  question_id?: number
+  /** 사람이 조정한 길이. `scenes.json`의 `duration`은 그대로다 (PRD 14.1). */
+  duration?: number
+}
+
 /** 두 목록 모두 문제 `id`이고 `scenes.json`의 `question_id`와 같은 값이다. */
 export interface Review {
   /** 사람이 `flagged`/`unverified`를 보고 넘어가기로 한 문제. */
   acknowledged: number[]
   /** 낭독 문구가 바뀌어 오디오·자막이 낡은 문제. 지우는 것은 재생성(#77)이다. */
   stale: number[]
+  /**
+   * 장면 길이를 고쳐 `captions.srt`·`voice.mp3`가 어긋난 상태 (#82).
+   *
+   * **목록이 아니라 참·거짓이다** — 길이 하나를 고치면 그 뒤 장면의 시작 시각이 전부 밀려
+   * 낡는 대상이 타임라인 전체다 (PRD 14.1).
+   */
+  timeline_stale?: boolean
 }
 
 const EMPTY_REVIEW: Review = { acknowledged: [], stale: [] }

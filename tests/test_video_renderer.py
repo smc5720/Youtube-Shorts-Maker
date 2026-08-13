@@ -28,6 +28,7 @@ from shorts_maker.video_renderer import (
     OUTPUT_NAME,
     RenderError,
     align,
+    apply_scene_overrides,
     build_command,
     render,
 )
@@ -80,6 +81,112 @@ def project_with(**overrides: Any) -> dict[str, Any]:
         },
     }
     return project | overrides
+
+
+def overriding(project: dict[str, Any], *overrides: dict[str, Any]) -> dict[str, Any]:
+    """`render.scene_overrides`를 얹은 프로젝트. 원본은 그대로 둔다."""
+    return project | {"render": project["render"] | {"scene_overrides": list(overrides)}}
+
+
+# --- 사람이 얹은 장면 편집 (#82) ---------------------------------------------
+
+
+def test_an_override_replaces_the_duration_of_the_matching_scene() -> None:
+    scenes = scenes_with(2.5, 3.0)
+    scenes["scenes"][1]["role"] = "cta"
+
+    applied = apply_scene_overrides(
+        overriding(project_with(), {"role": "cta", "duration": 5.0}), scenes
+    )
+
+    assert [scene["duration"] for scene in applied["scenes"]] == [2.5, 5.0]
+
+
+def test_the_original_scene_list_is_not_touched() -> None:
+    """`scenes.json`의 `duration`은 그대로다 — 사람이 얹은 값은 `project.json`에 산다."""
+    scenes = scenes_with(2.5)
+
+    apply_scene_overrides(
+        overriding(project_with(), {"role": "hook", "duration": 9.0}), scenes
+    )
+
+    assert scenes["scenes"][0]["duration"] == 2.5
+
+
+def test_without_overrides_the_same_object_comes_back() -> None:
+    """얹을 것이 없으면 장면 배열을 두 벌 만들지 않는다."""
+    scenes = scenes_with(2.5)
+
+    assert apply_scene_overrides(project_with(), scenes) is scenes
+    assert apply_scene_overrides(overriding(project_with()), scenes) is scenes
+
+
+def test_an_override_finds_its_scene_by_question_id_not_by_index() -> None:
+    """앞 문제를 지워 인덱스가 밀려도 조정한 길이가 같은 문제에 남는다 (#28의 함정)."""
+    scenes = scenes_with(4.0, 4.0, narrated=(0, 1))
+    scenes["scenes"][0]["question_id"] = 1
+    scenes["scenes"][1]["question_id"] = 2
+    project = overriding(
+        project_with(), {"role": "question", "question_id": 2, "duration": 6.0}
+    )
+
+    applied = apply_scene_overrides(project, scenes)
+    assert [scene["duration"] for scene in applied["scenes"]] == [4.0, 6.0]
+
+    # 1번 문제를 지운 뒤에도 같은 장면이 6.0이다.
+    del scenes["scenes"][0]
+    applied = apply_scene_overrides(project, scenes)
+    assert [scene["duration"] for scene in applied["scenes"]] == [6.0]
+
+
+def test_an_override_with_no_scene_to_point_at_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """문제를 지우면 그 오버라이드가 가리킬 장면이 없다. 조용히 버리지 않는다 (#77이 정리한다)."""
+    with caplog.at_level("WARNING"):
+        applied = apply_scene_overrides(
+            overriding(
+                project_with(), {"role": "answer", "question_id": 9, "duration": 4.0}
+            ),
+            scenes_with(2.5),
+        )
+
+    assert [scene["duration"] for scene in applied["scenes"]] == [2.5]
+    assert "question_id=9" in caplog.text
+
+
+def test_an_override_shorter_than_the_narration_is_applied() -> None:
+    """확정 검증은 이 값을 거부한다 — 그래서 `scenes.json`이 아니라 여기에 산다 (PRD 14.1).
+
+    화면이 경고하고 값은 적용된다 (확정 스펙 4장의 `warn`).
+    """
+    scenes = scenes_with(4.0, narrated=(0,))
+    scenes["scenes"][0]["question_id"] = 1
+    scenes["scenes"][0]["audio_duration"] = 3.8
+
+    applied = apply_scene_overrides(
+        overriding(
+            project_with(), {"role": "question", "question_id": 1, "duration": 1.0}
+        ),
+        scenes,
+    )
+
+    assert applied["scenes"][0]["duration"] == 1.0
+    with pytest.raises(SchemaError):
+        # 같은 값을 `scenes.json`에 쓰면 열 수 없는 run 디렉터리가 된다.
+        video_renderer.validate_scenes_final(applied)
+
+
+def test_the_timeline_follows_the_override() -> None:
+    """프레임 정렬은 여전히 `align()` 하나가 소유한다 — 얹은 값이 그 입력이 된다 (PRD 7.7)."""
+    scenes = scenes_with(2.5, 3.0)
+    scenes["scenes"][1]["role"] = "cta"
+    project = overriding(project_with(), {"role": "cta", "duration": 1.0})
+
+    aligned = align(apply_scene_overrides(project, scenes), fps=30)
+
+    assert aligned.frames == (75, 30)
+    assert aligned.total_sec == pytest.approx(3.5)
 
 
 # --- 프레임 경계 정렬 --------------------------------------------------------
@@ -455,6 +562,20 @@ def test_the_output_length_matches_the_frame_aligned_total(tmp_path: Path) -> No
     output = render(project_with(), scenes, run_dir=tmp_path)
 
     expected = align(scenes).total_sec
+    assert duration_of(output) == pytest.approx(expected, abs=1 / FPS)
+
+
+@needs_ffmpeg
+def test_an_override_changes_the_rendered_length(tmp_path: Path) -> None:
+    """사람이 얹은 길이가 최종 mp4에 도달한다 (#82의 완료 조건)."""
+    scenes = scenes_with(2.5, 1.237)
+    scenes["scenes"][1]["role"] = "cta"
+    project = overriding(project_with(), {"role": "cta", "duration": 3.0})
+
+    output = render(project, scenes, run_dir=tmp_path)
+
+    expected = align(apply_scene_overrides(project, scenes)).total_sec
+    assert expected == pytest.approx(5.5)
     assert duration_of(output) == pytest.approx(expected, abs=1 / FPS)
 
 

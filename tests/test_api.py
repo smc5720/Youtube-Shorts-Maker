@@ -481,6 +481,18 @@ def test_the_review_section_does_not_reach_the_preview_signature(run_dir: Path) 
     assert api._signature(run_dir, restyled, FINAL_SCENES) != signature
 
 
+def test_a_scene_override_reaches_the_preview_signature(run_dir: Path) -> None:
+    """**앱이 쓰지만 렌더러가 읽는다** (#82). `review`와 달리 프레임을 바꾸므로 지문에 있어야
+    하고, 없으면 사람이 길이를 고쳐도 화면이 옛 그림에 머문다."""
+    body = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    signature = api._signature(run_dir, body, FINAL_SCENES)
+
+    shortened = json.loads(json.dumps(body))
+    shortened["render"]["scene_overrides"] = [{"role": "hook", "duration": 1.0}]
+
+    assert api._signature(run_dir, shortened, FINAL_SCENES) != signature
+
+
 def test_preview_validates_the_project_it_is_handed(run_dir: Path) -> None:
     """**앱이 들고 있는 값으로 그린다** — 저장하지 않은 편집이 프리뷰에 보이지 않으면
     프리뷰가 편집 도구가 되지 못한다. 대신 저장과 같은 검증을 지난다."""

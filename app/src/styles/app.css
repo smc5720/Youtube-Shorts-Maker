@@ -853,6 +853,27 @@ body {
   outline: none;
 }
 
+/* **값은 적용된 상태다** — 테두리만 `warn`으로 남는다 (확정 스펙 7.4). 값이 되돌아가는
+ * `danger`와 같은 표시를 쓰지 않는 이유가 그것이다. */
+.input--warn,
+.input--warn:focus-within {
+  border-color: var(--warn);
+}
+
+/* 장면 길이 — 입력과 낭독 길이가 한 줄, 경고가 그 아래다. `.field`의 값 칸 안에 들어간다. */
+.duration {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+
+.duration__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+
 .segmented {
   display: inline-flex;
   gap: 2px;
