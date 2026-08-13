@@ -4,22 +4,28 @@
 // 장면 속성이 아니라 `project.json`의 프로젝트 전역 값이다. 역할 표시 밑에 두면 "이 장면의
 // 자막 스타일"로 읽힌다. 장면에 따라 달라질 수 있는 것은 길이 하나뿐이다.
 //
-// **장면 길이 편집이 #82에서 들어왔다.** 나머지 편집 컨트롤은 #79~#81과 #83이 같은 구획 안에
-// 들어온다.
+// **장면 길이 편집이 #82에서, 자막 스타일·배경 프리셋 교체가 #79에서 들어왔다.** 나머지 편집
+// 컨트롤은 #80·#81과 #83이 같은 구획 안에 들어온다.
 
 import { useEffect, useState, type ReactNode } from 'react'
 
-import type { Project, Scene } from '../protocol'
+import type { CaptionStylePreset, PresetsResult, Project, Scene } from '../protocol'
 import { cutsNarration, FIXED_DURATION_ROLES, narrationLength, seconds } from '../scenes'
 import { Notice } from './Notice'
 
-export function Properties ({ project, scene, index, runDir, onDuration }: {
+export function Properties ({
+  project, scene, index, runDir, presets, onDuration, onStyle, onBackground
+}: {
   project: Project
   scene: Scene | null
   index: number | null
   runDir: string
+  /** 번들 프리셋 목록 (#79). `null`이면 백엔드가 `assets/`를 읽지 못한 것이다. */
+  presets: PresetsResult | null
   /** 장면 길이 조정 (#82). `null`이면 읽기 전용 표시만 남는다. */
   onDuration: ((scene: Scene, duration: number) => void) | null
+  onStyle: (style: CaptionStylePreset) => void
+  onBackground: (name: string) => void
 }) {
   return (
     <aside className="panel panel--properties" data-testid="properties">
@@ -36,8 +42,24 @@ export function Properties ({ project, scene, index, runDir, onDuration }: {
         {/* **전역임을 머리글이 말한다.** 구획을 나누기만 하고 이름을 붙이지 않으면 경계가
             보이지 않는다 (확정 스펙 1.5). */}
         <Section title="프로젝트 전체" hint="모든 장면에 함께 적용된다" testid="properties-project">
-          <Field label="자막 스타일" value={project.render.caption_style} />
-          <Field label="배경" value={`${project.background.kind} · ${project.background.value}`} />
+          {presets
+            ? (
+              <PresetFields
+                project={project}
+                presets={presets}
+                onStyle={onStyle}
+                onBackground={onBackground}
+              />
+              )
+            : (
+              <>
+                {/* 프리셋 목록을 읽지 못하면 고를 것이 없다. **값은 그대로 보인다** —
+                    나머지 편집을 막을 이유가 없다 (`api.method_presets`의 `assets` 실패). */}
+                <Field label="자막 스타일" value={project.render.caption_style}
+                  hint="프리셋 목록을 읽지 못해 값만 보인다" />
+                <Field label="배경" value={`${project.background.kind} · ${project.background.value}`} />
+              </>
+              )}
           <Field label="효과음 게인" value={String(project.audio.sfx_volume)} />
           <Field label="낭독 트랙" value={project.audio.voice ?? '(없음)'} />
           <Field label="영상 규격" value={`${project.render.width}x${project.render.height} · ${project.render.fps}fps`} />
@@ -48,7 +70,7 @@ export function Properties ({ project, scene, index, runDir, onDuration }: {
         </Section>
       </div>
       <div className="panel__foot t-caption">
-        값 편집은 다음 단계에서 이 자리에 들어온다.
+        배경 파일(#80)·볼륨(#81)·자막 문구(#83)는 다음 단계에서 이 자리에 들어온다.
       </div>
     </aside>
   )
@@ -146,6 +168,151 @@ function DurationField ({ scene, onDuration }: {
   )
 }
 
+/**
+ * 자막 스타일과 배경 프리셋 교체 (#79).
+ *
+ * **이름도 색도 이 파일에 없다.** 목록은 백엔드(`api.method_presets`)가 `assets/`에서 읽어
+ * 보내고, 동결 배포에서 그 디렉터리는 백엔드 실행 파일 옆이라 앱이 직접 읽을 수 없다.
+ * 이름을 여기 적으면 프리셋을 하나 더할 때 화면의 목록과 렌더가 아는 목록이 갈린다.
+ *
+ * **둘은 독립이다** — 스타일이 배경을 끌고 오지만(기본 짝) 그 뒤 배경만 다시 고를 수 있다.
+ * 차단할 조합이 없다 (D1 확정 스펙 6.3의 매트릭스).
+ */
+function PresetFields ({ project, presets, onStyle, onBackground }: {
+  project: Project
+  presets: PresetsResult
+  onStyle: (style: CaptionStylePreset) => void
+  onBackground: (name: string) => void
+}) {
+  const backgrounds = new Map(presets.backgrounds.map((preset) => [preset.name, preset]))
+  // 프리셋이 아닌 배경(사용자 파일 #80, 색)은 이 목록으로 표현되지 않는다. 그때는 값을 보여
+  // 주기만 하고 스타일을 골라도 배경이 따라가지 않는다 (`App.editStyle`).
+  const isPreset = project.background.kind === 'preset'
+
+  return (
+    <>
+      <PresetList
+        label="자막 스타일"
+        testid="caption-style"
+        selected={project.render.caption_style}
+        options={presets.caption_styles.map((style) => {
+          const paired = backgrounds.get(style.background)
+          return {
+            name: style.name,
+            label: style.label,
+            // **무엇으로 바뀌는지 적는다.** 고르면 배경이 함께 가므로, 보이지 않으면 배경이
+            // 저절로 달라진 것으로 읽힌다 (확정 스펙 1.1).
+            hint: isPreset ? `기본 배경 ${paired?.label ?? style.background}` : undefined,
+            swatch: (
+              <Swatch
+                stops={paired?.stops}
+                glyph={style.colors.accent}
+                outline={style.colors.border}
+              />
+            )
+          }
+        })}
+        onPick={(name) => {
+          const target = presets.caption_styles.find((style) => style.name === name)
+          if (target) onStyle(target)
+        }}
+      />
+      {isPreset
+        ? (
+          <PresetList
+            label="배경"
+            testid="background"
+            selected={project.background.value}
+            options={presets.backgrounds.map((preset) => ({
+              name: preset.name,
+              label: preset.label,
+              swatch: <Swatch stops={preset.stops} />
+            }))}
+            onPick={onBackground}
+          />
+          )
+        : (
+          <Field
+            label="배경"
+            value={`${project.background.kind} · ${project.background.value}`}
+            hint="프리셋이 아닌 배경은 이 목록에 없다"
+          />
+          )}
+    </>
+  )
+}
+
+interface PresetOption {
+  name: string
+  label: string
+  hint?: string
+  swatch: ReactNode
+}
+
+/** 프리셋 목록 — 견본이 있어야 이름만으로 고르지 않는다 (확정 스펙 2.1의 선택된 카드). */
+function PresetList ({ label, testid, selected, options, onPick }: {
+  label: string
+  testid: string
+  selected: string
+  options: PresetOption[]
+  onPick: (name: string) => void
+}) {
+  return (
+    <div className="presets" data-control={label}>
+      <div className="t-label">{label}</div>
+      <div className="presets__list" data-testid={`presets-${testid}`} role="radiogroup" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.name}
+            type="button"
+            className={`preset${option.name === selected ? ' preset--on' : ''}`}
+            data-value={option.name}
+            data-selected={option.name === selected}
+            role="radio"
+            aria-checked={option.name === selected}
+            onClick={() => onPick(option.name)}
+          >
+            {option.swatch}
+            <span className="preset__text">
+              <span className="preset__label">{option.label}</span>
+              {option.hint && <span className="t-caption">{option.hint}</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 프리셋 견본. **색은 인라인 style로 들어간다** — 백엔드가 보낸 값이라 CSS에 적을 수 없다.
+ *
+ * `stops`가 1개면 단색, 2개면 위→아래 그라디언트다 (D1 확정 스펙 6.2). `glyph`가 있으면
+ * 그 배경 위의 강조색과 외곽선을 함께 보여 준다 — 이 디자인에서 외곽선이 지배적 요소라
+ * (확정 스펙 2.1) 강조색만으로는 스타일이 구분되지 않는다.
+ */
+function Swatch ({ stops, glyph, outline }: {
+  stops?: string[]
+  glyph?: string
+  outline?: string
+}) {
+  const fill = stops === undefined || stops.length === 0
+    ? undefined
+    : stops.length === 1 ? stops[0] : `linear-gradient(${stops[0]}, ${stops[stops.length - 1]})`
+  return (
+    <span className="preset__swatch" style={{ background: fill }} aria-hidden="true">
+      {glyph !== undefined && (
+        <span
+          className="preset__glyph"
+          style={{ color: glyph, WebkitTextStroke: outline === undefined ? undefined : `1.5px ${outline}` }}
+        >
+          가
+        </span>
+      )}
+    </span>
+  )
+}
+
 function Section ({ title, hint, testid, children }: {
   title: string
   hint: string
@@ -164,11 +331,20 @@ function Section ({ title, hint, testid, children }: {
 }
 
 /** 기계가 만든 값은 mono, 사람이 읽는 문장은 본문 서체다 (확정 스펙 2.2). */
-function Field ({ label, value, prose }: { label: string, value: string, prose?: boolean }) {
+function Field ({ label, value, prose, hint }: {
+  label: string
+  value: string
+  prose?: boolean
+  /** 값이 왜 읽기 전용인지처럼 값만으로는 알 수 없는 것. 11px는 `text/2`다 (확정 스펙 1.7). */
+  hint?: string
+}) {
   return (
     <div className="field" data-field={label}>
       <div className="t-label field__label">{label}</div>
-      <div className={prose ? 'field__value field__value--prose' : 'field__value mono'}>{value}</div>
+      <div className={prose ? 'field__value field__value--prose' : 'field__value mono'}>
+        {value}
+        {hint && <div className="t-caption field__hint">{hint}</div>}
+      </div>
     </div>
   )
 }

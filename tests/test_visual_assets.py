@@ -213,6 +213,20 @@ def test_every_style_pairs_with_a_bundled_background() -> None:
     assert {style.background for style in caption_styles().values()} <= names
 
 
+def test_the_recommended_pairs_are_the_ones_the_spec_settled() -> None:
+    """**D2 시안이 민트와 오렌지의 짝을 서로 바꿔 적었다** (D2 확정 스펙 1.1).
+
+    이름이 맞는지(위 테스트)와 **어느 배경인지**는 다른 확인이다. 시안이 적은 두 조합은
+    6.3에서 △(권장하지 않음)이고, 앱이 스타일을 고르면 배경이 이 값으로 함께 바뀌므로(#79)
+    바뀐 짝이 커밋되면 사용자가 스타일 선택만으로 권장하지 않는 조합에 들어간다.
+    """
+    assert {name: style.background for name, style in caption_styles().items()} == {
+        "impact_yellow": "deep_navy",
+        "neon_mint": "purple_gradient",
+        "orange_card": "deep_teal_gradient",
+    }
+
+
 # --- 색 대비 (확정 스펙 6.3) ------------------------------------------------
 
 

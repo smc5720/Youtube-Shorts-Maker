@@ -24,6 +24,12 @@ from typing import Any
 import pytest
 
 from shorts_maker import api, project
+from shorts_maker.assets import (
+    CAPTION_COLOR_ROLES,
+    AssetError,
+    background_presets,
+    caption_styles,
+)
 from shorts_maker.config import load_config
 from shorts_maker.run_context import serialize_artifact, write_artifact
 from shorts_maker.schemas.project import PROJECT_SCHEMA
@@ -284,6 +290,74 @@ def test_a_malformed_line_does_not_stop_the_stream() -> None:
 
     assert responses[0]["error"]["code"] == "bad_request"
     assert responses[1] == {"id": 7, "result": {"값": 1}}
+
+
+# --- 번들 프리셋 (#79) ------------------------------------------------------------
+
+
+def test_presets_carry_the_names_and_labels_from_the_bundled_assets() -> None:
+    """**목록의 출처가 `assets/` 하나여야 한다** (#79).
+
+    앱은 `assets/`를 직접 읽지 못한다 — 동결 배포에서 그 디렉터리는 백엔드 실행 파일 옆이라
+    앱에서 본 경로와 다르다 (스파이크 5.1). 이름을 앱에도 적으면 화면에 보이는 목록과 렌더가
+    아는 목록이 갈린다.
+    """
+    result = result_of(call("presets"))
+
+    # **파일 정의 순서 그대로다.** 앱이 다시 정렬하면 순서가 두 곳에서 정해진다.
+    assert [style["name"] for style in result["caption_styles"]] == list(caption_styles())
+    assert [preset["name"] for preset in result["backgrounds"]] == list(background_presets())
+    assert all(style["label"] for style in result["caption_styles"])
+    assert all(preset["label"] for preset in result["backgrounds"])
+
+
+def test_presets_carry_the_default_pairing_the_app_follows() -> None:
+    """스타일을 고르면 배경이 함께 바뀌는 근거 (D2 확정 스펙 1.1).
+
+    **조합을 막는 값이 아니다** — 9조합 전부 고를 수 있고(D1 확정 스펙 6.3) 앱은 이 값을
+    기본 짝으로만 쓴다. 짝 자체가 확정값인지는 `test_visual_assets.py`가 지킨다.
+    """
+    result = result_of(call("presets"))
+
+    pairs = {style["name"]: style["background"] for style in result["caption_styles"]}
+    assert pairs == {name: style.background for name, style in caption_styles().items()}
+    # 짝이 목록에 없는 이름이면 앱이 견본을 그릴 배경을 찾지 못한다.
+    assert set(pairs.values()) <= {preset["name"] for preset in result["backgrounds"]}
+
+
+def test_presets_carry_the_colors_the_app_draws_swatches_with() -> None:
+    """색까지 함께 준다 — 앱 CSS에 적으면 같은 표가 두 번째로 생긴다 (`assets.py` 머리말)."""
+    result = result_of(call("presets"))
+
+    for style in result["caption_styles"]:
+        assert set(style["colors"]) == set(CAPTION_COLOR_ROLES)
+    for preset in result["backgrounds"]:
+        # 1개면 단색, 2개면 위→아래 2스톱이다 (D1 확정 스펙 6.2).
+        assert 1 <= len(preset["stops"]) <= 2
+
+
+def test_presets_does_not_need_a_run_directory() -> None:
+    """`assets/`의 내용이라 run 디렉터리마다 다르지 않다. 앱이 프로젝트를 열기 전에 묻는다."""
+    assert "error" not in call("presets")
+
+
+def test_an_unreadable_preset_file_says_where_assets_must_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**동결 배포에서 `assets/`가 실행 파일 옆에 없는 것이 실제 실패 경로다** (스파이크 5.1).
+
+    `internal`로 흘리면 앱이 "백엔드가 고장 났다"와 구분하지 못한다.
+    """
+
+    def explode() -> dict[str, Any]:
+        raise AssetError("프리셋 파일이 없다: /없는/경로/presets.json")
+
+    monkeypatch.setattr(api, "caption_styles", explode)
+    error = error_of(call("presets"))
+
+    assert error["code"] == "assets"
+    assert "presets.json" in error["message"]
+    assert "assets/" in error["details"][0]
 
 
 # --- 장면 목록과 프리뷰 (#27) ------------------------------------------------------

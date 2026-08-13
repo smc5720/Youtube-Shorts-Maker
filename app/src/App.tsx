@@ -30,10 +30,12 @@ import {
   review,
   type ApiError,
   type AppContext,
+  type CaptionStylePreset,
   type Content,
   type ContentResult,
   type EnvResult,
   type OpenResult,
+  type PresetsResult,
   type PreviewResult,
   type Project,
   type Review,
@@ -48,6 +50,9 @@ export function App () {
   const api = bridge()
   const [context, setContext] = useState<AppContext | null>(null)
   const [environment, setEnvironment] = useState<EnvResult | null>(null)
+  // 번들 프리셋 목록 (#79). **프로젝트와 무관하게 한 번 묻는다** — `assets/`의 내용이고
+  // run 디렉터리마다 다르지 않다. 읽지 못하면 `null`이고 그때 두 값은 읽기 전용으로 남는다.
+  const [presets, setPresets] = useState<PresetsResult | null>(null)
   const [opened, setOpened] = useState<{ runDir: string, path: string } | null>(null)
   const [project, setProject] = useState<Project | null>(null)
   const [scenes, setScenes] = useState<Scenes | null>(null)
@@ -172,6 +177,35 @@ export function App () {
     setProject((previous) => previous && {
       ...previous,
       [section]: { ...previous[section], [field]: value }
+    })
+  }, [])
+
+  /**
+   * 자막 스타일 교체 — **배경이 기본 짝으로 함께 간다** (#79, D2 확정 스펙 1.1).
+   *
+   * 짝은 `assets/caption-styles/presets.json`의 `background`이고 백엔드가 실어 보낸다.
+   * 시안에 적힌 짝은 둘이 서로 바뀐 값이라(민트↔오렌지) 그것을 옮기면 사용자가 스타일을
+   * 고르는 것만으로 D1 확정 스펙 6.3에서 △인 조합에 들어간다.
+   *
+   * **프리셋이 아닌 배경은 건드리지 않는다.** 사용자 파일(#80)이나 색은 프리셋 이름으로
+   * 표현할 수 없는 값이라, 스타일을 고른 것만으로 갈아 끼우면 사용자가 넣은 것이 사라진다.
+   * 조합 자체는 막지 않으므로 배경은 이 뒤에 따로 고를 수 있다.
+   */
+  const editStyle = useCallback((style: CaptionStylePreset) => {
+    setProject((previous) => previous && {
+      ...previous,
+      background: previous.background.kind === 'preset'
+        ? { ...previous.background, value: style.background }
+        : previous.background,
+      render: { ...previous.render, caption_style: style.name }
+    })
+  }, [])
+
+  /** 배경 프리셋 교체 (#79). 스타일과 독립이다 — 차단할 조합이 없다 (D1 확정 스펙 6.3). */
+  const editBackground = useCallback((name: string) => {
+    setProject((previous) => previous && {
+      ...previous,
+      background: { ...previous.background, kind: 'preset', value: name }
     })
   }, [])
 
@@ -357,6 +391,11 @@ export function App () {
     void api.call<EnvResult>('env').then((response) => {
       if (response.result) setEnvironment(response.result)
     })
+    // 프리셋도 첫 화면에서 묻는다 (#79). **실패해도 여는 것을 막지 않는다** — 목록이 없으면
+    // 두 값이 읽기 전용으로 남고 나머지 편집은 그대로 된다.
+    void api.call<PresetsResult>('presets').then((response) => {
+      if (response.result) setPresets(response.result)
+    })
   }, [api])
 
   // 창을 닫을 때 물어볼지는 main이 판단한다 — 렌더러가 사라진 뒤에도 답을 알아야 한다.
@@ -398,6 +437,9 @@ export function App () {
       state: () => ({
         unsaved,
         project,
+        // **프리셋 교체에는 손잡이를 두지 않았다** (#79). 스모크가 카드를 직접 누르므로 —
+        // 컨트롤이 카드 셋이라 클릭이 곧 제품 경로다. 목록만 여기서 읽어 이름을 적지 않는다.
+        presets,
         scenes,
         // 사람이 얹은 편집이 반영된 길이. **`scenes`는 파일 그대로다** — 스모크가 둘을
         // 비교해 `scenes.json`이 바뀌지 않았음을 확인한다 (#82).
@@ -504,7 +546,10 @@ export function App () {
                     scene={scene}
                     index={selected}
                     runDir={opened.runDir}
+                    presets={presets}
                     onDuration={editDuration}
+                    onStyle={editStyle}
+                    onBackground={editBackground}
                   />
                 </div>
                 ))
