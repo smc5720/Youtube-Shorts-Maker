@@ -61,14 +61,65 @@ export interface SceneOverride {
   question_id?: number
   /** 사람이 조정한 길이. `scenes.json`의 `duration`은 그대로다 (PRD 14.1). */
   duration?: number
+  /**
+   * 사람이 고친 자막 문구 (#83). 장면의 `text` 한 칸을 덮는다.
+   *
+   * **상단 문구(`heading`)와 해설(`caption`)은 들어오지 않는다** — `heading`은 한 문제의 세
+   * 장면이 공유하는 값이라 한 장면에서 고치면 나머지가 갈리고, 해설은 콘텐츠 필드라 문제
+   * 편집(#28)이 소유한다 (D2 확정 스펙 7.3).
+   */
+  text?: string
+  /** 사람이 얹은 텍스트 오버레이 (#83). **빈 목록은 스키마가 거부한다** — 앱이 키를 지운다. */
+  overlays?: Overlay[]
 }
 
-/** 두 목록 모두 문제 `id`이고 `scenes.json`의 `question_id`와 같은 값이다. */
+/**
+ * 장면에 얹은 텍스트 하나 (`schemas/project.py`의 `_OVERLAY`, D2 확정 스펙 7.2).
+ *
+ * **후보 목록을 이 파일에 적지 않는다** — 9칸·색·크기·웨이트는 백엔드가 `presets`로 보낸다
+ * (`OverlayContract`). 특히 웨이트를 앱이 들면 시안이 적은 400·600이 저장될 수 있고, 그때
+ * **화면은 정상이고 렌더에서만** 멈춘다 (확정 스펙 7.1-2).
+ */
+export interface Overlay {
+  id: string
+  /** 줄바꿈 허용. 줄 하나가 `drawtext` 하나이고 자동 줄바꿈은 없다 (D1 확정 스펙 7.3). */
+  text: string
+  /** `top|mid|bottom-left|center|right` 9칸. */
+  pos: string
+  /** 고른 모서리에서의 거리(px, 1080x1920 기준). */
+  offset: { x: number, y: number }
+  /** `preset` | `white` | `muted`. 값이 아니라 자막 스타일의 색 역할을 가리킨다. */
+  color: string
+  size: number
+  weight: number
+  /** `"scene"`이면 장면 전체, 객체면 장면 시작 기준 구간이다. */
+  timing: 'scene' | { start: number, dur: number }
+}
+
+/** 장면 전체를 덮는 `timing` (`schemas/project.py`의 `TIMING_SCENE`). */
+export const TIMING_SCENE = 'scene'
+
+/** 세 목록 모두 문제 `id`이고 `scenes.json`의 `question_id`와 같은 값이다. */
 export interface Review {
   /** 사람이 `flagged`/`unverified`를 보고 넘어가기로 한 문제. */
   acknowledged: number[]
-  /** 낭독 문구가 바뀌어 오디오·자막이 낡은 문제. 지우는 것은 재생성(#77)이다. */
+  /**
+   * **음성까지 낡은 문제** — 낭독 문구가 바뀌었다. 지우는 것은 재생성(#77)이다.
+   *
+   * `captions_stale`과 겹칠 수 있고, 겹치면 강한 쪽인 이 상태가 화면에 선다 (#83).
+   */
   stale: number[]
+  /**
+   * **자막만 낡은 문제** (#83) — 낭독으로 가지 않는 문구(퀴즈의 해설)만 바뀌어 `voice.mp3`는
+   * 그대로 쓸 수 있다 (D2 확정 스펙 7.3).
+   *
+   * **장면의 자막 문구를 고친 것은 여기 적지 않는다** — `render.scene_overrides[].text`의
+   * 존재가 그 기록이고, 그것은 `scenes.json`과 비교하면 나오는 값이다 (`orderStale`과 같은
+   * 판단이다). 이 목록은 비교 기준이 "직전 값"뿐인 콘텐츠 편집만 담는다.
+   *
+   * 이 필드가 생기기 전에 만들어진 run 디렉터리가 있으므로 없을 수 있다.
+   */
+  captions_stale?: number[]
   /**
    * 장면 길이를 고쳐 `captions.srt`·`voice.mp3`가 어긋난 상태 (#82).
    *
@@ -83,6 +134,11 @@ const EMPTY_REVIEW: Review = { acknowledged: [], stale: [] }
 /** 없는 `review`를 빈 값으로 읽는다. 호출부마다 `?? []`를 쓰면 한 곳을 빠뜨린다. */
 export function review (project: Project): Review {
   return project.review ?? EMPTY_REVIEW
+}
+
+/** 없는 `captions_stale`을 빈 목록으로 읽는다 (#83). `review`와 같은 이유로 함수다. */
+export function captionsStale (value: Review): number[] {
+  return value.captions_stale ?? []
 }
 
 /**
@@ -194,11 +250,29 @@ export interface BackgroundFileFormat {
   kind: string
 }
 
+/**
+ * 텍스트 오버레이가 고를 수 있는 것들 (#83).
+ *
+ * **배경 형식 목록과 같은 이유로 백엔드에서 온다** — 소유자는 `assets/`가 아니라 스키마와
+ * 렌더러지만, 앱이 적어 두면 화면이 허용하는 값과 렌더가 아는 값이 갈린다는 점이 같다.
+ */
+export interface OverlayContract {
+  /** 9칸. 문자열 그대로 `Overlay.pos`에 들어간다. */
+  positions: string[]
+  /** 색 이름과 그것이 가리키는 자막 스타일의 색 역할. 견본은 그 역할로 찾는다. */
+  colors: Array<{ name: string, role: string }>
+  sizes: number[]
+  /** **번들 웨이트다** — 400·600이 오면 렌더가 `AssetError`로 멈춘다 (확정 스펙 7.1-2). */
+  weights: number[]
+}
+
 export interface PresetsResult {
   caption_styles: CaptionStylePreset[]
   backgrounds: BackgroundPreset[]
   /** 이 필드가 없는 백엔드 세대가 있을 수 있다 (동결 배포, `ready` 이벤트의 `protocol`). */
   background_files?: BackgroundFileFormat[]
+  /** 이 필드가 없는 백엔드 세대에서는 오버레이 편집이 열리지 않는다 (#83). */
+  overlay?: OverlayContract
 }
 
 export interface ScenesResult {

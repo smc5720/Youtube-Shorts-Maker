@@ -4,7 +4,7 @@
 // 것 하나이고(`schemas/scenes.py`의 통과 필드), 그 번호가 무엇의 번호인지는 앱도 모른다 —
 // 퀴즈 스펙 1.1의 경계가 앱 쪽에서도 같은 모양이다.
 
-import type { Project, Scene, SceneOverride } from './protocol'
+import type { Overlay, Project, Scene, SceneOverride } from './protocol'
 
 /** 문제에 속한 장면. 이 셋만 `question_id`로 특정된다 (`schemas/project.py`의 `GROUPED_ROLES`). */
 const GROUPED_ROLES: ReadonlyArray<Scene['role']> = ['question', 'countdown', 'answer']
@@ -50,8 +50,38 @@ export function effectiveScenes (scenes: Scene[], project: Project): Scene[] {
   if (overrides.length === 0) return scenes
   return scenes.map((scene) => {
     const override = overrides.find((item) => sameScene(item, scene))
-    return override?.duration === undefined ? scene : { ...scene, duration: override.duration }
+    if (!override) return scene
+    // **없는 키는 손대지 않는다** — 길이만 고친 장면의 문구가 사라지면 안 된다
+    // (`video_renderer._scene_edits`가 백엔드 쪽 같은 규칙이다).
+    const next = { ...scene }
+    if (override.duration !== undefined) next.duration = override.duration
+    if (override.text !== undefined) next.text = override.text
+    return next
   })
+}
+
+/** 이 장면에 사람이 얹은 오버레이 (#83). 없으면 빈 목록이다. */
+export function overlaysFor (project: Project, scene: Scene): Overlay[] {
+  return overrideFor(project, scene)?.overlays ?? []
+}
+
+/**
+ * 자막 문구가 고쳐진 장면의 **인덱스** (#83).
+ *
+ * **적어 두지 않고 계산한다.** `render.scene_overrides[].text`와 `scenes.json`의 `text`를
+ * 비교하면 나오는 값이라, 기록하면 어느 쪽이 원본인지 모호해진다 (`App.orderStale`과 같은
+ * 판단이다). 그래서 **되돌리면 표시도 사라진다** — 콘텐츠 편집의 `stale`이 되돌려도 남는 것과
+ * 갈리는 이유는 그쪽에는 비교할 기준이 없기 때문이다 (#28).
+ *
+ * 값이 원본과 같으면 낡지 않았다 — 키가 있는지가 아니라 문구가 다른지를 본다.
+ */
+export function editedCaptions (scenes: Scene[], project: Project): number[] {
+  const edited: number[] = []
+  scenes.forEach((scene, index) => {
+    const override = overrideFor(project, scene)
+    if (override?.text !== undefined && override.text !== scene.text) edited.push(index)
+  })
+  return edited
 }
 
 /**

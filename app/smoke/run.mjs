@@ -1,4 +1,5 @@
-// 앱 스모크 (#26, #27, #28, #82, #79, #80, #81) — 앱을 실제로 띄워 완료 조건을 밟고 결과를 남긴다.
+// 앱 스모크 (#26, #27, #28, #82, #79, #80, #81, #83) — 앱을 실제로 띄워 완료 조건을 밟고
+// 결과를 남긴다.
 //
 // 여섯 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
@@ -6,10 +7,12 @@
 //   2. verify           — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
 //   3. preview          — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27),
 //                         장면 길이 조정 (#82), 자막 스타일·배경 프리셋 교체 (#79),
-//                         배경 사용자 파일과 미지원 형식 거부 (#80), 트랙 볼륨 (#81)
-//   4. questions        — 2분할 · 세 상태 표기 · 확인 기록 · 재생성 표시 · 순서·추가·삭제 (#28)
-//   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋·배경 파일·볼륨이 남았는지
-//                         (#28, #82, #79, #80, #81)
+//                         배경 사용자 파일과 미지원 형식 거부 (#80), 트랙 볼륨 (#81),
+//                         자막 문구와 텍스트 오버레이 (#83)
+//   4. questions        — 2분할 · 세 상태 표기 · 확인 기록 · 낡음 두 종류 · 순서·추가·삭제
+//                         (#28, #83)
+//   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋·배경 파일·볼륨·자막 문구·오버레이가
+//                         남았는지 (#28, #82, #79, #80, #81, #83)
 //   6. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
 //
 // **3번은 FFmpeg를 요구한다.** 실제 프레임이 나오는지가 그 시나리오의 절반이라 대역으로
@@ -84,7 +87,12 @@ if (made.status !== 0) {
   console.error(made.stderr || made.error)
   process.exit(1)
 }
-const { run: RUN, long: LONG, background: BG, unsupported: BG_BAD } = JSON.parse(made.stdout.trim())
+const {
+  run: RUN, long: LONG, background: BG, unsupported: BG_BAD,
+  // **웨이트 목록을 이 파일에 적지 않는다** (#83). 픽스처가 스키마에서 읽어 보내므로, 시안이
+  // 적은 400·600이 되살아나면 아래 확인이 걸린다 (확정 스펙 7.1-2).
+  overlay_weights: OVERLAY_WEIGHTS
+} = JSON.parse(made.stdout.trim())
 record('스모크가 열 run 디렉터리를 만든다', fs.existsSync(path.join(RUN, 'project.json')), RUN)
 record('상한을 넘는 run 디렉터리도 만든다', fs.existsSync(path.join(LONG, 'scenes.json')), LONG)
 // **run 디렉터리 밖이다** (#80). 앱은 고른 파일을 복사하지 않고 있는 자리를 가리킨다.
@@ -150,6 +158,7 @@ const preview = await wait(electron('preview', {
   SHORTS_SMOKE_OUT: previewOut,
   SHORTS_SMOKE_SHOT: path.join(APP_DIR, 'smoke', 'screenshot-preview.png'),
   SHORTS_SMOKE_SHOT_BG: path.join(APP_DIR, 'smoke', 'screenshot-background.png'),
+  SHORTS_SMOKE_SHOT_OVERLAY: path.join(APP_DIR, 'smoke', 'screenshot-overlay.png'),
   SHORTS_APP_LOG: path.join(WORK, 'app.log')
 }), 240000)
 
@@ -178,6 +187,32 @@ record('배경 파일이 run 디렉터리로 복사되지 않는다',
 const volumes = JSON.parse(fs.readFileSync(path.join(RUN, 'project.json'), 'utf8')).audio
 record('볼륨이 선형 게인으로 project.json에 남는다',
   volumes.voice_volume === 0.6 && volumes.sfx_volume === 0, JSON.stringify(volumes))
+
+// **사람이 얹은 편집은 전부 `project.json`에 있다** (#82, #83). 자막 문구와 오버레이를
+// `scenes.json`에 쓰면 재생성(#77)이 장면을 다시 만들 때 사라지고, 낭독보다 짧은 길이는
+// 확정 검증이 거부해 그 run 디렉터리가 다시 열리지 않는다 (PRD 14.1).
+const edited = JSON.parse(fs.readFileSync(path.join(RUN, 'project.json'), 'utf8'))
+const scenesOnDisk = JSON.parse(fs.readFileSync(path.join(RUN, 'scenes.json'), 'utf8'))
+const overrides = edited.render.scene_overrides ?? []
+const answerOverride = overrides.find((item) => item.role === 'answer') ?? null
+const hookOverride = overrides.find((item) => item.role === 'hook') ?? null
+
+record('길이와 자막 문구가 project.json의 한 항목에 있다',
+  answerOverride !== null && typeof answerOverride.duration === 'number'
+  && typeof answerOverride.text === 'string',
+  JSON.stringify(answerOverride))
+record('오버레이도 같은 섹션에 있다',
+  hookOverride !== null && Array.isArray(hookOverride.overlays)
+  && hookOverride.overlays.length === 1,
+  JSON.stringify(hookOverride))
+// **화면에는 보이지 않고 렌더에서만 실패하는 종류의 오류다** (확정 스펙 7.1-2).
+record('저장된 오버레이 웨이트가 번들 웨이트다',
+  OVERLAY_WEIGHTS.includes(hookOverride.overlays[0].weight),
+  `${hookOverride.overlays[0].weight} / ${OVERLAY_WEIGHTS.join(',')}`)
+record('scenes.json에는 사람이 얹은 값이 없다',
+  scenesOnDisk.scenes.every((scene) => !('overlays' in scene))
+  && scenesOnDisk.scenes[3].text !== answerOverride.text,
+  scenesOnDisk.scenes[3].text)
 
 // --- 4. 문제 편집 (#28) -------------------------------------------------------------
 

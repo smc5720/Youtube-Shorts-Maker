@@ -49,6 +49,18 @@ COLUMN_LEFT = CENTER_X - TEXT_COLUMN // 2
 """텍스트 컬럼의 왼쪽 끝 x80. 텍스트는 `text_w`로 중심을 잡지만 진행 바는 폭이 고정이라
 왼쪽 끝을 직접 쓴다."""
 
+COLUMN_RIGHT = COLUMN_LEFT + TEXT_COLUMN
+"""텍스트 컬럼의 오른쪽 끝 x920 (확정 스펙 1장). 우측 160px는 Shorts 사이드 버튼 영역이다."""
+
+SAFE_TOP = 260
+SAFE_BOTTOM = 1500
+"""사용 가능 y 범위 (확정 스펙 1장의 안전 영역 상 260 / 하 420).
+
+`_ELEMENTS`의 요소는 좌표를 직접 들고 있어 이 값을 읽지 않는다 — **읽는 것은 사람이 얹은
+오버레이(#83)뿐이다.** 9칸의 모서리가 이 사각형의 모서리이고, 그래서 `offset`을 0으로 두면
+자막이 서는 것과 같은 안전 영역 안에 들어온다.
+"""
+
 BAR_Y = 1330
 BAR_HEIGHT = 14
 """카운트다운 진행 바의 위치와 높이 (확정 스펙 5.3)."""
@@ -80,6 +92,48 @@ CTA_PUNCH_MAX_LEN = 9
 CTA_TAIL_MAX_LEN = 21
 """cta 고정 두 줄의 글자 수 상한 (확정 스펙 5.5). 설정값이라 초과는 사람의 오타이고, 렌더를
 시작하기 전에 멈춘다 — 생성 텍스트의 상한(#56)과 달리 모델이 만든 값이 아니다."""
+
+SCENE_OVERLAYS = "overlays"
+"""사람이 얹은 텍스트 오버레이가 **장면 사본에** 앉는 키 (#83).
+
+**`scenes.json`에는 없는 이름이다.** 그 스키마는 모르는 필드를 거부하므로(`schemas/core.py`의
+`Object`) 이 키가 파일에서 올 수는 없고, 값의 출처는 `project.json`의 `render.scene_overrides`
+하나다 — `video_renderer.apply_scene_overrides`가 확정 검증 **뒤에** 얹기 때문에 장면 사본에
+있어도 계약을 어기지 않는다.
+
+장면 배열에 얹는 이유는 오버레이도 문구·길이와 같은 "장면 하나에 붙는 편집"이고, 목록을 따로
+넘기면 인덱스가 맞는지를 부르는 쪽마다 다시 확인해야 하기 때문이다 — 장면과 구간을 짝지어 도는
+자리가 `build`에 이미 있다.
+"""
+
+OVERLAY_COLOR_ROLES = {"preset": "accent", "white": "body", "muted": "secondary"}
+"""오버레이 색 이름 → 자막 스타일 프리셋의 색 역할 (D2 확정 스펙 7.2).
+
+**값을 복사하지 않고 프리셋을 참조한다.** 복사하면 스타일을 바꿨을 때 D1 확정 스펙 6.3의 조합
+판정이 △로 내려가도 아무도 모른다. 그래서 `white`도 정확한 흰색이 아니다 — 프리셋마다
+`#FFFFFF` / `#F2FFFB` / `#EAF7F1`이고, 그 짝에서 대비가 확인된 값이 프리셋의 `body`다.
+렌더러에 색값을 적지 않는 규칙도 같은 자리에 있다 (D1 확정 스펙 6장).
+
+키는 `schemas/project.OVERLAY_COLORS`와 같아야 하고 `tests/test_overlay.py`가 그것을 지킨다.
+"""
+
+OVERLAY_BORDERW = {28: 2, 40: 3, 56: 4}
+"""오버레이 크기별 외곽선 두께.
+
+**크기 대비 6~7% 대역이다** — D1 확정 스펙 2.1의 실측표가 요소들을 5.3~8.3%에 두었고, 이
+디자인에서 외곽선이 지배적 요소라 얇으면 배경 위에서 글자가 풀린다. 오버레이 스키마에
+두께 칸이 없는 것은 크기 후보가 셋뿐이라 표 하나로 끝나기 때문이다 (확정 스펙 7.2).
+
+키는 `schemas/project.OVERLAY_SIZES`와 같아야 하고 `tests/test_overlay.py`가 그것을 지킨다.
+"""
+
+OVERLAY_LINE_RATIO = 1.4
+"""오버레이의 줄 간격 / 폰트 크기.
+
+`_ELEMENTS`의 요소들이 1.33~1.44배(76→104, 64→88, 36→52)이고 그 가운데다. 오버레이 스키마에
+줄 간격 칸이 없으므로(확정 스펙 7.2) 크기에서 낸다 — **줄 하나가 `drawtext` 하나라
+`line_spacing`이 아니라 이 값이 그대로 `y` 증분이다** (모듈 주석의 첫째 항목).
+"""
 
 KOREAN_PROBE = ("한", "글")
 """사용자 지정 폰트가 한국어를 그릴 수 있는지 보는 두 글자.
@@ -350,7 +404,8 @@ def build(
 
     Args:
         scenes: **확정 상태** `scenes.json` 내용. 입구 검증은 부르는 쪽(`video_renderer`)이
-            이미 했다.
+            이미 했다. 사람이 얹은 편집(#82·#83)은 그 뒤에 반영되므로, 여기 오는 `text`는
+            이미 갈린 값이고 `SCENE_OVERLAYS` 키가 있을 수 있다.
         frame_spans: 장면별 (시작 프레임, 끝 프레임). 프레임 경계는 `video_renderer.align`이
             소유한다 — 여기서 `duration`을 다시 누적하지 않는다.
         fps: `enable` 식의 분모.
@@ -414,6 +469,15 @@ def build(
     # 좌표·크기가 같다는 전제가 성립하고(5.3), answer는 감쇠색이라 갈린다 (5.4).
     for name, text, span, dimmed in _headers(scene_list, frame_spans, total_questions):
         painter.draw(name, text, span, where=name, color="dimmed" if dimmed else None)
+
+    # **사람이 얹은 오버레이가 마지막이다** (#83). 필터 순서가 그리는 순서이므로 자막보다 뒤에
+    # 와야 나중에 얹은 것이 위에 온다 — 아래로 들어가면 넣은 이유가 사라진다. 겹침을 막지
+    # 않는 것은 프리뷰 정지 프레임에 그대로 보이기 때문이다 (D2 확정 스펙 7.5).
+    for index, (scene, span) in enumerate(zip(scene_list, frame_spans, strict=True)):
+        for position, overlay in enumerate(scene.get(SCENE_OVERLAYS) or []):
+            painter.draw_overlay(
+                overlay, span, where=f"scenes[{index}].overlays[{position}]"
+            )
 
     return painter.filters
 
@@ -618,6 +682,129 @@ class _Painter:
             return f"({center + round(offset)}-text_h/2)"
         return f"({center}{offset:+g}*({size})/{target}-text_h/2)"
 
+    def draw_overlay(
+        self, overlay: Mapping[str, Any], span: tuple[int, int], *, where: str
+    ) -> None:
+        """사람이 얹은 텍스트 하나 (#83, D2 확정 스펙 7.2).
+
+        **`_ELEMENTS`의 요소와 같은 길로 그린다.** 수치의 출처만 표가 아니라 사람이고, 그래서
+        요소·티어를 그 자리에서 만들어 `_drawtext`에 넘긴다 — 이스케이프(`%`·`:`·`'`), 폰트
+        파일 선택, `expansion=none`, `enable` 식이 자막과 한 경로를 지나야 오버레이만 다르게
+        깨지는 자리가 생기지 않는다.
+
+        **줄바꿈은 입력한 그대로다** (확정 스펙 7.2 — 폭·줄바꿈 속성이 없다). 자동 줄바꿈을
+        넣으면 사람이 넣은 줄과 계산된 줄이 섞여 화면과 입력이 갈린다. 컬럼을 넘는 줄은
+        경고만 남기고 그린다 — 넘침은 프리뷰 정지 프레임에 그대로 보인다 (7.5).
+        """
+        lines = str(overlay["text"]).split("\n")
+        size = int(overlay["size"])
+        limit = TEXT_COLUMN // size
+        for line in lines:
+            if len(line) > limit:
+                LOGGER.warning(
+                    "%s의 줄이 %d자다 — %dpx에서 컬럼 %dpx를 넘어 안전 영역을 벗어난다: %s",
+                    where, len(line), size, TEXT_COLUMN, line,
+                )
+
+        window = self.overlay_span(overlay.get("timing"), span, where=where)
+        if window is None:
+            return
+
+        line_height = round(size * OVERLAY_LINE_RATIO)
+        element = Element(
+            weight=int(overlay["weight"]),
+            # 색은 **이름 → 프리셋 역할**이다. 값을 복사하면 스타일 교체가 조합 판정을 비켜간다.
+            color=OVERLAY_COLOR_ROLES[str(overlay["color"])],
+            borderw=OVERLAY_BORDERW[size],
+            # 그림자를 넣지 않는다 — 해설·tail과 같은 판단이고(표의 `shadow_offset=0`) 오버레이
+            # 스키마에 그림자 칸이 없다.
+            shadow_offset=0,
+            shadow_alpha=0.0,
+            tiers=(),
+        )
+        tier = Tier(
+            max_chars=0, size=size, y=0, line_height=line_height, max_lines=len(lines)
+        )
+
+        offset = overlay.get("offset") or {}
+        top = self._overlay_top(
+            str(overlay["pos"]),
+            height=(len(lines) - 1) * line_height + size,
+            offset_y=int(offset.get("y", 0)),
+        )
+        x = self._overlay_x(str(overlay["pos"]), offset_x=int(offset.get("x", 0)))
+
+        for number, line in enumerate(lines):
+            # **빈 줄은 그리지 않지만 자리는 차지한다** — 사람이 넣은 줄 사이 여백이고,
+            # 빈 `text`는 `drawtext`가 그릴 것이 없는 인스턴스를 하나 더 만들 뿐이다.
+            if not line.strip():
+                continue
+            self.filters.append(
+                self._drawtext(
+                    line,
+                    element=element,
+                    tier=tier,
+                    y=str(top + number * line_height),
+                    span=window,
+                    color=element.color,
+                    x=x,
+                )
+            )
+
+    def _overlay_top(self, position: str, *, height: int, offset_y: int) -> int:
+        """블록 상단 y. **`offset`은 고른 모서리에서의 거리다** (확정 스펙 7.2).
+
+        그래서 `bottom`에서 `y`를 키우면 위로 올라간다 — 어느 칸에서든 값을 키우면 고른
+        모서리에서 멀어진다. 가운데 칸(`mid`)에는 기준 모서리가 없으므로 화면 좌표대로
+        아래가 양수다.
+        """
+        vertical = position.split("-")[0]
+        if vertical == "top":
+            return SAFE_TOP + offset_y
+        if vertical == "bottom":
+            return SAFE_BOTTOM - height - offset_y
+        return (SAFE_TOP + SAFE_BOTTOM - height) // 2 + offset_y
+
+    def _overlay_x(self, position: str, *, offset_x: int) -> str:
+        """줄 하나의 `x` 표현식. **줄마다 자기 폭으로 정렬된다** — 줄 하나가 `drawtext`
+        하나라서(모듈 주석) 가운데·오른쪽 정렬이 블록이 아니라 줄 기준이다.
+        """
+        horizontal = position.split("-")[1]
+        if horizontal == "left":
+            return str(COLUMN_LEFT + offset_x)
+        if horizontal == "right":
+            return f"({COLUMN_RIGHT - offset_x}-text_w)"
+        return f"({CENTER_X + offset_x}-text_w/2)"
+
+    def overlay_span(
+        self, timing: Any, span: tuple[int, int], *, where: str
+    ) -> tuple[int, int] | None:
+        """오버레이가 서 있는 프레임 구간 (확정 스펙 7.2).
+
+        **모양으로 갈린다** — 매핑이면 `{start, dur}` 창이고 그 밖(`"scene"`)이면 장면 전체다.
+        문자열 리터럴을 여기 적지 않는 이유는 계약이 `schemas/project.py`에 있고, 이 층이
+        보아야 하는 것은 "창이 주어졌는가"뿐이기 때문이다.
+
+        끝 시각은 **`align()`이 준 장면 끝으로 clamp한다** — `duration`으로 다시 누적하면
+        경계가 요소마다 갈린다 (PRD 7.7). 장면 길이를 줄이면 창이 함께 잘리고 그것은 경고가
+        아니라 확정 동작이다.
+
+        Returns:
+            프레임 구간. 장면이 끝난 뒤에 시작하는 창이면 `None`이다 (그릴 것이 없다).
+        """
+        start, end = span
+        if not isinstance(timing, Mapping):
+            return span
+
+        first = start + self._frames(float(timing["start"]))
+        if first >= end:
+            LOGGER.warning(
+                "%s: 시작 %.2f초가 장면(%.2f초)을 넘어 그리지 않는다",
+                where, float(timing["start"]), (end - start) / self.fps,
+            )
+            return None
+        return first, min(first + self._frames(float(timing["dur"])), end)
+
     def caption_span(self, span: tuple[int, int], *, where: str) -> tuple[int, int]:
         """해설이 서 있는 구간. 장면 시작이 아니라 `caption_onset` 뒤에 뜬다 (확정 스펙 4장).
 
@@ -709,8 +896,13 @@ class _Painter:
         span: tuple[int, int],
         color: str,
         size: str | None = None,
+        x: str | None = None,
     ) -> str:
-        """줄 하나. `y`와 `size`는 표현식일 수 있다 (#22의 정답 확대)."""
+        """줄 하나. `y`와 `size`는 표현식일 수 있다 (#22의 정답 확대).
+
+        `x`를 주는 것은 사람이 얹은 오버레이뿐이다 (#83) — 자막 요소는 전부 컬럼 중앙 정렬이라
+        (확정 스펙 1장) 기본값 하나로 끝난다.
+        """
         borderw = tier.borderw if tier.borderw is not None else element.borderw
         if element.border_color == "answer_border":
             # 그림자를 안 쓰는 프리셋이 정답만 두껍게 한다 (확정 스펙 6.1).
@@ -725,7 +917,7 @@ class _Painter:
             f"fontcolor={_color(self.style.color(color))}",
             f"bordercolor={_color(self.style.color(element.border_color))}",
             f"borderw={borderw}",
-            f"x=({CENTER_X}-text_w/2)",
+            f"x={_value(x if x is not None else f'({CENTER_X}-text_w/2)')}",
             f"y={_value(y)}",
             f"enable='{self._enable(span)}'",
         ]

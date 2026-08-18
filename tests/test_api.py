@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from shorts_maker import api, project, video_renderer
+from shorts_maker import api, overlay, project, video_renderer
 from shorts_maker.assets import (
     CAPTION_COLOR_ROLES,
     AssetError,
@@ -32,6 +32,7 @@ from shorts_maker.assets import (
 )
 from shorts_maker.config import load_config
 from shorts_maker.run_context import serialize_artifact, write_artifact
+from shorts_maker.schemas import project as project_schema
 from shorts_maker.schemas.project import BACKGROUND_KINDS, PROJECT_SCHEMA
 from shorts_maker.schemas.scenes import SCENES_SCHEMA
 from shorts_maker.shorts_types import DEFAULT_TYPE, get_type
@@ -352,6 +353,26 @@ def test_presets_carry_the_background_file_formats_the_app_may_offer() -> None:
     assert [entry["extension"] for entry in result["background_files"]] == list(
         video_renderer.BACKGROUND_FILE_KINDS
     )
+
+
+def test_presets_carry_the_overlay_contract_the_app_offers() -> None:
+    """**오버레이 후보 목록도 앱이 적어 두면 안 된다** (#83).
+
+    소유자는 `assets/`가 아니라 스키마와 렌더러지만 위험이 같다 — 특히 웨이트는 시안이 적은
+    400·600을 앱이 옮기면 **화면은 정상이고 렌더에서만** `AssetError`로 멈춘다 (확정 스펙 7.1-2).
+    """
+    result = result_of(call("presets"))["overlay"]
+
+    assert result["positions"] == list(project_schema.OVERLAY_POSITIONS)
+    assert result["sizes"] == list(project_schema.OVERLAY_SIZES)
+    assert result["weights"] == list(project_schema.OVERLAY_WEIGHTS)
+    assert 400 not in result["weights"] and 600 not in result["weights"]
+    # 이름과 프리셋 역할을 함께 보낸다 — 앱이 그 역할로 `caption_styles[].colors`에서
+    # 견본 색을 찾고 값 자체는 들지 않는다 (확장자와 `kind`를 함께 보내는 것과 같다).
+    colors = {entry["name"]: entry["role"] for entry in result["colors"]}
+    assert colors == overlay.OVERLAY_COLOR_ROLES
+    assert set(colors) == set(project_schema.OVERLAY_COLORS)
+    assert set(colors.values()) <= set(CAPTION_COLOR_ROLES)
 
 
 def test_presets_does_not_need_a_run_directory() -> None:

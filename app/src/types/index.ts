@@ -30,19 +30,33 @@ export interface ContentItem {
   /** 목록 행 오른쪽의 짧은 값 (퀴즈는 난이도). */
   tag: string
   /**
-   * 낭독으로 가는 문구 전부를 이어 붙인 값.
+   * **낭독으로 가는** 문구 전부를 이어 붙인 값.
    *
-   * **이것이 바뀌면 오디오·자막이 낡고 확인 기록이 풀린다.** 어느 필드가 낭독으로 가는지는
-   * 타입의 지식이라 셸이 알지 않는다 — 셸은 값이 달라졌는지만 본다.
+   * 이것이 바뀌면 **음성까지 낡는다** — `voice.mp3`를 다시 만들어야 한다. 어느 필드가 낭독으로
+   * 가는지는 타입의 지식이라 셸이 알지 않는다 (`narrate: true` 장면의 `text`만 TTS를 지난다) —
+   * 셸은 값이 달라졌는지만 본다.
    */
   narration: string
+  /**
+   * **자막에 가는** 문구 전부를 이어 붙인 값 (#83).
+   *
+   * `narration`을 포함한다 — 낭독 문구는 자막에도 나오기 때문이다. 이것만 바뀌면
+   * **자막만 낡는다**: 음성은 그대로 쓰고 `captions.srt`만 다시 만들면 된다 (확정 스펙 7.3).
+   *
+   * **두 값을 나눈 것이 #83이다.** 낡음이 한 종류일 때는 해설이 `narration`에 섞여 있어도
+   * 결과가 같았지만, 갈린 뒤에는 해설만 고친 경우가 "음성까지 낡음"으로 잘못 표시된다.
+   */
+  captions: string
 }
 
 export interface EditorProps {
   content: Content
   item: ContentItem
   acknowledged: boolean
+  /** 음성까지 낡았다 (#83). */
   stale: boolean
+  /** 자막만 낡았다 (#83). 둘이 함께 참일 수 있고 그때는 강한 쪽만 그린다. */
+  captionsStale: boolean
   onChange: (next: Content) => void
   onAcknowledge: () => void
 }

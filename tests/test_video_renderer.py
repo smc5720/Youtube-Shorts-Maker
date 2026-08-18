@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from shorts_maker import timeline, video_renderer
+from shorts_maker import overlay, timeline, video_renderer
 from shorts_maker.audio_mix import AudioChain
 from shorts_maker.schemas import SchemaError
 from shorts_maker.video_renderer import (
@@ -187,6 +187,89 @@ def test_the_timeline_follows_the_override() -> None:
 
     assert aligned.frames == (75, 30)
     assert aligned.total_sec == pytest.approx(3.5)
+
+
+# --- 자막 문구와 텍스트 오버레이 (#83) ---------------------------------------
+
+OVERLAY: dict[str, Any] = {
+    "id": "o1",
+    "text": "여기 주목",
+    "pos": "bottom-center",
+    "offset": {"x": 0, "y": 40},
+    "color": "preset",
+    "size": 40,
+    "weight": 700,
+    "timing": "scene",
+}
+
+
+def test_an_override_replaces_the_text_of_the_matching_scene() -> None:
+    """자막 문구 편집도 길이와 같은 자리를 지난다 (확정 스펙 7.1-3)."""
+    scenes = scenes_with(2.5)
+
+    applied = apply_scene_overrides(
+        overriding(project_with(), {"role": "hook", "text": "고친 문구"}), scenes
+    )
+
+    assert applied["scenes"][0]["text"] == "고친 문구"
+    assert scenes["scenes"][0]["text"] == "문구"
+
+
+def test_an_override_carries_overlays_onto_the_scene() -> None:
+    """`scenes.json`에 없는 키로 얹는다 — 그 스키마는 모르는 필드를 거부하므로 파일에서 올 수
+    없고, 출처가 `render.scene_overrides` 하나로 남는다 (`overlay.SCENE_OVERLAYS`)."""
+    scenes = scenes_with(2.5)
+
+    applied = apply_scene_overrides(
+        overriding(project_with(), {"role": "hook", "overlays": [OVERLAY]}), scenes
+    )
+
+    assert applied["scenes"][0][overlay.SCENE_OVERLAYS] == [OVERLAY]
+    assert overlay.SCENE_OVERLAYS not in scenes["scenes"][0]
+
+
+def test_the_three_edits_ride_one_override_item() -> None:
+    """길이·문구·오버레이가 같은 장면을 가리키므로 항목 하나를 공유한다 (PRD 14.1)."""
+    scenes = scenes_with(2.5)
+
+    applied = apply_scene_overrides(
+        overriding(
+            project_with(),
+            {"role": "hook", "duration": 1.5, "text": "고친 문구", "overlays": [OVERLAY]},
+        ),
+        scenes,
+    )
+
+    (scene,) = applied["scenes"]
+    assert (scene["duration"], scene["text"]) == (1.5, "고친 문구")
+    assert scene[overlay.SCENE_OVERLAYS] == [OVERLAY]
+
+
+def test_an_override_leaves_the_fields_it_does_not_carry() -> None:
+    """길이만 고친 장면의 문구가 사라지면 안 된다 — 없는 키는 손대지 않는다."""
+    scenes = scenes_with(2.5)
+
+    applied = apply_scene_overrides(
+        overriding(project_with(), {"role": "hook", "duration": 1.5}), scenes
+    )
+
+    assert applied["scenes"][0]["text"] == "문구"
+    assert overlay.SCENE_OVERLAYS not in applied["scenes"][0]
+
+
+def test_the_overlays_reach_the_filter_list() -> None:
+    """렌더와 프리뷰가 같은 함수를 지나므로 둘 다 그린다 (`build_overlays`)."""
+    scenes = scenes_with(2.5)
+    project = overriding(
+        project_with(), {"role": "hook", "overlays": [OVERLAY]}
+    )
+    applied = apply_scene_overrides(project, scenes)
+
+    filters = video_renderer.build_overlays(
+        project, applied, timeline=align(applied)
+    )
+
+    assert any("여기 주목" in item for item in filters)
 
 
 # --- 프레임 경계 정렬 --------------------------------------------------------

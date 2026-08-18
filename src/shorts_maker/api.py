@@ -48,10 +48,11 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, TextIO
 
-from . import video_renderer
+from . import overlay, video_renderer
 from .assets import AssetError, background_presets, caption_styles
 from .run_context import serialize_artifact
 from .schemas import SchemaError, load_project, validate_project
+from .schemas import project as project_schema
 from .schemas.core import Schema
 from .schemas.project import PREVIEW_BLIND_SECTIONS, PROJECT_SCHEMA
 from .schemas.scenes import SCENES_SCHEMA, load_scenes
@@ -198,6 +199,22 @@ def method_presets(params: dict[str, Any]) -> Any:
             {"extension": extension, "kind": kind}
             for extension, kind in video_renderer.BACKGROUND_FILE_KINDS.items()
         ],
+        # 텍스트 오버레이가 고를 수 있는 것들 (#83). **배경 형식 목록과 같은 이유로 여기를
+        # 지난다** — 소유자는 `assets/`가 아니라 스키마(`schemas/project.py`)와 렌더러지만,
+        # 앱이 적어 두면 안 되는 목록이라는 점이 같다. 특히 웨이트는 앱이 시안대로 400·600을
+        # 적으면 **화면은 정상이고 렌더에서만** `AssetError`로 멈춘다 (확정 스펙 7.1-2).
+        "overlay": {
+            "positions": list(project_schema.OVERLAY_POSITIONS),
+            # 색 이름과 그것이 가리키는 프리셋 역할을 **한 표로 함께 보낸다** —
+            # 확장자와 `kind`를 함께 보내는 것과 같은 판단이다. 앱은 이 역할로 위의
+            # `caption_styles[].colors`에서 견본 색을 찾고, 값 자체는 들지 않는다.
+            "colors": [
+                {"name": name, "role": role}
+                for name, role in overlay.OVERLAY_COLOR_ROLES.items()
+            ],
+            "sizes": list(project_schema.OVERLAY_SIZES),
+            "weights": list(project_schema.OVERLAY_WEIGHTS),
+        },
     }
 
 
