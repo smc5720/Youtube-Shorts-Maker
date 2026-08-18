@@ -1,4 +1,4 @@
-// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81의 완료 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81 · #83의 완료 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
 // 같은 `open` / `edit` / `save`이고, **대화상자만 바꿔 끼운다**(모달이 뜨면 자동 실행이
@@ -21,6 +21,8 @@ const READY = process.env.SHORTS_SMOKE_READY
 const SHOT = process.env.SHORTS_SMOKE_SHOT
 // 배경 파일을 고른 뒤의 화면 (#80). 프리셋 상태와 다른 파일이라 둘을 나란히 볼 수 있다.
 const SHOT_BG = process.env.SHORTS_SMOKE_SHOT_BG
+// 자막 문구·오버레이 편집 화면 (#83). 오버레이 카드는 프리셋 목록보다 아래에 있다.
+const SHOT_OVERLAY = process.env.SHORTS_SMOKE_SHOT_OVERLAY
 // 배경 사용자 파일 셋 (#80) — 받는 것 / 받지 않는 것 / 고른 뒤 사라진 것.
 const BG = process.env.SHORTS_SMOKE_BG
 const BG_BAD = process.env.SHORTS_SMOKE_BG_BAD
@@ -31,7 +33,16 @@ const MARKERS = {
   save: '스모크 · 저장 버튼',
   close: '스모크 · 닫기 저장',
   /** 문제 편집 쪽 표식 (#28). 낭독 문구라 확인 기록이 풀리고 재생성 대상이 된다. */
-  answer: '스모크 · 고친 정답'
+  answer: '스모크 · 고친 정답',
+  /** 자막 문구 (#83). `%`·`:`가 들어 있어 이스케이프 회귀가 렌더에서 함께 걸린다. */
+  caption: '스모크 · 고친 자막 71%',
+  /** 오버레이 문구 (#83). */
+  overlay: '스모크 · 오버레이',
+  /**
+   * 해설 (#83). **낭독으로 가지 않는 문구라** 이것만 고치면 자막만 낡는다 — 시안의 두 상태가
+   * 갈리는 지점이고, 고치기 전에는 해설이 `narration`에 섞여 있어 음성까지 낡음으로 표시됐다.
+   */
+  explanation: '스모크 · 고친 해설'
 }
 
 const TIMEOUT_MS = 120000
@@ -219,7 +230,9 @@ async function preview (host) {
   )))
 
   // 1. 3분할 폭 — 두 창 크기에서 확정 수치가 그대로 나오는지 (확정 스펙 3.1)
-  for (const [width, height, left, right] of [[1440, 900, 296, 340], [1280, 720, 264, 300]]) {
+  // **속성 패널이 340 → 384로 넓어졌다** (#83, 확정 스펙 7.4). 오버레이 편집 카드가 그 폭을
+  // 요구하고, 최소 창 값은 336이다 — 좌 264 + 우 336이면 프리뷰에 680px이 남는다.
+  for (const [width, height, left, right] of [[1440, 900, 296, 384], [1280, 720, 264, 336]]) {
     window.setContentSize(width, height)
     await delay(300)
     const scenes = await rect('[data-testid="scene-list"]')
@@ -586,9 +599,13 @@ async function preview (host) {
     (preset) => preset.name !== nowBackground && preset.name !== nowStyle.background
   )
   await evaluate(`document.querySelector('[data-testid="presets-background"] .preset[data-value=${quote(otherBackground.name)}]').click()`)
+  // **요청이 끝난 것까지 기다린다** (`pending === null`). 프레임만 보면 이 요청이 아직 도는
+  // 중에 아래 볼륨 편집이 나가고, 같은 서명 두 요청이 겹치면 **어느 쪽이 렌더를 하는지가
+  // 스레드 순서에 달린다** — 캐시 자물쇠는 둘 중 하나만 돌게 하지만(`_PREVIEW_LOCK`) 화면에
+  // 서는 것은 나중 요청이므로, 나중 요청이 렌더한 회차에서 이 확인이 흔들렸다.
   const regenerated = await until(async () => {
-    const frame = await shown()
-    return frame !== null && frame.elapsedMs !== null
+    const state = await evaluate('window.__smoke.state()')
+    return state.pending === null && state.frame !== null && state.frame.elapsedMs !== null
   }, 120, 100)
   const madeAgain = await shown()
   record('배경을 바꾸면 프레임이 실제로 다시 만들어진다', regenerated, JSON.stringify(madeAgain))
@@ -622,6 +639,203 @@ async function preview (host) {
   await slide('voice', 60)
   await until(async () => (await audioOf()).voice_volume === 0.6)
   record('볼륨을 저장한다', await evaluate('window.__smoke.save()') === true)
+
+  // 11. **자막 문구와 텍스트 오버레이** (#83). 길이(#82)와 같은 항목에 얹히는지, 그리고
+  //     낡음이 두 종류로 갈리는지가 이 절의 확인 대상이다 (확정 스펙 7.2·7.3).
+  const overrides = () => evaluate('window.__smoke.state().project.render.scene_overrides ?? []')
+  const overrideOf = async (role, questionId) =>
+    (await overrides()).find((item) => item.role === role && (item.question_id ?? null) === questionId) ?? null
+
+  // (a) `countdown`에는 자막 문구 칸이 없다 — 장면에 `text`가 없다 (`seconds`를 세는 장면이다).
+  await evaluate('window.__smoke.select(2)')
+  await until(async () => (await text('[data-testid="properties-scene"]')).includes('countdown'))
+  record('자막 문구가 없는 장면에는 입력이 없다',
+    await evaluate('document.querySelector(\'[data-testid="input-자막 문구"]\') === null'))
+
+  // (b) #82가 길이를 얹은 그 장면이다 — **같은 항목에 문구가 함께 붙는지**를 본다.
+  await evaluate('window.__smoke.select(3)')
+  await until(async () => (await text('[data-testid="properties-scene"]')).includes('answer'))
+  // **프레임 인덱스로 기다린다.** 비교 기준을 잡기 전에 그 장면의 프레임이 서 있어야 하고,
+  // `ready`만 보면 직전 장면의 프레임에서 곧바로 통과한다 (5(b)와 같은 함정이다).
+  const frameAt = (index) => until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === index
+  }, 120, 100)
+  await frameAt(3)
+  const beforeCaption = await shown()
+  const originalText = (await evaluate('window.__smoke.state().scenes.scenes[3]')).text
+  await evaluate(`window.__smoke.editCaption(3, ${quote(MARKERS.caption)})`)
+
+  const captioned = await until(async () =>
+    (await evaluate('window.__smoke.state().shownTexts'))[3] === MARKERS.caption)
+  record('자막 문구를 고치면 화면의 장면이 그 문구를 쓴다', captioned,
+    JSON.stringify((await evaluate('window.__smoke.state().shownTexts'))[3]))
+  record('scenes.json의 문구는 그대로다',
+    (await evaluate('window.__smoke.state().scenes.scenes[3]')).text === originalText, originalText)
+
+  const merged = await overrideOf('answer', narrated.question_id)
+  record('길이와 문구가 같은 오버라이드 항목에 있다',
+    merged !== null && typeof merged.duration === 'number' && merged.text === MARKERS.caption,
+    JSON.stringify(merged))
+
+  // (c) **자막만 낡음이다.** 파랑 사각 `↻`이고 음성까지 낡음(`♪`)이 아니다 (확정 스펙 7.3).
+  record('자막만 낡았다는 카드가 뜬다',
+    await until(async () =>
+      await attribute('[data-testid="stale-card"]', 'data-kind') === 'captions'),
+    await attribute('[data-testid="stale-card"]', 'data-kind'))
+  record('장면 행에도 표시가 붙는다',
+    await evaluate('document.querySelectorAll(\'[data-testid="scene-row-stale"]\').length') === 1)
+  // 동작은 #77의 몫이라 자리만 있다 — 없으면 다음 사람이 다른 자리에 만든다.
+  record('자막 재생성 버튼이 자리에 있고 아직 누를 수 없다',
+    await evaluate('(() => { const n = document.querySelector(\'[data-testid="regenerate-captions"]\');'
+      + ' return n !== null && n.disabled })()'))
+  // **`review`를 건드리지 않는다** — 계산되는 값이라 적을 자리가 없다 (`editedCaptions`).
+  record('자막 문구 편집이 review에 적히지 않는다',
+    ((await evaluate('window.__smoke.state().project.review')).captions_stale ?? []).length === 0,
+    JSON.stringify(await evaluate('window.__smoke.state().project.review')))
+
+  record('고친 문구가 프리뷰 프레임까지 간다', await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === 3 && beforeCaption !== null
+      && frame.bytes !== beforeCaption.bytes
+  }, 120, 100), `${beforeCaption && beforeCaption.bytes} → ${JSON.stringify(await shown())}`)
+
+  // (d) 되돌리면 **표시도 함께 사라진다** — `scenes.json`이 비교 기준이라 계산으로 나온다.
+  //     그때 **길이 오버라이드는 남아야 한다**: 항목이 통째로 지워지면 #82의 값을 잃는다.
+  await evaluate('document.querySelector(\'[data-testid="revert-caption"]\').click()')
+  const reverted = await until(async () => {
+    const item = await overrideOf('answer', narrated.question_id)
+    return item !== null && item.text === undefined
+  })
+  record('되돌리면 문구가 scenes.json 값으로 돌아간다',
+    reverted && (await evaluate('window.__smoke.state().shownTexts'))[3] === originalText,
+    JSON.stringify(await overrideOf('answer', narrated.question_id)))
+  record('되돌려도 조정한 길이는 남는다',
+    typeof (await overrideOf('answer', narrated.question_id)).duration === 'number')
+  record('되돌리면 낡음 표시도 사라진다',
+    await until(async () => (await text('[data-testid="stale-card"]')) === null))
+
+  // 재시작 확인이 볼 값을 다시 얹는다.
+  await evaluate(`window.__smoke.editCaption(3, ${quote(MARKERS.caption)})`)
+  await until(async () => (await overrideOf('answer', narrated.question_id)).text === MARKERS.caption)
+
+  // (e) **오버레이** — 문제에 속하지 않는 장면(hook)에 얹어 `question_id` 없는 키도 밟는다.
+  const contract = (await evaluate('window.__smoke.state().presets')).overlay
+  record('오버레이 계약 목록이 백엔드에서 온다',
+    contract !== null && contract.positions.length === 9 && contract.colors.length === 3
+    && contract.sizes.length === 3 && contract.weights.length === 3,
+    JSON.stringify(contract))
+
+  await evaluate('window.__smoke.select(0)')
+  await until(async () => (await text('[data-testid="properties-scene"]')).includes('hook'))
+  await frameAt(0)
+  const beforeOverlay = await shown()
+  await evaluate('document.querySelector(\'[data-testid="overlay-add"]\').click()')
+  const added = await until(async () => (await overrideOf('hook', null))?.overlays?.length === 1)
+  const overlay = () => evaluate(
+    '(() => { const list = (window.__smoke.state().project.render.scene_overrides ?? [])'
+    + '.find((item) => item.role === "hook"); return list && list.overlays[0] })()'
+  )
+  record('오버레이를 추가하면 그 장면의 오버라이드에 쌓인다', added, JSON.stringify(await overlay()))
+  record('추가한 오버레이의 웨이트가 번들 웨이트다',
+    contract.weights.includes((await overlay()).weight), JSON.stringify(await overlay()))
+  record('카드가 화면에 선다',
+    await evaluate('document.querySelectorAll(\'[data-testid="overlay-card"]\').length') === 1)
+
+  // **프레임 확인을 여기서 한다** — 방금 추가한 오버레이는 `timing: "scene"`이라 장면 어디서나
+  // 보인다. 아래에서 구간을 지정한 뒤에는 **대표 프레임이 장면 한가운데**이므로(#27) 창이 그
+  // 시각을 덮지 않으면 프레임에 나타나지 않는다 — 그때 프레임이 그대로인 것은 정상이다.
+  record('얹은 오버레이가 프리뷰 프레임까지 간다', await until(async () => {
+    const frame = await shown()
+    return frame !== null && frame.index === 0 && beforeOverlay !== null
+      && frame.bytes !== beforeOverlay.bytes
+  }, 120, 100), `${beforeOverlay && beforeOverlay.bytes} → ${JSON.stringify(await shown())}`)
+
+  // 위치는 9칸 격자를 눌러서 고른다 — 이름을 이 파일에 적지 않는다 (프리셋과 같은 이유).
+  const cell = contract.positions[contract.positions.length - 1]
+  await evaluate(`document.querySelector('[data-testid="overlay-positions"] [data-value=${quote(cell)}]').click()`)
+  record('9칸 격자를 눌러 위치를 고른다',
+    await until(async () => (await overlay()).pos === cell), JSON.stringify(await overlay()))
+
+  const bigger = contract.sizes[contract.sizes.length - 1]
+  await evaluate(`document.querySelector('[data-testid="segmented-overlay-size"] [data-value=${quote(String(bigger))}]').click()`)
+  record('크기를 고른다', await until(async () => (await overlay()).size === bigger))
+
+  const heaviest = contract.weights[contract.weights.length - 1]
+  await evaluate(`document.querySelector('[data-testid="segmented-overlay-weight"] [data-value=${quote(String(heaviest))}]').click()`)
+  record('굵기를 고르면 번들 웨이트만 저장된다',
+    await until(async () => (await overlay()).weight === heaviest)
+    && contract.weights.includes((await overlay()).weight))
+
+  // 색은 **이름**이 저장된다 — 값을 복사하면 스타일 교체 후 조합 판정이 비켜간다 (7.2).
+  const muted = contract.colors[contract.colors.length - 1].name
+  await evaluate(`document.querySelector('[data-testid="segmented-overlay-color"] [data-value=${quote(muted)}]').click()`)
+  record('색은 값이 아니라 이름으로 저장된다',
+    await until(async () => (await overlay()).color === muted), JSON.stringify(await overlay()))
+
+  // 구간 — `"scene"`에서 `{start, dur}`로 갈린다. 장면 끝을 넘으면 렌더가 자른다 (경고 없음).
+  await evaluate('document.querySelector(\'[data-testid="segmented-overlay-timing"] [data-value="window"]\').click()')
+  const windowed = await until(async () => typeof (await overlay()).timing === 'object')
+  record('구간을 지정하면 timing이 객체가 된다', windowed, JSON.stringify((await overlay()).timing))
+
+  await evaluate(`window.__smoke.editOverlay(0, ${quote((await overlay()).id)}, { text: ${quote(MARKERS.overlay)} })`)
+  record('오버레이 문구가 저장된다',
+    await until(async () => (await overlay()).text === MARKERS.overlay))
+
+  // (f) **삭제에 확인 단계가 있고 확인 전에는 목록이 그대로다** (확정 스펙 7.4).
+  await evaluate('document.querySelector(\'[data-testid="overlay-remove"]\').click()')
+  const asking = await until(async () =>
+    await evaluate('document.querySelector(\'[data-testid="overlay-remove-confirm"]\') !== null'))
+  record('삭제를 누르면 확인을 받는다', asking)
+  record('확인 전에는 목록이 그대로다', (await overrideOf('hook', null)).overlays.length === 1)
+  await evaluate('document.querySelector(\'[data-testid="overlay-remove-cancel"]\').click()')
+  record('취소하면 오버레이가 남는다',
+    await until(async () =>
+      await evaluate('document.querySelector(\'[data-testid="overlay-remove"]\') !== null'))
+    && (await overrideOf('hook', null)).overlays.length === 1)
+
+  // 하나 더 얹어 지운다 — **비면 오버라이드 항목까지 사라진다** (빈 목록은 스키마가 거부한다).
+  await evaluate('document.querySelector(\'[data-testid="overlay-add"]\').click()')
+  await until(async () => (await overrideOf('hook', null)).overlays.length === 2)
+  await evaluate('document.querySelectorAll(\'[data-testid="overlay-remove"]\')[1].click()')
+  await evaluate('document.querySelectorAll(\'[data-testid="overlay-remove-confirm"]\')[0].click()')
+  record('확인하면 그 오버레이만 지워진다',
+    await until(async () => (await overrideOf('hook', null)).overlays.length === 1),
+    JSON.stringify(await overrideOf('hook', null)))
+
+  // (g) **빈 문구는 적용되지 않는다** — 스키마가 거부하는 값이라 올리면 저장 전체가 실패한다.
+  const keptText = (await overlay()).text
+  await evaluate(
+    `(() => { const el = document.querySelector('[data-testid="input-오버레이 문구"]');
+       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+       setter.call(el, ''); el.dispatchEvent(new Event('input', { bubbles: true })) })()`
+  )
+  await delay(200)
+  record('오버레이 문구를 비우면 값이 적용되지 않는다', (await overlay()).text === keptText, keptText)
+  record('그때 입력이 거부 색으로 선다',
+    await evaluate('document.querySelector(\'[data-testid="input-오버레이 문구"]\').className')
+      .then((names) => names.includes('input--danger')))
+
+  // 다시 채우면 거부 표시가 사라진다 — 고칠 것이 없어진 자리에 남아 있으면 지금 값이 거부된
+  // 것으로 읽힌다 (#80의 배경 거부 카드와 같은 판단이다).
+  await evaluate(
+    `(() => { const el = document.querySelector('[data-testid="input-오버레이 문구"]');
+       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+       setter.call(el, ${quote(MARKERS.overlay)}); el.dispatchEvent(new Event('input', { bubbles: true })) })()`
+  )
+  record('다시 채우면 거부 표시가 사라진다', await until(async () =>
+    await evaluate('document.querySelector(\'[data-testid="input-오버레이 문구"]\').className')
+      .then((names) => !names.includes('input--danger'))))
+
+  // **패널을 위로 되돌려 캡처한다.** 9(b)가 배경 컨트롤을 보려고 끝까지 내려 뒀고, 그 상태로
+  // 찍으면 이 이슈의 컨트롤(장면 구획의 자막 문구·오버레이 카드)이 화면 밖에 있다.
+  await evaluate(
+    `(() => { const n = document.querySelector(${quote('[data-testid="properties"] .panel__scroll')});
+       n.scrollTop = 0 })()`
+  )
+  await delay(100)
+  await capture(window, record, SHOT_OVERLAY)
+  record('자막 문구와 오버레이를 저장한다', await evaluate('window.__smoke.save()') === true)
 
   record('상한을 넘는 run을 연다', await evaluate(`window.__smoke.open(${quote(LONG)})`) === true)
   record('60초를 넘으면 경고로 바뀐다',
@@ -743,6 +957,51 @@ async function questions (host) {
   )
   record('재생성 표시가 accent 파랑이다', staleColor === accent, `${staleColor} / ${accent}`)
 
+  // 6-2. **해설만 고치면 자막만 낡는다** (#83, 확정 스펙 7.3). 해설은 `caption`으로만 담기고
+  //      TTS는 `narrate: true` 장면의 `text`만 읽으므로 음성은 그대로 쓸 수 있다 — 낡음이 한
+  //      종류였을 때는 이 경우가 "음성까지 낡음"으로 잘못 표시됐다.
+  const editExplanation = (id) => evaluate(
+    `(() => { const c = window.__smoke.state().content;
+       const next = { ...c, questions: c.questions.map((q) => (q.id === ${id} ? { ...q, explanation: ${quote(MARKERS.explanation)} } : q)) };
+       window.__smoke.editContent(next) })()`
+  )
+
+  // **2번에 얹는다** — 이 시나리오가 뒤에서 3번을 지우므로, 재시작 뒤에도 남아 있어야 하는
+  // 값은 살아남는 문제에 있어야 한다.
+  await editExplanation(2)
+  const captionsOnly = await until(async () => {
+    const review = (await state()).project.review
+    return (review.captions_stale ?? []).includes(2) && !review.stale.includes(2)
+  })
+  record('해설만 고치면 자막만 낡는다', captionsOnly,
+    JSON.stringify((await state()).project.review))
+
+  // **확인은 자막 쪽 변화에도 풀린다** (사람이 확인한 것은 그 문제의 내용이다, 확정 스펙 1.4).
+  // `unverified`인 3번에만 확인 버튼이 있다.
+  await evaluate('window.__smoke.selectItem(3)')
+  await until(async () => (await state()).selectedItem === 3)
+  await evaluate('document.querySelector(\'[data-testid="acknowledge"]\').click()')
+  await until(async () => (await state()).project.review.acknowledged.includes(3))
+  await editExplanation(3)
+  record('해설을 고쳐도 확인은 풀린다',
+    await until(async () => !(await state()).project.review.acknowledged.includes(3)),
+    JSON.stringify((await state()).project.review.acknowledged))
+  record('그 배지가 음성까지 낡음과 다른 모양·문구다', await evaluate(
+    `[...document.querySelectorAll('[data-testid="stale-badge"]')].map((n) => ({
+       kind: n.dataset.kind, text: n.textContent.trim(),
+       radius: getComputedStyle(n).borderRadius
+     }))`
+  ).then((badges) => {
+    const audio = badges.find((badge) => badge.kind === 'audio')
+    const captions = badges.find((badge) => badge.kind === 'captions')
+    return Boolean(audio && captions) && audio.text !== captions.text
+      && audio.radius !== captions.radius
+  }))
+  record('두 낡음이 함께 걸린다', await evaluate(
+    '(() => { const r = window.__smoke.state().project.review;'
+    + ' return r.stale.length > 0 && (r.captions_stale ?? []).length > 0 })()'
+  ))
+
   // 7. 카운트다운·난이도는 낭독이 아니다 — 고쳐도 새로 stale이 붙지 않는다
   const before = JSON.stringify((await state()).project.review.stale)
   await evaluate(
@@ -831,6 +1090,40 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
     overrides.some((item) => typeof item.duration === 'number'),
     JSON.stringify(overrides))
   record('타임라인이 낡았다는 표시도 유지된다', state.project.review.timeline_stale === true,
+    JSON.stringify(state.project.review))
+
+  // **`preview` 시나리오가 얹은 자막 문구와 오버레이다** (#83). 세 편집이 항목 하나를
+  // 공유하므로, 저장·재시작을 지나 함께 남아 있어야 한다 (PRD 14.1).
+  const answerOverride = overrides.find((item) => item.role === 'answer') ?? null
+  record('고친 자막 문구가 재시작 뒤에도 유지된다',
+    answerOverride !== null && answerOverride.text === MARKERS.caption,
+    JSON.stringify(answerOverride))
+  record('길이와 문구가 여전히 같은 항목에 있다',
+    answerOverride !== null && typeof answerOverride.duration === 'number'
+    && typeof answerOverride.text === 'string')
+
+  const hookOverride = overrides.find((item) => item.role === 'hook') ?? null
+  record('얹은 오버레이가 재시작 뒤에도 유지된다',
+    hookOverride !== null && Array.isArray(hookOverride.overlays)
+    && hookOverride.overlays.length === 1
+    && hookOverride.overlays[0].text === MARKERS.overlay,
+    JSON.stringify(hookOverride))
+  record('오버레이 웨이트가 번들 웨이트로 남는다',
+    (await evaluate('window.__smoke.state().presets')).overlay.weights
+      .includes(hookOverride.overlays[0].weight),
+    JSON.stringify(hookOverride.overlays[0]))
+
+  // **계산된 값이라 파일에 없다** — 재시작 뒤에도 같은 답이 나오는지는 `scenes.json`과
+  // 오버라이드를 다시 비교해서 나온다 (`editedCaptions`, `orderStale`과 같은 판단이다).
+  record('자막이 낡았다는 판단이 재시작 뒤에도 같다',
+    state.captionEdits.length === 1 && state.scenes.scenes[state.captionEdits[0]].role === 'answer',
+    JSON.stringify(state.captionEdits))
+  // scenes.json은 앱이 쓰지 않는다 — 사람이 얹은 값은 전부 project.json에 있다.
+  record('scenes.json의 문구는 편집을 지나도 그대로다',
+    state.scenes.scenes[3].text !== MARKERS.caption, state.scenes.scenes[3].text)
+
+  record('자막만 낡은 문제가 재시작 뒤에도 남는다',
+    (state.project.review.captions_stale ?? []).includes(2),
     JSON.stringify(state.project.review))
 
   // **`preview` 시나리오가 움직인 볼륨이다** (#81). 파일에 사는 값은 눈금이 아니라 선형

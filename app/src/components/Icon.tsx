@@ -6,6 +6,8 @@
 import {
   Check,
   FolderOpen,
+  Music,
+  Plus,
   RefreshCw,
   Save,
   TriangleAlert,
@@ -19,6 +21,10 @@ export const icons = {
   close: X,
   refresh: RefreshCw,
   folder: FolderOpen,
+  // 낡음 두 종류를 **모양으로** 갈라야 한다 (#83, 확정 스펙 7.3의 `↻` / `♪`). 색은 둘 다
+  // `accent`라 색만으로는 구분되지 않는다.
+  music: Music,
+  plus: Plus,
   save: Save
 } satisfies Record<string, LucideIcon>
 

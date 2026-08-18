@@ -1,12 +1,16 @@
 // 좌측 장면 목록 296px — 역할 구분 · 문제 그룹 · 총 길이 (D2 확정 스펙 3.1, 이슈 #27).
 //
-// 장면 행은 읽기 전용이다. 순서 변경과 길이 조정은 #29가 이 행 위에 얹는다.
+// 장면 행은 읽기 전용이다 — 편집은 속성 패널이 하고 이 목록은 결과를 보여 준다.
 // **문제 머리글에는 검증 배지가 붙고 눌러서 문제 편집으로 간다** (#28) — 같은 상태를
 // 두 화면에서 다르게 표현하면 사용자가 별개 문제로 오인한다.
+//
+// **낡음이 두 종류다** (#83, 확정 스펙 7.3). 문제 단위 낡음은 머리글에, 장면의 자막 문구를
+// 고쳐서 생긴 낡음은 그 행에 붙는다 — 뒤쪽은 문제에 속하지 않는 장면(hook·cta)에도 걸린다.
 
-import type { Review } from '../protocol'
+import { captionsStale, type Review } from '../protocol'
 import type { ContentItem } from '../types'
 import { Icon } from './Icon'
+import { StaleBadge } from './Stale'
 import { StatusBadge } from './StatusBadge'
 import {
   AXIS_MAX_SEC,
@@ -29,12 +33,16 @@ const ROLE_DOT: Record<Scene['role'], string> = {
   cta: 'neutral'
 }
 
-export function SceneList ({ scenes, selected, items, review, onSelect, onOpenItem }: {
+export function SceneList ({
+  scenes, selected, items, review, captionEdits, onSelect, onOpenItem
+}: {
   scenes: Scene[]
   selected: number | null
   /** 콘텐츠의 편집 단위. 없으면(편집기 미등록·콘텐츠 없음) 머리글이 번호만 그린다. */
   items: ContentItem[]
   review: Review
+  /** 자막 문구가 고쳐진 장면의 인덱스 (#83). 계산된 값이라 파일에 없다. */
+  captionEdits: number[]
   onSelect: (index: number) => void
   /** `null`이면 문제 편집 화면이 없다. 머리글이 버튼이 아니게 된다. */
   onOpenItem: ((id: number) => void) | null
@@ -56,6 +64,7 @@ export function SceneList ({ scenes, selected, items, review, onSelect, onOpenIt
                 index={row.index}
                 scene={row.scene}
                 selected={selected === row.index}
+                captionEdited={captionEdits.includes(row.index)}
                 onSelect={onSelect}
               />
               ))
@@ -74,6 +83,7 @@ export function SceneList ({ scenes, selected, items, review, onSelect, onOpenIt
                       index={row.index}
                       scene={row.scene}
                       selected={selected === row.index}
+                      captionEdited={captionEdits.includes(row.index)}
                       onSelect={onSelect}
                     />
                   ))}
@@ -109,12 +119,11 @@ function GroupHead ({ questionId, item, review, onOpenItem }: {
           확인함
         </span>
       )}
-      {review.stale.includes(questionId) && (
-        <span className="vbadge vbadge--stale" data-testid="stale-badge">
-          <Icon name="refresh" size={12} />
-          재생성 필요
-        </span>
-      )}
+      {/* **강한 쪽만 그린다** — 음성까지 낡았으면 자막도 낡았고, 배지 둘이 같은 일을 두 번
+          말하면 목록이 표시로 덮인다 (`verified`에 배지를 그리지 않는 것과 같은 판단이다). */}
+      {review.stale.includes(questionId)
+        ? <StaleBadge kind="audio" />
+        : captionsStale(review).includes(questionId) && <StaleBadge kind="captions" />}
     </>
   )
 
@@ -133,10 +142,11 @@ function GroupHead ({ questionId, item, review, onOpenItem }: {
   )
 }
 
-function Row ({ index, scene, selected, onSelect }: {
+function Row ({ index, scene, selected, captionEdited, onSelect }: {
   index: number
   scene: Scene
   selected: boolean
+  captionEdited: boolean
   onSelect: (index: number) => void
 }) {
   return (
@@ -153,6 +163,17 @@ function Row ({ index, scene, selected, onSelect }: {
       {/* 색점은 거들 뿐이고 역할 이름이 그대로 적힌다 — 색만으로 갈리지 않는다 (확정 스펙 4장). */}
       <span className={`scene-row__dot scene-row__dot--${ROLE_DOT[scene.role]}`} aria-hidden="true" />
       <span className="scene-row__title">{sceneTitle(scene)}</span>
+      {/* **행에는 아이콘만 둔다** (#83). 296px에 배지 문구를 넣으면 제목이 밀려서, 뜻은
+          `title`과 속성 패널의 카드가 진다 — 고른 장면에서 문구가 함께 보인다. */}
+      {captionEdited && (
+        <span
+          className="scene-row__stale"
+          data-testid="scene-row-stale"
+          title="자막만 낡았다 — 문구를 고쳤다"
+        >
+          <Icon name="refresh" size={12} />
+        </span>
+      )}
       <span className="mono scene-row__role">{scene.role}</span>
       <span className="mono scene-row__duration">{seconds(scene.duration)}</span>
     </button>

@@ -25,9 +25,11 @@ from ..shorts_types import available_types
 from .core import (
     Field,
     Object,
+    Rule,
     Scalar,
     Schema,
     choices_from,
+    describe,
     flag,
     integer,
     items,
@@ -86,11 +88,116 @@ _ITEM_ID = Scalar("int", minimum=1)
 (`schemas/scenes.py`) 타입 경계를 넘지 않는다. 이 모듈은 그 번호가 무엇의 번호인지 모른다.
 """
 
-OVERRIDE_EDITS = ("duration",)
-"""오버라이드 항목이 실제로 얹는 값. **#83이 `text`·`overlays`를 여기 더한다.**
+OVERRIDE_EDITS = ("duration", "text", "overlays")
+"""오버라이드 항목이 실제로 얹는 값 (#82의 `duration`, #83의 `text`·`overlays`).
 
 빈 항목을 거부하는 근거이므로 편집 필드를 추가할 때 이 목록도 함께 늘린다 — 빠뜨리면
 아무것도 얹지 않는 항목이 조용히 저장된다.
+"""
+
+OVERLAY_POSITIONS = (
+    "top-left",
+    "top-center",
+    "top-right",
+    "mid-left",
+    "mid-center",
+    "mid-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+)
+"""텍스트 오버레이가 붙는 9칸 (D2 확정 스펙 7.2).
+
+세로-가로 순서이고 좌표는 이 스키마가 아니라 **렌더러가 정한다**
+(`overlay.OVERLAY_ANCHORS` — 안전 영역은 D1 확정 스펙 1장의 표다).
+"""
+
+OVERLAY_COLORS = ("preset", "white", "muted")
+"""오버레이 색 후보. **자유 색이 없다** (확정 스펙 7.2).
+
+셋 다 자막 스타일 프리셋의 **역할 이름으로 옮겨진다**(`overlay.OVERLAY_COLOR_ROLES`) —
+값을 복사하면 스타일을 바꿨을 때 D1 확정 스펙 6.3의 조합 판정이 △로 내려가도 드러나지
+않는다. 렌더러에 색값을 적지 않는 것도 같은 규칙이다 (D1 확정 스펙 6장).
+"""
+
+OVERLAY_SIZES = (28, 40, 56)
+"""오버레이 폰트 크기(px, 1080x1920 기준). 확정 스펙 7.2의 세 값이다."""
+
+OVERLAY_WEIGHTS = (500, 700, 800)
+"""오버레이 폰트 웨이트. **시안의 `400 | 600 | 800`이 아니다** (확정 스펙 7.1-2).
+
+번들 Pretendard는 Medium·Bold·ExtraBold이고(`assets.FONT_FILES`) 렌더러는
+`assets.font_path(weight)`로 파일을 직접 고른다 — 400·600을 저장하면 `AssetError`로 렌더가
+멈춘다. **화면에서는 정상으로 보이고 렌더에서만 실패하는 종류의 오류라** UI에서 빼는 것만으로는
+부족하고 계약이 거부해야 한다. 앱 CSS의 `400 500` / `600 700` 범위 매핑은 UI 텍스트용 편의이고
+렌더러 계약이 아니다.
+"""
+
+TIMING_SCENE = "scene"
+"""`timing`의 기본값 — 장면 전체를 덮는다 (확정 스펙 7.2)."""
+
+_TIMING_WINDOW = Object(
+    {
+        # 장면 시작 기준 초. 끝 시각은 `video_renderer.align()`이 주는 장면 끝으로 clamp되고
+        # 넘겨도 경고가 없다 — 장면 길이를 줄이면 함께 잘리는 것이 확정 동작이다 (7.2).
+        "start": number(minimum=0.0),
+        "dur": number(exclusive_minimum=0.0),
+    }
+)
+
+
+class _Timing(Rule):
+    """`"scene"` 또는 `{start, dur}` (확정 스펙 7.2).
+
+    **모양이 둘로 갈리는 유일한 필드라 전용 규칙이다.** core에 일반 union primitive를 두면
+    "어느 후보의 오류를 보여줄지"를 정해야 하고 그 답이 필드마다 다르지만, 여기서는 값이
+    문자열인지 매핑인지가 곧 사용자의 의도라 분기가 명확하다 — 그래서 후보를 골라 그쪽 오류만
+    낸다.
+    """
+
+    def check(self, value: Any, path: str, errors: list[str]) -> None:
+        if isinstance(value, str):
+            Scalar("str", choices=(TIMING_SCENE,)).check(value, path, errors)
+        elif isinstance(value, dict):
+            _TIMING_WINDOW.check(value, path, errors)
+        else:
+            errors.append(
+                f'{path}: "{TIMING_SCENE}" 또는 {{start, dur}} 매핑이어야 한다. '
+                f"받은 값: {describe(value)}"
+            )
+
+    def to_json_schema(self) -> dict[str, Any]:
+        return {
+            "oneOf": [
+                {"type": "string", "enum": [TIMING_SCENE]},
+                _TIMING_WINDOW.to_json_schema(),
+            ]
+        }
+
+
+_OVERLAY = Object(
+    {
+        # 목록 안에서만 유일하면 된다 (아래 검증). 화면이 카드를 짚는 손잡이이고 렌더러는
+        # 순서만 본다 — 겹칠 때 나중 항목이 위다.
+        "id": text(),
+        # **줄바꿈을 허용한다.** 자동 줄바꿈이 없고 줄 하나가 `drawtext` 하나다
+        # (D1 확정 스펙 7.3, `overlay` 머리말). 폭·줄바꿈 속성이 없는 이유가 그것이다.
+        "text": text(),
+        "pos": text(choices=OVERLAY_POSITIONS),
+        # 고른 모서리에서의 거리(px). **음수를 받는다** — 안전 영역 밖으로 밀어내는 것이
+        # 사람의 선택일 수 있고, 넘치는 것은 프리뷰 정지 프레임에 그대로 보인다 (7.5).
+        "offset": section({"x": integer(), "y": integer()}),
+        "color": text(choices=OVERLAY_COLORS),
+        "size": Field(Scalar("int", choices=OVERLAY_SIZES)),
+        "weight": Field(Scalar("int", choices=OVERLAY_WEIGHTS)),
+        "timing": Field(_Timing()),
+    }
+)
+"""사람이 장면에 얹은 텍스트 하나 (확정 스펙 7.2).
+
+**`scenes.json`에 두지 않는다.** 거기 두면 재생성(#77)이 장면을 다시 만들 때 사람이 넣은
+오버레이가 사라진다 — 장면 길이(#82)와 같은 문제이고 그래서 같은 자리·같은 키를 쓴다
+(PRD 14.1).
 """
 
 _SCENE_OVERRIDE = Object(
@@ -106,6 +213,15 @@ _SCENE_OVERRIDE = Object(
         # 실패하고 그 run 디렉터리가 다시 열리지 않는다 (PRD 14.1). 낭독보다 짧아도 받는
         # 것은 화면이 경고하고 사람이 결정하기 때문이다.
         "duration": number(exclusive_minimum=0.0, required=False),
+        # 사람이 고친 자막 문구 (#83). 장면의 `text` 한 칸을 덮는다 — 상단 문구(`heading`)와
+        # 해설(`caption`)은 들어오지 않는다. `heading`은 한 문제의 세 장면이 공유하는 값이라
+        # 한 장면에서 고치면 나머지가 갈리고, 해설은 콘텐츠 필드라 문제 편집(#28)이 소유한다
+        # (확정 스펙 7.3).
+        "text": text(required=False),
+        # 사람이 얹은 텍스트 오버레이 (#83). **빈 목록은 얹는 값이 없다** — 마지막 항목을
+        # 지운 자리에 `[]`가 남으면 아무것도 하지 않는 오버라이드가 파일에 쌓인다. 앱이 그때
+        # 키를 지운다.
+        "overlays": items(_OVERLAY, min_items=1, required=False),
     }
 )
 """장면 하나에 사람이 얹은 편집 (PRD 14.1).
@@ -153,6 +269,17 @@ _REVIEW_FIELDS = {
     # 장면 **순서·개수**가 낡았는지는 여기 두지 않는다 — `scenes.json`의 `question_id`
     # 나열과 비교하면 나오는 값이라, 적어 두면 두 곳이 다른 말을 할 수 있다.
     "stale": items(_ITEM_ID),
+    # **자막만 낡은 항목** (#83). 위 `stale`이 "음성까지 낡음"이고 이쪽은 "자막만 낡음"이다 —
+    # 낭독으로 가지 않는 문구(퀴즈의 해설)만 바뀌면 `voice.mp3`는 그대로 쓸 수 있고
+    # `captions.srt`만 다시 만들면 된다. 시안이 낡음을 두 상태로 갈랐고(파랑 사각 `↻` /
+    # 파랑 원형 `♪`) 목록 하나로는 그 구분이 표현되지 않는다 (확정 스펙 7.3).
+    #
+    # **`stale`과 겹칠 수 있다.** 겹치면 강한 쪽(음성까지)이 화면에 서고, 재생성(#77)이 지우는
+    # 것은 두 목록 모두다.
+    #
+    # **`project.build`가 만들지 않는다** — `timeline_stale`과 같은 자리다. 이 파일이 만들어진
+    # 뒤에 앱이 쓰는 값이고, 필수로 만들면 이 필드가 생기기 전의 run 디렉터리가 열리지 않는다.
+    "captions_stale": items(_ITEM_ID, required=False),
     # 사람이 장면 길이를 고쳐 `captions.srt`·`voice.mp3`가 어긋난 상태 (#82).
     #
     # **목록이 아니라 참·거짓이다.** 길이를 하나 고치면 그 뒤 장면의 시작 시각이 전부 밀리므로
@@ -188,7 +315,7 @@ def _check_review_ids_are_unique(data: Any, errors: list[str]) -> None:
     review = data.get("review")
     if not isinstance(review, dict):
         return
-    for key in ("acknowledged", "stale"):
+    for key in ("acknowledged", "stale", "captions_stale"):
         values = review.get(key)
         if not isinstance(values, list):
             continue
@@ -254,11 +381,33 @@ def _check_scene_overrides(data: Any, errors: list[str]) -> None:
             errors.append(
                 f"{path}: 얹는 값이 없다. 쓸 수 있는 값: {', '.join(OVERRIDE_EDITS)}"
             )
+        _check_overlay_ids(override.get("overlays"), path, errors)
 
         key = (role, question_id)
         if key in seen:
             errors.append(f"{path}: 같은 장면에 오버라이드가 두 번 있다 — {role} {question_id}")
         seen.add(key)
+
+
+def _check_overlay_ids(overlays: Any, path: str, errors: list[str]) -> None:
+    """한 장면의 오버레이 `id`가 서로 다른지 (#83).
+
+    **장면 안에서만 유일하면 된다.** 앱이 카드를 짚는 손잡이이고 다른 장면의 목록과 섞이지
+    않는다. 같은 번호가 두 번 있으면 화면에서 한 카드를 고쳤을 때 다른 카드가 함께 바뀌므로,
+    조용히 통과시키면 그 버그가 파일에 쌓인다.
+    """
+    if not isinstance(overlays, list):
+        return
+    seen: set[Any] = set()
+    for index, overlay in enumerate(overlays):
+        if not isinstance(overlay, dict):
+            continue
+        identifier = overlay.get("id")
+        if identifier in seen:
+            errors.append(
+                f"{path}.overlays[{index}].id: 같은 장면에 같은 id가 두 번 있다 — {identifier!r}"
+            )
+        seen.add(identifier)
 
 
 _ROOT = Object(

@@ -46,7 +46,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from shorts_maker import project  # noqa: E402
 from shorts_maker.config import load_config  # noqa: E402
 from shorts_maker.run_context import write_artifact  # noqa: E402
-from shorts_maker.schemas.project import PROJECT_SCHEMA  # noqa: E402
+from shorts_maker.schemas.project import OVERLAY_WEIGHTS, PROJECT_SCHEMA  # noqa: E402
 from shorts_maker.schemas.scenes import SCENES_SCHEMA  # noqa: E402
 from shorts_maker.shorts_types import DEFAULT_TYPE, get_type  # noqa: E402
 
@@ -235,12 +235,17 @@ def build_backgrounds(out: Path) -> dict[str, str]:
     }
 
 
-def build(out: Path) -> dict[str, str]:
+def build(out: Path) -> dict[str, Any]:
     return {
         # 2.5 + (2.0 + 3.0 + 2.5) x 3 + 3.0 = 28.0초
         "run": str(build_run(out, "run-smoke", scenes_for(answer_sec=2.5))),
         # 2.5 + (2.0 + 3.0 + 24.0) x 3 + 3.0 = 92.5초 — 상한 초과
         "long": str(build_run(out, "run-smoke-long", scenes_for(answer_sec=24.0))),
+        # 번들 폰트 웨이트 (#83). **스모크가 이 목록을 적지 않게 하려고 함께 보낸다** —
+        # 저장된 오버레이의 웨이트가 렌더가 열 수 있는 파일인지를 `run.mjs`가 확인하는데,
+        # 그 목록을 거기 적으면 시안이 적은 400·600이 되살아나도 스모크가 통과한다
+        # (확정 스펙 7.1-2). 출처는 백엔드가 앱에 보내는 것과 같은 상수다.
+        "overlay_weights": list(OVERLAY_WEIGHTS),
         **build_backgrounds(out),
     }
 

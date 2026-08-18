@@ -22,6 +22,7 @@ import pytest
 from shorts_maker import overlay, video_renderer
 from shorts_maker.assets import caption_styles
 from shorts_maker.overlay import CENTER_X, OverlayError, build, resolve_fonts
+from shorts_maker.schemas import project as project_schema
 from shorts_maker.video_renderer import CANVAS_HEIGHT, CANVAS_WIDTH, align
 
 needs_ffmpeg = pytest.mark.skipif(
@@ -620,6 +621,263 @@ def test_scene_spans_never_overlap() -> None:
         assert re.fullmatch(r"gte\(t,\d+/30\)\*lt\(t,\d+/30\)", option(item, "enable"))
 
 
+# --- 사람이 얹은 텍스트 오버레이 (#83, D2 확정 스펙 7.2) ---------------------
+
+
+def overlay_on(scenes: dict[str, Any], index: int, **fields: Any) -> dict[str, Any]:
+    """장면 하나에 오버레이를 얹는다.
+
+    **실제 경로는 `project.json` → `apply_scene_overrides`다** (`test_video_renderer.py`가
+    그쪽을 지킨다). 여기서 장면에 직접 넣는 것은 이 층의 계약이 "장면에 얹혀 온 값을 그린다"
+    이기 때문이고, 실제 렌더 테스트는 프로젝트를 지나는 쪽을 쓴다.
+    """
+    item = {
+        "id": "o1",
+        "text": OVERLAY_TEXT,
+        "pos": "bottom-center",
+        "offset": {"x": 0, "y": 0},
+        "color": "preset",
+        "size": 40,
+        "weight": 700,
+        "timing": "scene",
+    } | fields
+    scenes["scenes"][index][overlay.SCENE_OVERLAYS] = [item]
+    return item
+
+
+OVERLAY_TEXT = "여기 주목"
+
+
+def overlay_drawn(filter_list: list[str], text: str = OVERLAY_TEXT) -> list[str]:
+    return [item for item in drawtexts(filter_list) if option(item, "text") == text]
+
+
+def test_the_overlay_contract_names_match_the_schema() -> None:
+    """색 이름과 크기 후보의 출처는 스키마이고, 이 모듈은 그것을 역할·두께로 옮긴다.
+
+    **두 곳이 갈리면 `KeyError`로 렌더가 죽는다** — 계약이 허용한 값이 그릴 수 없는 값이 된다.
+    """
+    assert set(overlay.OVERLAY_COLOR_ROLES) == set(project_schema.OVERLAY_COLORS)
+    assert set(overlay.OVERLAY_BORDERW) == set(project_schema.OVERLAY_SIZES)
+    style = caption_styles()["impact_yellow"]
+    for role in overlay.OVERLAY_COLOR_ROLES.values():
+        assert style.color(role).startswith("#")
+
+
+def test_an_overlay_is_drawn_after_the_captions() -> None:
+    """필터 순서가 그리는 순서다 — 사람이 나중에 얹은 것이 자막 아래로 들어가면 안 된다."""
+    scenes = quiz_scenes()
+    overlay_on(scenes, 3)
+
+    drawn = filters(scenes)
+
+    assert option(drawn[-1], "text") == OVERLAY_TEXT
+
+
+def test_an_overlay_only_shows_on_its_own_scene() -> None:
+    scenes = quiz_scenes()
+    overlay_on(scenes, 3)
+    span = align(scenes).frame_spans[3]
+
+    (item,) = overlay_drawn(filters(scenes))
+
+    assert option(item, "enable") == f"gte(t,{span[0]}/30)*lt(t,{span[1]}/30)"
+
+
+@pytest.mark.parametrize(
+    ("position", "x"),
+    [
+        ("top-left", str(SAFE_LEFT)),
+        ("mid-center", f"({CENTER_X}-text_w/2)"),
+        ("bottom-right", f"({SAFE_RIGHT}-text_w)"),
+    ],
+)
+def test_the_nine_cells_anchor_to_the_safe_area(position: str, x: str) -> None:
+    """9칸의 모서리가 안전 영역의 모서리다 (확정 스펙 1장 + 7.2). `offset` 0이면 자막과 같은
+    사각형 안에 들어온다."""
+    scenes = quiz_scenes()
+    overlay_on(scenes, 0, pos=position)
+
+    (item,) = overlay_drawn(filters(scenes))
+
+    assert option(item, "x") == x
+
+
+def test_the_offset_measures_from_the_chosen_corner() -> None:
+    """`bottom`에서 `y`를 키우면 **위로** 올라간다 — 값을 키우면 고른 모서리에서 멀어진다."""
+    scenes = quiz_scenes()
+    overlay_on(scenes, 0, pos="bottom-left", offset={"x": 24, "y": 0})
+    (edge,) = overlay_drawn(filters(scenes))
+
+    overlay_on(scenes, 0, pos="bottom-left", offset={"x": 24, "y": 100})
+    (raised,) = overlay_drawn(filters(scenes))
+
+    assert int(option(raised, "y")) == int(option(edge, "y")) - 100
+
+    # `top`에서는 같은 값이 아래로 내려간다 — 기준 모서리가 반대편이다.
+    overlay_on(scenes, 0, pos="top-left", offset={"x": 24, "y": 100})
+    (top,) = overlay_drawn(filters(scenes))
+    assert int(option(top, "y")) == SAFE_TOP + 100
+    assert option(raised, "x") == option(top, "x") == str(SAFE_LEFT + 24)
+    # 오른쪽 칸에서도 같다 — `x`를 키우면 오른쪽 모서리에서 멀어진다.
+    overlay_on(scenes, 0, pos="top-right", offset={"x": 24, "y": 0})
+    (right,) = overlay_drawn(filters(scenes))
+    assert option(right, "x") == f"({SAFE_RIGHT - 24}-text_w)"
+
+
+def test_the_bottom_row_keeps_the_whole_block_inside() -> None:
+    """여러 줄이면 블록 높이만큼 위에서 시작한다 — 마지막 줄이 안전 영역을 넘지 않는다."""
+    scenes = quiz_scenes()
+    item = overlay_on(scenes, 0, pos="bottom-center", text="첫 줄\n둘째 줄")
+
+    ys = [int(option(drawn, "y")) for drawn in overlay_drawn(filters(scenes), "둘째 줄")]
+
+    assert ys == [SAFE_BOTTOM - item["size"]]
+
+
+def test_each_line_is_its_own_drawtext() -> None:
+    """`drawtext`의 여러 줄은 왼쪽 정렬로만 쌓인다 (모듈 주석). 줄 간격은 우리가 정한 `y`다."""
+    scenes = quiz_scenes()
+    item = overlay_on(scenes, 0, pos="top-left", text="첫 줄\n둘째 줄\n셋째 줄", size=56)
+
+    first = overlay_drawn(filters(scenes), "첫 줄")
+    second = overlay_drawn(filters(scenes), "둘째 줄")
+
+    assert len(first) == len(second) == 1
+    step = int(option(second[0], "y")) - int(option(first[0], "y"))
+    assert step == round(item["size"] * overlay.OVERLAY_LINE_RATIO)
+
+
+def test_a_blank_line_takes_space_without_drawing() -> None:
+    """사람이 넣은 줄 사이 여백이다. 빈 `drawtext`는 경고만 내고 아무것도 그리지 않는다."""
+    scenes = quiz_scenes()
+    item = overlay_on(scenes, 0, pos="top-left", text="위\n\n아래")
+
+    drawn = filters(scenes)
+
+    assert len(overlay_drawn(drawn, "")) == 0
+    gap = int(option(overlay_drawn(drawn, "아래")[0], "y")) - int(
+        option(overlay_drawn(drawn, "위")[0], "y")
+    )
+    assert gap == 2 * round(item["size"] * overlay.OVERLAY_LINE_RATIO)
+
+
+def test_the_preset_colour_follows_the_caption_style() -> None:
+    """**값을 복사하지 않는다** (확정 스펙 7.2). 복사하면 스타일 교체 후 조합이 △로 내려가도
+    드러나지 않는다."""
+    scenes = quiz_scenes()
+    overlay_on(scenes, 0, color="preset")
+
+    for name, style in caption_styles().items():
+        (item,) = overlay_drawn(filters(scenes, style=name))
+        assert option(item, "fontcolor") == style.color("accent").replace("#", "0x")
+
+
+def test_white_and_muted_also_come_from_the_preset() -> None:
+    """렌더러에 색값을 적지 않는다 (D1 확정 스펙 6장) — 그래서 `white`도 프리셋의 `body`다."""
+    scenes = quiz_scenes()
+    style = caption_styles()["neon_mint"]
+
+    overlay_on(scenes, 0, color="white")
+    (white,) = overlay_drawn(filters(scenes, style="neon_mint"))
+    overlay_on(scenes, 0, color="muted")
+    (muted,) = overlay_drawn(filters(scenes, style="neon_mint"))
+
+    assert option(white, "fontcolor") == style.color("body").replace("#", "0x")
+    assert option(muted, "fontcolor") == style.color("secondary").replace("#", "0x")
+
+
+def test_the_size_decides_the_border_thickness() -> None:
+    """외곽선이 이 디자인의 지배적 요소라 크기마다 두께가 갈린다 (D1 확정 스펙 2.1)."""
+    scenes = quiz_scenes()
+
+    for size, borderw in overlay.OVERLAY_BORDERW.items():
+        overlay_on(scenes, 0, size=size)
+        (item,) = overlay_drawn(filters(scenes))
+        assert int(option(item, "borderw")) == borderw
+        assert option(item, "fontsize") == str(size)
+
+
+def test_each_weight_picks_the_bundled_file() -> None:
+    """`drawtext`는 웨이트를 고를 수 없어 파일 1개 = 웨이트 1개다 (확정 스펙 9장)."""
+    scenes = quiz_scenes()
+    fonts = resolve_fonts(None)
+
+    for weight in project_schema.OVERLAY_WEIGHTS:
+        overlay_on(scenes, 0, weight=weight)
+        (item,) = overlay_drawn(filters(scenes))
+        assert option(item, "fontfile") == overlay.escape_path(fonts.path(weight))
+
+
+def test_a_timing_window_is_clamped_to_the_scene_end() -> None:
+    """끝 시각은 `align()`이 준 장면 끝이다 — `duration`으로 다시 누적하지 않는다 (PRD 7.7)."""
+    scenes = quiz_scenes()
+    start, end = align(scenes).frame_spans[3]
+    overlay_on(scenes, 3, timing={"start": 0.5, "dur": 60.0})
+
+    (item,) = overlay_drawn(filters(scenes))
+
+    assert option(item, "enable") == f"gte(t,{start + 15}/30)*lt(t,{end}/30)"
+
+
+def test_a_timing_window_shorter_than_the_scene_ends_early() -> None:
+    scenes = quiz_scenes()
+    start, end = align(scenes).frame_spans[3]
+    overlay_on(scenes, 3, timing={"start": 0.0, "dur": 1.0})
+
+    (item,) = overlay_drawn(filters(scenes))
+
+    assert option(item, "enable") == f"gte(t,{start}/30)*lt(t,{start + 30}/30)"
+    assert start + 30 < end
+
+
+def test_a_window_that_starts_after_the_scene_draws_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """장면 길이를 줄이면 창이 함께 잘린다 (#82와 함께 쓰는 자리). 그릴 것이 없으면 남기지
+    않고, 왜 안 보이는지는 로그에 있다."""
+    scenes = quiz_scenes()
+    overlay_on(scenes, 3, timing={"start": 30.0, "dur": 1.0})
+
+    with caplog.at_level("WARNING"):
+        drawn = filters(scenes)
+
+    assert overlay_drawn(drawn) == []
+    assert "장면" in caplog.text
+
+
+@pytest.mark.parametrize("text", ["50% 할인", "시각 12:30", "'따옴표'"])
+def test_overlay_text_survives_the_escape_rules(text: str) -> None:
+    """자막과 같은 경로를 지난다 — `%`는 `expansion=none`이 막고 `:`·`'`는 이스케이프된다
+    (D1 확정 스펙 7.4). 요소가 통째로 비는 종류의 오류다."""
+    scenes = quiz_scenes()
+    overlay_on(scenes, 0, text=text)
+
+    # 이스케이프를 지난 뒤라 원문과 같은 문자열이 아니다 — 자막과 **같은 함수**를 지났는지를
+    # 본다 (`_escape`, 규칙은 D1 확정 스펙 7.4). 따옴표가 든 값은 `option`으로 꺼낼 수 없어
+    # (인용이 세 겹이다) 필터 문자열에서 찾는다.
+    drawn = [item for item in drawtexts(filters(scenes)) if overlay._escape(text) in item]
+
+    assert len(drawn) == 1
+    assert "expansion=none" in drawn[0]
+
+
+def test_a_line_wider_than_the_column_is_warned_not_wrapped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """자동 줄바꿈이 없다 (확정 스펙 7.2) — 사람이 넣은 줄과 계산된 줄이 섞이면 화면과 입력이
+    갈린다. 넘침은 프리뷰 정지 프레임에 그대로 보인다 (7.5)."""
+    scenes = quiz_scenes()
+    long_line = "여" * 40
+    overlay_on(scenes, 0, text=long_line, size=56)
+
+    with caplog.at_level("WARNING"):
+        drawn = filters(scenes)
+
+    assert len(overlay_drawn(drawn, long_line)) == 1
+    assert "컬럼" in caplog.text
+
+
 # --- 프리셋 (완료 조건: 3종이 색만 바꾼다) -----------------------------------
 
 
@@ -992,6 +1250,108 @@ def test_the_progress_bar_empties_a_step_at_a_time(tmp_path: Path) -> None:
     for fill, expected in zip(measured, (840, 560, 280), strict=True):
         assert fill[0] == pytest.approx(expected, abs=2)
         assert fill[0] + fill[1] == pytest.approx(840, abs=2)
+
+
+# --- 사람이 얹은 오버레이의 실제 픽셀 (#83) ----------------------------------
+
+
+def overriding(project: dict[str, Any], *overrides: dict[str, Any]) -> dict[str, Any]:
+    """`render.scene_overrides`를 얹은 프로젝트 — **앱이 저장하는 모양 그대로다.**"""
+    project["render"]["scene_overrides"] = list(overrides)
+    return project
+
+
+@needs_ffmpeg
+def test_an_overlay_renders_where_the_nine_cells_say(tmp_path: Path) -> None:
+    """**프로젝트를 지나 픽셀까지 간다** (#83 완료 조건). 값이 `project.json`에 있고
+    `apply_scene_overrides`가 얹은 뒤 필터가 만들어지는 전 구간이다.
+
+    hook 장면의 아래쪽 띠는 원래 비어 있다(요소가 y1060에서 끝난다) — 거기 잉크가 생기고
+    오른쪽 정렬이면 `offset`만큼 컬럼 오른쪽 끝에서 떨어져 있어야 한다.
+    """
+    scenes = quiz_scenes()
+    project = overriding(
+        project_with(),
+        {
+            "role": "hook",
+            "overlays": [
+                {
+                    "id": "o1",
+                    "text": "여기 주목",
+                    "pos": "bottom-right",
+                    "offset": {"x": 40, "y": 0},
+                    "color": "preset",
+                    "size": 56,
+                    "weight": 800,
+                    "timing": "scene",
+                }
+            ],
+        },
+    )
+
+    video = video_renderer.render(project, scenes, run_dir=tmp_path)
+    span = align(scenes).frame_spans[0]
+    frame = gray_frame(video, (span[0] + span[1]) // 2)
+
+    box = band_box(frame, 1380, SAFE_BOTTOM)
+    assert box is not None, "아래쪽 띠에 오버레이 잉크가 없다"
+    x0, _, x1, y1 = box
+    assert x1 == pytest.approx(SAFE_RIGHT - 40, abs=6)
+    assert y1 <= SAFE_BOTTOM
+    assert SAFE_LEFT <= x0
+
+
+@needs_ffmpeg
+def test_an_overlay_window_only_shows_inside_its_own_frames(tmp_path: Path) -> None:
+    """`{start, dur}`가 장면 시작 기준이고 경계는 `align()`의 프레임이다 (PRD 7.7)."""
+    scenes = quiz_scenes()
+    project = overriding(
+        project_with(),
+        {
+            "role": "hook",
+            "overlays": [
+                {
+                    "id": "o1",
+                    "text": "여기 주목",
+                    "pos": "bottom-center",
+                    "offset": {"x": 0, "y": 0},
+                    "color": "white",
+                    "size": 40,
+                    "weight": 500,
+                    "timing": {"start": 1.0, "dur": 0.5},
+                }
+            ],
+        },
+    )
+
+    video = video_renderer.render(project, scenes, run_dir=tmp_path)
+    start, _ = align(scenes).frame_spans[0]
+
+    # 1.0초 = 30프레임. 직전 프레임에는 없고, 그 프레임부터 있고, 0.5초 뒤에는 다시 없다.
+    assert band_box(gray_frame(video, start + 29), 1380, SAFE_BOTTOM) is None
+    assert band_box(gray_frame(video, start + 30), 1380, SAFE_BOTTOM) is not None
+    assert band_box(gray_frame(video, start + 45), 1380, SAFE_BOTTOM) is None
+
+
+@needs_ffmpeg
+def test_the_edited_caption_text_replaces_the_scene_text(tmp_path: Path) -> None:
+    """자막 문구 편집이 번인까지 간다 (#83). `scenes.json`은 그대로다 (확정 스펙 7.3)."""
+    scenes = quiz_scenes()
+    project = overriding(
+        project_with(), {"role": "hook", "text": "짧게"}
+    )
+
+    video = video_renderer.render(project, scenes, run_dir=tmp_path)
+    span = align(scenes).frame_spans[0]
+
+    # 원문은 세 줄짜리 hook이고 고친 문구는 두 글자다 — 잉크가 크게 줄어든다.
+    assert scenes["scenes"][0]["text"] == quiz_scenes()["scenes"][0]["text"]
+    plain_dir = tmp_path / "plain"
+    plain_dir.mkdir()
+    plain = video_renderer.render(project_with(), scenes, run_dir=plain_dir)
+    edited_ink = ink_count(gray_frame(video, (span[0] + span[1]) // 2))
+    original_ink = ink_count(gray_frame(plain, (span[0] + span[1]) // 2))
+    assert edited_ink < original_ink * 0.8
 
 
 @needs_ffmpeg

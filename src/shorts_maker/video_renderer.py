@@ -180,11 +180,15 @@ class Timeline:
 def apply_scene_overrides(
     project: Mapping[str, Any], scenes: Mapping[str, Any]
 ) -> Mapping[str, Any]:
-    """사람이 얹은 장면 편집을 반영한 장면 목록 사본 (#82, PRD 14.1).
+    """사람이 얹은 장면 편집을 반영한 장면 목록 사본 (#82, #83, PRD 14.1).
 
     **`align()`보다 먼저, 확정 검증보다 나중에 부른다.** 낭독보다 짧은 길이는
     `validate_scenes_final`이 거부하는 값이므로(그래서 `scenes.json`에 쓸 수 없다) 검증을
     지난 뒤에 얹어야 하고, 프레임 정렬은 여전히 `align()` 하나가 소유해야 하므로 그 앞이다.
+
+    얹는 것은 셋이다 — 길이(`duration`, #82), 자막 문구(`text`, #83), 텍스트
+    오버레이(`overlays` → `SCENE_OVERLAYS`, #83). **세 값이 오버라이드 항목 하나에 함께 있다**
+    (PRD 14.1).
 
     얹을 것이 없으면 **받은 객체를 그대로 돌려준다** — 사본을 만들면 오버라이드가 없는
     경로에서도 장면 배열이 두 벌 생긴다.
@@ -194,7 +198,7 @@ def apply_scene_overrides(
         scenes: 확정 `scenes.json` 내용.
 
     Returns:
-        `duration`이 갈린 장면 목록. 원본은 바뀌지 않는다.
+        얹은 값이 갈린 장면 목록. 원본은 바뀌지 않는다.
     """
     overrides = project.get("render", {}).get("scene_overrides") or []
     if not overrides:
@@ -208,10 +212,8 @@ def apply_scene_overrides(
     for scene in scenes["scenes"]:
         key = (str(scene["role"]), scene.get("question_id"))
         override = pending.pop(key, None)
-        if override is None or "duration" not in override:
-            applied.append(dict(scene))
-            continue
-        applied.append({**scene, "duration": float(override["duration"])})
+        edits = _scene_edits(override)
+        applied.append(dict(scene) if not edits else {**scene, **edits})
 
     # **남은 오버라이드를 조용히 버리지 않는다.** 문제를 지우면 그 문제의 오버라이드가 가리킬
     # 장면이 없어지고, 그 상태로 렌더가 도는 것은 정상이지만(#77이 정리한다) 왜 값이 반영되지
@@ -221,6 +223,24 @@ def apply_scene_overrides(
             "가리키는 장면이 없는 scene_overrides — role=%s question_id=%s", role, question_id
         )
     return {**scenes, "scenes": applied}
+
+
+def _scene_edits(override: Mapping[str, Any] | None) -> dict[str, Any]:
+    """오버라이드 항목 하나가 장면에 갈아 끼우는 값 (`schemas/project.OVERRIDE_EDITS`).
+
+    **없는 키는 손대지 않는다.** 항목 하나에 셋이 함께 있을 수 있고 그중 일부만 얹힌 상태가
+    정상이다 — 길이만 고친 장면에 빈 문구가 들어가면 그 장면의 문구가 사라진다.
+    """
+    if not override:
+        return {}
+    edits: dict[str, Any] = {}
+    if "duration" in override:
+        edits["duration"] = float(override["duration"])
+    if "text" in override:
+        edits["text"] = str(override["text"])
+    if "overlays" in override:
+        edits[overlay.SCENE_OVERLAYS] = [dict(item) for item in override["overlays"]]
+    return edits
 
 
 def align(scenes: Mapping[str, Any], *, fps: int = FPS) -> Timeline:

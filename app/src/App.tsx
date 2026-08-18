@@ -24,11 +24,13 @@ import { Preview, type PreviewFrame } from './components/Preview'
 import { Properties } from './components/Properties'
 import { QuestionScreen } from './components/QuestionScreen'
 import { SceneList } from './components/SceneList'
-import { effectiveScenes, overrideKey, sameOverride } from './scenes'
+import { editedCaptions, effectiveScenes, overrideKey, sameOverride } from './scenes'
 import { contentModule } from './types'
 import {
   bridge,
+  captionsStale,
   review,
+  TIMING_SCENE,
   type ApiError,
   type AppContext,
   type CaptionStylePreset,
@@ -36,12 +38,14 @@ import {
   type ContentResult,
   type EnvResult,
   type OpenResult,
+  type Overlay,
   type PresetsResult,
   type PreviewResult,
   type Project,
   type Review,
   type SaveContentResult,
   type Scene,
+  type SceneOverride,
   type Scenes,
   type ScenesResult,
   type SaveResult
@@ -99,6 +103,17 @@ export function App () {
    */
   const shownScenes = useMemo(
     () => (scenes && project ? effectiveScenes(scenes.scenes, project) : []),
+    [scenes, project]
+  )
+
+  /**
+   * 자막 문구가 고쳐진 장면의 인덱스 (#83).
+   *
+   * **적어 두지 않고 계산한다** — `orderStale`과 같은 판단이다 (`editedCaptions`). 파일 그대로인
+   * `scenes`와 비교해야 하므로 `shownScenes`가 아니다.
+   */
+  const captionEdits = useMemo(
+    () => (scenes && project ? editedCaptions(scenes.scenes, project) : []),
     [scenes, project]
   )
 
@@ -261,34 +276,115 @@ export function App () {
     })
   }, [api, presets])
 
+  /** `review`를 고친 프로젝트. 없던 섹션은 빈 값에서 시작한다 (옛 run 디렉터리). */
+  const patchReview = useCallback((change: (current: Review) => Review) => {
+    setProject((previous) => previous && { ...previous, review: change(review(previous)) })
+  }, [])
+
+  /**
+   * 장면 하나에 얹은 편집을 고친다 — **세 편집이 이 함수를 공유한다** (#82의 길이, #83의
+   * 자막 문구·오버레이, PRD 14.1).
+   *
+   * **`scenes.json`을 고치지 않는다.** 낭독보다 짧은 길이는 `validate_scenes_final`이 거부하고
+   * (그쪽에 쓰면 저장이 실패해 run 디렉터리가 다시 열리지 않는다), 문구·오버레이는 재생성(#77)이
+   * 장면을 다시 만들 때 사라진다. 값이 살 수 있는 자리는 `render.scene_overrides`뿐이다.
+   *
+   * 렌더러가 읽는 값이라 프리뷰 지문에 들어가고, 그래서 고치면 프레임이 다시 만들어진다.
+   */
+  const patchOverride = useCallback((
+    scene: Scene, change: (current: SceneOverride) => SceneOverride
+  ) => {
+    setProject((previous) => {
+      if (!previous) return previous
+      const key = overrideKey(scene)
+      const current = previous.render.scene_overrides ?? []
+      const existing = current.find((item) => sameOverride(item, key)) ?? key
+      const next = pruneOverride(change(existing))
+      const list = next === null
+        // **얹는 값이 하나도 남지 않으면 항목을 지운다.** 스키마가 빈 항목을 거부하므로
+        // (`_check_scene_overrides`) 남겨 두면 되돌린 편집 하나가 저장을 막는다.
+        ? current.filter((item) => !sameOverride(item, key))
+        : current.some((item) => sameOverride(item, key))
+          ? current.map((item) => (sameOverride(item, key) ? next : item))
+          : [...current, next]
+      return { ...previous, render: { ...previous.render, scene_overrides: list } }
+    })
+  }, [])
+
   /**
    * 장면 길이 조정 (#82).
-   *
-   * **`scenes.json`을 고치지 않는다.** 낭독보다 짧은 값은 `validate_scenes_final`이 거부하므로
-   * 그쪽에 쓰면 저장이 실패하고 그 run 디렉터리가 다시 열리지 않는다 — 값이 살 수 있는 자리는
-   * `render.scene_overrides`뿐이다 (PRD 14.1). 렌더러가 읽는 값이라 프리뷰 지문에 들어가고,
-   * 그래서 고치면 프레임이 다시 만들어진다.
    *
    * 함께 `review.timeline_stale`을 건다. 길이 하나를 고치면 그 뒤 장면의 시작 시각이 전부
    * 밀려 `captions.srt`·`voice.mp3`가 어긋나고, 낡는 대상이 특정 항목이 아니라 타임라인
    * 전체다 — 그래서 항목 번호 목록인 `stale`이 아니다. 지우는 것은 재생성(#77)이다.
    */
   const editDuration = useCallback((scene: Scene, duration: number) => {
-    setProject((previous) => {
-      if (!previous) return previous
-      const key = overrideKey(scene)
-      const current = previous.render.scene_overrides ?? []
-      const matched = current.some((item) => sameOverride(item, key))
-      const next = matched
-        ? current.map((item) => (sameOverride(item, key) ? { ...item, duration } : item))
-        : [...current, { ...key, duration }]
+    patchOverride(scene, (current) => ({ ...current, duration }))
+    patchReview((current) => ({ ...current, timeline_stale: true }))
+  }, [patchOverride, patchReview])
+
+  /**
+   * 자막 문구 편집 (#83).
+   *
+   * **`review`를 건드리지 않는다.** 문구가 고쳐졌다는 사실은 `scene_overrides[].text`와
+   * `scenes.json`을 비교하면 나오므로(`editedCaptions`) 적어 두면 어느 쪽이 원본인지
+   * 모호해진다 — `orderStale`과 같은 판단이다. 그래서 **되돌리면 표시도 사라진다**: 콘텐츠
+   * 편집의 `stale`이 되돌려도 남는 것과 갈리는 이유는 그쪽에 비교할 기준이 없기 때문이다.
+   */
+  const editCaption = useCallback((scene: Scene, text: string) => {
+    patchOverride(scene, (current) => ({ ...current, text }))
+  }, [patchOverride])
+
+  /** 자막 문구를 `scenes.json`의 값으로 되돌린다. 키를 지우는 것이 곧 되돌리기다. */
+  const revertCaption = useCallback((scene: Scene) => {
+    patchOverride(scene, ({ text: _dropped, ...rest }) => rest)
+  }, [patchOverride])
+
+  /**
+   * 텍스트 오버레이 추가 (#83).
+   *
+   * **기본값을 계약 목록에서 고른다** — 이름도 크기도 앱이 적지 않는다 (`presets.overlay`).
+   * 가운데 후보를 쓰는 것은 목록이 순서를 갖기 때문이고, 그래서 후보가 늘어도 이 코드가
+   * 낡지 않는다.
+   */
+  const addOverlay = useCallback((scene: Scene) => {
+    const contract = presets?.overlay
+    if (!contract) return
+    patchOverride(scene, (current) => {
+      const list = current.overlays ?? []
+      const middle = <T,>(values: T[]) => values[Math.floor(values.length / 2)]
       return {
-        ...previous,
-        render: { ...previous.render, scene_overrides: next },
-        review: { ...review(previous), timeline_stale: true }
+        ...current,
+        overlays: [...list, {
+          id: nextOverlayId(list),
+          text: '새 문구',
+          pos: middle(contract.positions),
+          offset: { x: 0, y: 0 },
+          color: contract.colors[0].name,
+          size: middle(contract.sizes),
+          weight: middle(contract.weights),
+          timing: TIMING_SCENE
+        }]
       }
     })
-  }, [])
+  }, [patchOverride, presets])
+
+  const editOverlay = useCallback((scene: Scene, id: string, fields: Partial<Overlay>) => {
+    patchOverride(scene, (current) => ({
+      ...current,
+      overlays: (current.overlays ?? []).map(
+        (item) => (item.id === id ? { ...item, ...fields } : item)
+      )
+    }))
+  }, [patchOverride])
+
+  /** **되돌리기가 없다** (확정 스펙 7.4). 확인을 받는 것은 카드 쪽이다. */
+  const removeOverlay = useCallback((scene: Scene, id: string) => {
+    patchOverride(scene, (current) => ({
+      ...current,
+      overlays: (current.overlays ?? []).filter((item) => item.id !== id)
+    }))
+  }, [patchOverride])
 
   /**
    * `scenes.json`이 아직 참조하는 항목 번호.
@@ -306,37 +402,51 @@ export function App () {
     return [...seen]
   }, [scenes])
 
-  /** `review`를 고친 프로젝트. 없던 섹션은 빈 값에서 시작한다 (옛 run 디렉터리). */
-  const patchReview = useCallback((change: (current: Review) => Review) => {
-    setProject((previous) => previous && { ...previous, review: change(review(previous)) })
-  }, [])
-
   /**
-   * 콘텐츠 편집이 검수 상태에 미치는 영향 — **규칙 하나다.**
+   * 콘텐츠 편집이 검수 상태에 미치는 영향 — **낡음이 두 종류다** (#83, 확정 스펙 7.3).
    *
-   * 낭독 문구가 바뀐 항목은 확인이 풀리고(확인한 내용과 다른 내용이 확인된 상태로 남지
-   * 않는다) 재생성 대상이 된다. 어느 필드가 낭독으로 가는지는 타입 모듈이 알고, 여기서는
-   * 값이 달라졌는지만 본다.
+   * - 낭독 문구가 바뀌면 **음성까지 낡는다** (`stale`) — `voice.mp3`를 다시 만들어야 한다
+   * - 자막에만 가는 문구(퀴즈의 해설)가 바뀌면 **자막만 낡는다** (`captions_stale`) —
+   *   음성은 그대로 쓰고 `captions.srt`만 다시 만든다
    *
-   * **한 번 붙은 `stale`은 되돌려도 떨어지지 않는다.** `scenes.json`이 어느 문구에서
-   * 만들어졌는지 기록해 두는 곳이 없어 비교 기준이 "지금 화면의 직전 값"뿐이기 때문이다.
-   * 낡지 않은 것을 낡았다고 말하는 쪽이 반대보다 안전하고, 표시를 지우는 것은 재생성(#77)이다.
+   * 어느 필드가 어디로 가는지는 타입 모듈이 알고(`ContentItem`의 `narration` / `captions`),
+   * 여기서는 값이 달라졌는지만 본다. **확인은 자막 쪽 변화에도 풀린다** — 사람이 확인한 것은
+   * 그 문제의 내용이고, 해설이 달라졌으면 확인한 내용과 다르다 (확정 스펙 1.4).
+   *
+   * **한 번 붙은 낡음은 되돌려도 떨어지지 않는다.** `scenes.json`이 어느 문구에서 만들어졌는지
+   * 기록해 두는 곳이 없어 비교 기준이 "지금 화면의 직전 값"뿐이기 때문이다. 낡지 않은 것을
+   * 낡았다고 말하는 쪽이 반대보다 안전하고, 표시를 지우는 것은 재생성(#77)이다. (장면의 자막
+   * 문구 편집은 갈린다 — 그쪽은 `scenes.json`이 기준이라 되돌리면 표시도 사라진다.)
    */
   const editContent = useCallback((next: Content) => {
     if (!type || !content) return
-    const before = new Map(type.items(content).map((item) => [item.id, item.narration]))
-    const changed = type.items(next)
-      .filter((item) => before.has(item.id) && before.get(item.id) !== item.narration)
+    const before = new Map(type.items(content).map((item) => [item.id, item]))
+    const changed = (field: 'narration' | 'captions') => type.items(next)
+      .filter((item) => {
+        const was = before.get(item.id)
+        return was !== undefined && was[field] !== item[field]
+      })
       .map((item) => item.id)
+    const spoken = changed('narration')
+    // 낭독 문구는 자막에도 가므로 이 목록이 위를 포함한다 (`ContentItem.captions`).
+    const captioned = changed('captions')
     setContent(next)
-    if (changed.length > 0) {
-      // **`current`를 펼친다.** 두 목록만 골라 새 객체를 만들면 `timeline_stale`처럼 나중에
+    if (spoken.length > 0 || captioned.length > 0) {
+      // **`current`를 펼친다.** 몇 개만 골라 새 객체를 만들면 `timeline_stale`처럼 나중에
       // 늘어난 칸이 조용히 사라진다 — 스모크가 저장·재시작 뒤에 그것을 밟았다 (#82).
-      patchReview((current) => ({
-        ...current,
-        acknowledged: current.acknowledged.filter((id) => !changed.includes(id)),
-        stale: union(current.stale, changed)
-      }))
+      patchReview((current) => {
+        const stale = union(current.stale, spoken)
+        return {
+          ...current,
+          acknowledged: current.acknowledged.filter((id) => !captioned.includes(id)),
+          stale,
+          // **강한 쪽에 이미 있는 번호는 넣지 않는다.** 겹쳐도 계약 위반은 아니지만
+          // (스키마가 허용한다) 화면에 서는 것은 어차피 `stale`이다.
+          captions_stale: union(
+            captionsStale(current), captioned.filter((id) => !stale.includes(id))
+          )
+        }
+      })
     }
   }, [type, content, patchReview])
 
@@ -354,12 +464,13 @@ export function App () {
     if (!type || !content) return
     const remaining = type.items(content).filter((item) => item.id !== id)
     setContent(type.remove(content, id))
-    // 지운 번호는 두 목록에서도 빠진다. 남겨 두면 나중에 같은 번호가 다시 생겼을 때
+    // 지운 번호는 세 목록에서도 빠진다. 남겨 두면 나중에 같은 번호가 다시 생겼을 때
     // 옛 판단이 새 항목에 붙는다 — 번호를 재사용하지 않는 것과 같은 이유다.
     patchReview((current) => ({
       ...current,
       acknowledged: current.acknowledged.filter((value) => value !== id),
-      stale: current.stale.filter((value) => value !== id)
+      stale: current.stale.filter((value) => value !== id),
+      captions_stale: captionsStale(current).filter((value) => value !== id)
     }))
     setSelectedItem(remaining[0]?.id ?? null)
   }, [type, content, patchReview])
@@ -481,6 +592,24 @@ export function App () {
         const target = shownScenes[index]
         if (target) editDuration(target, duration)
       },
+      // 자막 문구와 오버레이도 **UI가 부르는 것과 같은 함수다** (#83). 스모크는 장면 객체
+      // 대신 인덱스로 가리킬 뿐이고, 카드의 위치·색·삭제 확인은 직접 눌러서 밟는다.
+      editCaption: (index: number, text: string) => {
+        const target = shownScenes[index]
+        if (target) editCaption(target, text)
+      },
+      revertCaption: (index: number) => {
+        const target = shownScenes[index]
+        if (target) revertCaption(target)
+      },
+      addOverlay: (index: number) => {
+        const target = shownScenes[index]
+        if (target) addOverlay(target)
+      },
+      editOverlay: (index: number, id: string, fields: Partial<Overlay>) => {
+        const target = shownScenes[index]
+        if (target) editOverlay(target, id, fields)
+      },
       // **UI가 부르는 것과 같은 함수다** (#81). 화면의 슬라이더는 눈금을 게인으로 바꿔 이
       // 함수를 부르고, 스모크는 게인을 직접 준다 — 눈금과 게인의 매핑은 화면의 지식이다.
       editVolume,
@@ -499,9 +628,12 @@ export function App () {
         // 받지 않는 형식을 골랐을 때만 값이 있다. 화면의 거부 카드와 같은 값이다 (#80).
         backgroundReject,
         scenes,
-        // 사람이 얹은 편집이 반영된 길이. **`scenes`는 파일 그대로다** — 스모크가 둘을
-        // 비교해 `scenes.json`이 바뀌지 않았음을 확인한다 (#82).
+        // 사람이 얹은 편집이 반영된 길이·문구. **`scenes`는 파일 그대로다** — 스모크가 둘을
+        // 비교해 `scenes.json`이 바뀌지 않았음을 확인한다 (#82, #83).
         shownDurations: shownScenes.map((item) => item.duration),
+        shownTexts: shownScenes.map((item) => item.text ?? null),
+        // 계산된 값이라 파일에 없다 (#83). 재시작 뒤에도 같은 답이 나오는지를 스모크가 본다.
+        captionEdits,
         content,
         items,
         error,
@@ -574,6 +706,7 @@ export function App () {
                   selectedId={activeItem}
                   acknowledged={review(project).acknowledged}
                   stale={review(project).stale}
+                  captionsStale={captionsStale(review(project))}
                   onSelect={setSelectedItem}
                   onChange={editContent}
                   onAcknowledge={acknowledge}
@@ -591,6 +724,7 @@ export function App () {
                         selected={selected}
                         items={items}
                         review={review(project)}
+                        captionEdits={captionEdits}
                         onSelect={setSelected}
                         onOpenItem={type && content
                           ? (id) => { setSelectedItem(id); setView('questions') }
@@ -605,7 +739,25 @@ export function App () {
                     index={selected}
                     runDir={opened.runDir}
                     presets={presets}
+                    captionEdited={selected !== null && captionEdits.includes(selected)}
+                    // **S2에서는 읽기 전용이다** — 재생성은 문제 편집에서 한다 (확정 스펙 7.3).
+                    audioStale={Boolean(
+                      scene?.question_id !== undefined &&
+                      review(project).stale.includes(scene.question_id)
+                    )}
                     onDuration={editDuration}
+                    onCaption={editCaption}
+                    onRevertCaption={revertCaption}
+                    // 계약 목록을 받지 못하면 오버레이 편집이 열리지 않는다 — 앱이 후보를
+                    // 지어내면 화면이 허용한 값을 렌더가 거부한다 (#80의 배경 형식과 같다).
+                    overlays={presets?.overlay
+                      ? {
+                          contract: presets.overlay,
+                          onAdd: addOverlay,
+                          onChange: editOverlay,
+                          onRemove: removeOverlay
+                        }
+                      : null}
                     onVolume={editVolume}
                     onStyle={editStyle}
                     onBackground={editBackground}
@@ -628,4 +780,30 @@ export function App () {
  */
 function union (current: number[], added: number[]): number[] {
   return [...current, ...added.filter((id) => !current.includes(id))]
+}
+
+/** 오버라이드 항목이 실제로 얹는 값 (`schemas/project.py`의 `OVERRIDE_EDITS`). */
+const OVERRIDE_EDITS = ['duration', 'text', 'overlays'] as const
+
+/**
+ * 빈 값을 걷어낸 오버라이드 항목. 남는 것이 없으면 `null`이다.
+ *
+ * **스키마가 둘을 거부한다** — 얹는 값이 없는 항목과 빈 오버레이 목록이다. 되돌린 편집이
+ * 껍데기로 남으면 저장이 그때부터 실패하고, 원인은 사용자가 방금 한 동작과 이어지지 않는다.
+ */
+function pruneOverride (override: SceneOverride): SceneOverride | null {
+  const next: SceneOverride = { ...override }
+  if (next.overlays !== undefined && next.overlays.length === 0) delete next.overlays
+  return OVERRIDE_EDITS.some((key) => next[key] !== undefined) ? next : null
+}
+
+/**
+ * 새 오버레이의 `id`.
+ *
+ * **장면 안에서만 유일하면 된다** — 다른 장면의 목록과 섞이지 않고 이 번호를 참조하는 산출물도
+ * 없다. 지운 번호를 다시 쓰는 것이 #28의 문제 번호와 갈리는 이유가 그것이다.
+ */
+function nextOverlayId (existing: Overlay[]): string {
+  const used = existing.map((item) => Number.parseInt(item.id.replace(/^o/, ''), 10))
+  return `o${used.reduce((highest, value) => Math.max(highest, value || 0), 0) + 1}`
 }

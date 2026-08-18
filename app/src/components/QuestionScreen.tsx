@@ -10,10 +10,11 @@
 import type { Content } from '../protocol'
 import type { ContentItem, ContentModule } from '../types'
 import { Icon } from './Icon'
+import { StaleBadge } from './Stale'
 import { StatusBadge } from './StatusBadge'
 
 export function QuestionScreen ({
-  module: type, content, items, selectedId, acknowledged, stale,
+  module: type, content, items, selectedId, acknowledged, stale, captionsStale,
   onSelect, onChange, onAcknowledge, onAdd, onRemove, onMove
 }: {
   module: ContentModule
@@ -21,7 +22,10 @@ export function QuestionScreen ({
   items: ContentItem[]
   selectedId: number | null
   acknowledged: number[]
+  /** 음성까지 낡은 문제 (#83). 낭독 문구가 바뀐 것이다. */
   stale: number[]
+  /** 자막만 낡은 문제 (#83). 해설처럼 낭독으로 가지 않는 문구만 바뀐 것이다. */
+  captionsStale: number[]
   onSelect: (id: number) => void
   onChange: (next: Content) => void
   onAcknowledge: (id: number) => void
@@ -63,12 +67,10 @@ export function QuestionScreen ({
                     확인함
                   </span>
                 )}
-                {stale.includes(item.id) && (
-                  <span className="vbadge vbadge--stale" data-testid="stale-badge">
-                    <Icon name="refresh" size={12} />
-                    재생성 필요
-                  </span>
-                )}
+                {/* 장면 목록의 머리글과 같은 규칙이다 — 강한 쪽만 그린다 (#83). */}
+                {stale.includes(item.id)
+                  ? <StaleBadge kind="audio" />
+                  : captionsStale.includes(item.id) && <StaleBadge kind="captions" />}
                 <span className="t-caption qrow__tag">{item.tag}</span>
               </span>
               <span className="qrow__title">{item.title}</span>
@@ -117,6 +119,7 @@ export function QuestionScreen ({
                   item={selected}
                   acknowledged={acknowledged.includes(selected.id)}
                   stale={stale.includes(selected.id)}
+                  captionsStale={captionsStale.includes(selected.id)}
                   onChange={onChange}
                   onAcknowledge={() => onAcknowledge(selected.id)}
                 />

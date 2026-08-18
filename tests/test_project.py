@@ -266,6 +266,201 @@ def test_a_zero_duration_override_is_rejected(tmp_path: Path) -> None:
         validate_project(with_overrides(tmp_path, {"role": "hook", "duration": 0.0}))
 
 
+# --- 자막 텍스트와 텍스트 오버레이 (#83) --------------------------------------
+
+
+def overlay_of(**overrides: Any) -> dict[str, Any]:
+    """확정 스키마를 만족하는 오버레이 하나 (D2 확정 스펙 7.2)."""
+    return {
+        "id": "o1",
+        "text": "여기 주목",
+        "pos": "bottom-center",
+        "offset": {"x": 0, "y": 40},
+        "color": "preset",
+        "size": 40,
+        "weight": 700,
+        "timing": "scene",
+    } | overrides
+
+
+def test_a_scene_override_can_carry_a_caption_text(tmp_path: Path) -> None:
+    """장면의 `text` 한 칸을 덮는다 — `scenes.json`은 건드리지 않는다 (확정 스펙 7.3)."""
+    validate_project(with_overrides(tmp_path, {"role": "hook", "text": "고친 문구"}))
+
+
+def test_an_empty_caption_text_is_rejected(tmp_path: Path) -> None:
+    """빈 문구를 얹는 것은 뜻이 없다 — 앱은 그때 키를 지워 원래 문구로 돌아간다."""
+    with pytest.raises(SchemaError):
+        validate_project(with_overrides(tmp_path, {"role": "hook", "text": "  "}))
+
+
+def test_a_scene_override_can_carry_overlays(tmp_path: Path) -> None:
+    validate_project(
+        with_overrides(tmp_path, {"role": "hook", "overlays": [overlay_of()]})
+    )
+
+
+def test_the_three_edits_share_one_override_item(tmp_path: Path) -> None:
+    """길이·문구·오버레이가 같은 장면을 가리키므로 키가 세 벌 생기지 않는다 (PRD 14.1)."""
+    validate_project(
+        with_overrides(
+            tmp_path,
+            {
+                "role": "hook",
+                "duration": 2.0,
+                "text": "고친 문구",
+                "overlays": [overlay_of()],
+            },
+        )
+    )
+
+
+def test_an_overlay_weight_that_is_not_bundled_is_rejected(tmp_path: Path) -> None:
+    """시안의 400·600은 번들에 없다 — 저장되면 `font_path()`가 렌더를 멈춘다 (7.1-2).
+
+    **화면에서는 정상으로 보이고 렌더에서만 실패하므로** UI에서 빼는 것으로는 부족하다.
+    """
+    for weight in (400, 600):
+        with pytest.raises(SchemaError) as failure:
+            validate_project(
+                with_overrides(
+                    tmp_path, {"role": "hook", "overlays": [overlay_of(weight=weight)]}
+                )
+            )
+        assert "500 | 700 | 800" in str(failure.value)
+
+
+def test_the_bundled_weights_are_accepted(tmp_path: Path) -> None:
+    for weight in (500, 700, 800):
+        validate_project(
+            with_overrides(
+                tmp_path, {"role": "hook", "overlays": [overlay_of(weight=weight)]}
+            )
+        )
+
+
+def test_an_overlay_takes_one_of_nine_positions(tmp_path: Path) -> None:
+    for position in (
+        "top-left",
+        "mid-center",
+        "bottom-right",
+    ):
+        validate_project(
+            with_overrides(
+                tmp_path, {"role": "hook", "overlays": [overlay_of(pos=position)]}
+            )
+        )
+    with pytest.raises(SchemaError):
+        validate_project(
+            with_overrides(
+                tmp_path, {"role": "hook", "overlays": [overlay_of(pos="center")]}
+            )
+        )
+
+
+def test_an_overlay_color_is_a_name_not_a_value(tmp_path: Path) -> None:
+    """자유 색이 없다 — 이름이 프리셋의 역할로 옮겨진다 (확정 스펙 7.2)."""
+    with pytest.raises(SchemaError):
+        validate_project(
+            with_overrides(
+                tmp_path, {"role": "hook", "overlays": [overlay_of(color="#FF0000")]}
+            )
+        )
+
+
+def test_an_overlay_offset_can_be_negative(tmp_path: Path) -> None:
+    """안전 영역 밖으로 미는 것은 사람의 선택이고, 넘침은 프리뷰에 그대로 보인다 (7.5)."""
+    validate_project(
+        with_overrides(
+            tmp_path,
+            {"role": "hook", "overlays": [overlay_of(offset={"x": -20, "y": -8})]},
+        )
+    )
+
+
+def test_an_overlay_timing_is_either_scene_or_a_window(tmp_path: Path) -> None:
+    validate_project(
+        with_overrides(
+            tmp_path,
+            {
+                "role": "hook",
+                "overlays": [overlay_of(timing={"start": 0.5, "dur": 1.5})],
+            },
+        )
+    )
+
+    with pytest.raises(SchemaError) as failure:
+        validate_project(
+            with_overrides(
+                tmp_path, {"role": "hook", "overlays": [overlay_of(timing="always")]}
+            )
+        )
+    assert "scene" in str(failure.value)
+
+    # 매핑이면 그 안의 위반을 그대로 말한다 — 후보를 골라 그쪽 오류만 낸다.
+    with pytest.raises(SchemaError) as failure:
+        validate_project(
+            with_overrides(
+                tmp_path,
+                {"role": "hook", "overlays": [overlay_of(timing={"start": 0, "dur": 0})]},
+            )
+        )
+    assert "dur" in str(failure.value)
+
+
+def test_an_empty_overlay_list_is_rejected(tmp_path: Path) -> None:
+    """마지막 항목을 지운 자리에 `[]`가 남으면 아무것도 하지 않는 오버라이드가 쌓인다."""
+    with pytest.raises(SchemaError):
+        validate_project(with_overrides(tmp_path, {"role": "hook", "overlays": []}))
+
+
+def test_two_overlays_with_the_same_id_are_rejected(tmp_path: Path) -> None:
+    """화면에서 한 카드를 고쳤을 때 다른 카드가 함께 바뀐다."""
+    with pytest.raises(SchemaError) as failure:
+        validate_project(
+            with_overrides(
+                tmp_path,
+                {"role": "hook", "overlays": [overlay_of(), overlay_of(text="다른 문구")]},
+            )
+        )
+    assert "id가 두 번" in str(failure.value)
+
+
+def test_the_same_overlay_id_in_another_scene_is_fine(tmp_path: Path) -> None:
+    """장면 안에서만 유일하면 된다 — 다른 장면의 목록과 섞이지 않는다."""
+    validate_project(
+        with_overrides(
+            tmp_path,
+            {"role": "hook", "overlays": [overlay_of()]},
+            {"role": "cta", "overlays": [overlay_of()]},
+        )
+    )
+
+
+def test_the_captions_stale_list_is_optional(tmp_path: Path) -> None:
+    """자막만 낡은 항목 (#83). 이 필드가 생기기 전의 run 디렉터리가 열려야 한다."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+    assert "captions_stale" not in content["review"]
+    validate_project(content)
+
+    content["review"]["captions_stale"] = [1, 2]
+    validate_project(content)
+
+    content["review"]["captions_stale"] = [1, 1]
+    with pytest.raises(SchemaError) as failure:
+        validate_project(content)
+    assert "중복된 번호" in str(failure.value)
+
+
+def test_the_two_stale_lists_can_overlap(tmp_path: Path) -> None:
+    """겹치면 강한 쪽(음성까지)이 화면에 서고, 지우는 것은 재생성(#77)이다."""
+    content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)
+    content["review"]["stale"] = [1]
+    content["review"]["captions_stale"] = [1]
+
+    validate_project(content)
+
+
 def test_a_project_without_the_overrides_field_still_opens(tmp_path: Path) -> None:
     """이 필드가 생기기 전에 만들어진 run 디렉터리가 열려야 한다."""
     content = project.build(FINAL_SCENES, config=config_of(tmp_path), run_dir=tmp_path)

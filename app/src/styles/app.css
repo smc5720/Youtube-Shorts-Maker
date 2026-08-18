@@ -137,6 +137,35 @@ body {
   font-size: 14px;
 }
 
+/* 좁은 자리의 보조 동작 (오버레이 삭제·자막 되돌리기, #83). 테두리를 지워 카드 안에서
+ * 주요 동작과 경쟁하지 않게 한다. */
+.button--quiet {
+  height: 24px;
+  padding: 0 var(--s3);
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.button--quiet:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* **되돌릴 수 없는 동작이다** (확정 스펙 7.4의 삭제 확인). `danger`는 거부에 쓰는 색이지만
+ * 여기서는 "확인하면 사라진다"를 말하므로 같은 자리에 있다. */
+.button--danger {
+  height: 24px;
+  padding: 0 var(--s3);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.button--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
 /* --- 본문 ---------------------------------------------------------------- */
 
 .body {
@@ -290,9 +319,13 @@ body {
   border-right: 1px solid var(--line);
 }
 
+/* **340 → 384로 넓어졌다** (확정 스펙 7.4). 2차 컨트롤(오버레이 편집 카드)이 그 폭을
+ * 요구한다. 최소 창 값은 336이고 계수 0.3 = (384-336)/(1440-1280) — 확정 스펙 3.1의 보간
+ * 방식 그대로다. 최소 창에서 좌 264 + 우 336이면 프리뷰에 680px이 남고, 높이 기준 프리뷰가
+ * 요구하는 폭은 376px이므로 성립한다. */
 .panel--properties {
   flex: 0 0 auto;
-  width: clamp(300px, calc(300px + (100vw - 1280px) * 0.25), 340px);
+  width: clamp(336px, calc(336px + (100vw - 1280px) * 0.3), 384px);
   border-left: 1px solid var(--line);
 }
 
@@ -421,6 +454,14 @@ body {
 }
 
 /* 역할 이름과 길이는 기계가 만든 값이라 mono이고, 읽는 11px이므로 `text/2`다 (1.7). */
+/* 행의 낡음 표시 (#83) — **아이콘만 있다.** 296px에 문구를 넣으면 제목이 밀리고, 뜻은
+ * `title`과 속성 패널의 카드가 진다. */
+.scene-row__stale {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+
 .scene-row__role {
   grid-column: 2;
   font-size: 11px;
@@ -823,6 +864,12 @@ body {
   color: var(--accent);
 }
 
+/* **낡음 두 종류가 모양으로 갈린다** (#83, 확정 스펙 7.3). 색은 둘 다 `accent`이므로 자막만
+ * 낡음은 사각(`↻`), 음성까지 낡음은 pill(`♪`)이다 — 아이콘도 문구도 함께 다르다. */
+.vbadge--stale-audio {
+  border-radius: var(--r-pill);
+}
+
 /* --- S3 문제 편집 (확정 스펙 3.2) ------------------------------------------- */
 
 /* **2분할이다.** 문제를 고치는 동안 프리뷰는 바뀌지 않으므로 자리를 내주지 않는다.
@@ -977,6 +1024,25 @@ body {
   border-color: var(--warn);
 }
 
+/* **값이 적용되지 않은 상태다** (확정 스펙 4장의 `danger`). 빈 문구는 스키마가 거부하므로
+ * 프로젝트에 올리지 않고 직전 값이 남는다 (#83). `warn`과 같은 표시를 쓰면 무엇이
+ * 반영됐는지가 화면에서 갈리지 않는다. */
+.input--danger,
+.input--danger:focus-within {
+  border-color: var(--danger);
+}
+
+/* 오버레이 카드의 좁은 수치 칸 (#83). 레이블이 입력 안에 들어간다 — 88px 격자를 쓰면 384px
+ * 패널에서 x·y가 한 줄에 서지 못한다. */
+.input--inline {
+  padding: var(--s1) var(--s3);
+  gap: var(--s2);
+}
+
+.input--inline input {
+  width: 52px;
+}
+
 /* 장면 길이 — 입력과 낭독 길이가 한 줄, 경고가 그 아래다. `.field`의 값 칸 안에 들어간다. */
 .duration {
   display: flex;
@@ -1119,7 +1185,171 @@ body {
   color: var(--accent);
 }
 
+/* **음성까지 낡음에는 좌측 3px 강조가 붙는다** (확정 스펙 7.3). 색이 둘 다 `accent`라
+ * 아이콘 모양·문구와 함께 이 띠가 두 상태를 갈라 준다. */
+.stale-card[data-kind='audio'] {
+  border-left: 3px solid var(--accent);
+}
+
+.stale-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.stale-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-top: var(--s1);
+}
+
+/* 원형 `♪` / 사각 `↻` — **모양이 뜻을 갈라야 한다** (확정 스펙 4장). */
+.stale-card__icon--audio {
+  border-radius: var(--r-pill);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 3px;
+}
+
 .stale-card__title {
   font-weight: 700;
   font-size: 14px;
+}
+
+/* --- 자막 문구 · 텍스트 오버레이 (#83, 확정 스펙 7.2) ------------------------ */
+
+/* **`.field`의 두 칸 격자를 쓰지 않는다.** 여러 줄 입력이라 88px 레이블 옆에 두면 폭이
+ * 남지 않는다 — `.presets`와 같은 이유로 레이블이 위로 올라간다. */
+.capfield {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.capfield__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.overlays {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-top: var(--s4);
+  border-top: 1px dashed var(--line);
+}
+
+.overlays__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+/* 추가 버튼이 오른쪽 끝에 선다 — 개수 표시와 레이블은 왼쪽에 붙는다. */
+.overlays__head .button {
+  margin-left: auto;
+}
+
+.overlays__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.overlay-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--bg-raised);
+}
+
+.overlay-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.overlay-card__number {
+  color: var(--text-2);
+  margin-right: auto;
+}
+
+/* 삭제 확인이 카드 안에서 일어난다 — 모달이 뜨면 자동 실행이 거기서 멈춘다 (스모크). */
+.overlay-card__confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.overlay-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+/* 9칸 격자 — **좌표가 아니라 위치를 고르는 컨트롤이다.** 셀의 배치가 곧 화면의 배치라
+ * 이름을 읽지 않고도 고를 수 있다 (이름은 `title`에 있다). */
+.posgrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  width: 96px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+  background: var(--bg-panel);
+  /* 9:16을 줄인 비율이다 — 정사각형으로 두면 세로 영상의 위·아래가 실제보다 가깝게 읽힌다. */
+  aspect-ratio: 9 / 16;
+}
+
+.posgrid__cell {
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: var(--bg-raised);
+  cursor: pointer;
+}
+
+.posgrid__cell:hover {
+  background: var(--bg-hover);
+}
+
+.posgrid__cell--on,
+.posgrid__cell--on:hover {
+  border-color: var(--accent);
+  background: var(--select-bg);
+}
+
+/* 레이블과 컨트롤이 한 줄에 서는 좁은 필드.
+ *
+ * **레이블 칸이 88px이 아니라 44px이다.** 이 필드의 레이블은 두 글자(색·크기·굵기·구간)이고,
+ * 값 칸에는 선택지 셋이 들어간다 — 384px 패널에서 88px을 떼면 견본이 붙은 세 칸이 한 줄에
+ * 서지 못해 옵션 안에서 줄이 갈린다. */
+.field--tight {
+  grid-template-columns: 44px 1fr;
+  align-items: center;
+}
+
+.field--tight .segmented__option {
+  padding: 0 var(--s3);
+  white-space: nowrap;
+}
+
+/* 색 견본 — **색값은 인라인 style로 온다** (백엔드가 보낸 프리셋 색이다, #79와 같은 규칙). */
+.segmented__swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--s2);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  vertical-align: -1px;
 }
