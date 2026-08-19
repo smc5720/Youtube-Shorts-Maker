@@ -13,11 +13,13 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -274,7 +276,7 @@ def test_an_unknown_method_lists_the_ones_that_exist() -> None:
 def test_an_unexpected_failure_comes_back_as_a_response(monkeypatch: pytest.MonkeyPatch) -> None:
     """**요청 하나 때문에 백엔드가 죽으면** 앱은 열려 있고 저장은 불가능한 상태가 된다."""
 
-    def explode(params: dict[str, Any]) -> Any:
+    def explode(params: dict[str, Any], notify: api.Notifier) -> Any:
         raise ZeroDivisionError("예상 못 한 실패")
 
     monkeypatch.setitem(api.METHODS, "ping", explode)
@@ -698,10 +700,213 @@ def test_preview_leaves_nothing_in_the_run_directory(run_dir: Path) -> None:
     assert sorted(path.name for path in run_dir.iterdir()) == before
 
 
+# --- 최종 렌더 (#30) -------------------------------------------------------------
+
+
+def render_call(
+    run_dir: Path, project_body: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """렌더 요청 하나와 그 사이에 나간 알림들.
+
+    **알림을 응답과 함께 본다.** 진행 상황은 요청 하나에 여러 줄이라 `handle`의 반환값에는
+    없고, 앱은 그 줄들을 `backend-event`로 받는다 (#30).
+    """
+    body = project_body or json.loads(
+        (run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8")
+    )
+    events: list[dict[str, Any]] = []
+    response = api.handle(
+        {"id": 7, "method": "render", "params": {"run_dir": str(run_dir), "project": body}},
+        emit=events.append,
+    )
+    return response, events
+
+
+def test_render_validates_the_project_it_is_handed(run_dir: Path) -> None:
+    """프리뷰와 같은 규칙이다 — 앱이 들고 있는 값으로 렌더하고 저장과 같은 검증을 지난다."""
+    broken = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    broken["render"]["fps"] = "서른"
+
+    error = error_of(render_call(run_dir, broken)[0])
+
+    assert error["code"] == "schema"
+    assert any("render.fps" in message for message in error["details"])
+
+
+def test_render_reports_the_cause_when_ffmpeg_fails(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """실패 카드가 그리는 것 — 사람이 읽는 문구와 원문 오류다 (D2 확정 스펙 3.3)."""
+
+    def failing(*args: Any, **kwargs: Any) -> Path:
+        raise video_renderer.RenderError(
+            "final_short.mp4을 만들지 못했다 — ffmpeg 종료 코드 1",
+            raw="Error opening output file: Invalid argument",
+        )
+
+    monkeypatch.setattr(video_renderer, "render", failing)
+
+    error = error_of(render_call(run_dir)[0])
+
+    assert error["code"] == "render"
+    assert "종료 코드 1" in error["message"]
+    # **원문은 갈라져 온다** — 앱이 사람이 읽는 원인과 다르게 그린다 (확정 스펙 3.3).
+    assert error["raw"] == "Error opening output file: Invalid argument"
+    assert "Invalid argument" not in error["message"]
+
+
+def test_a_failure_without_raw_output_has_no_raw_field(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """빈 원문을 실어 보내면 앱이 빈 `mono` 상자를 그린다 — 없으면 칸도 없다."""
+
+    def failing(*args: Any, **kwargs: Any) -> Path:
+        raise video_renderer.RenderError("ffmpeg를 찾을 수 없다. FFmpeg를 설치하고 PATH에 넣는다")
+
+    monkeypatch.setattr(video_renderer, "render", failing)
+
+    error = error_of(render_call(run_dir)[0])
+
+    assert "raw" not in error
+    assert "ffmpeg를 찾을 수 없다" in error["message"]
+
+
+def test_a_second_render_is_refused_while_one_runs(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**같은 출력 파일에 두 ffmpeg가 쓰면 결과가 어느 쪽인지 알 수 없다.**
+
+    앱의 버튼 잠금에 맡기지 않는 이유는 스모크나 두 번째 창이 직접 부를 수 있기 때문이다.
+    """
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow(*args: Any, **kwargs: Any) -> Path:
+        started.set()
+        release.wait(timeout=5)
+        return run_dir / "final_short.mp4"
+
+    monkeypatch.setattr(video_renderer, "render", slow)
+    (run_dir / "final_short.mp4").write_bytes(b"stub")
+
+    first: list[dict[str, Any]] = []
+    worker = threading.Thread(target=lambda: first.append(render_call(run_dir)[0]))
+    worker.start()
+    assert started.wait(timeout=5)
+    try:
+        error = error_of(render_call(run_dir)[0])
+    finally:
+        release.set()
+        worker.join(timeout=5)
+
+    assert error["code"] == "busy"
+    assert "id" not in error
+    # 첫 렌더는 그대로 끝난다 — 거절된 것은 두 번째다.
+    assert result_of(first[0])["output_path"].endswith("final_short.mp4")
+
+    # 락이 풀렸으므로 다음 요청은 다시 받는다.
+    assert result_of(render_call(run_dir)[0])["bytes"] == len(b"stub")
+
+
+def test_render_progress_goes_out_as_notifications_with_the_request_id(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**응답 하나로 끝나지 않는 유일한 메서드다** (#30).
+
+    `id`를 싣는 것은 재시도한 뒤 이전 렌더의 늦은 알림이 화면을 거꾸로 돌리지 않게 하기
+    위함이고, 퍼센트와 남은 시간이 없는 것은 그 계산이 화면의 것이기 때문이다.
+    """
+
+    def reporting(*args: Any, **kwargs: Any) -> Path:
+        report = kwargs["on_progress"]
+        report(video_renderer.RenderProgress(frame=1, total_frames=165, scene_index=0))
+        report(video_renderer.RenderProgress(frame=90, total_frames=165, scene_index=1))
+        return run_dir / "final_short.mp4"
+
+    monkeypatch.setattr(video_renderer, "render", reporting)
+    (run_dir / "final_short.mp4").write_bytes(b"stub")
+
+    response, events = render_call(run_dir)
+
+    assert result_of(response)["elapsed_ms"] >= 0
+    assert [event["event"] for event in events] == ["render_progress"] * 2
+    assert [event["id"] for event in events] == [7, 7]
+    assert [(event["frame"], event["scene_index"]) for event in events] == [(1, 0), (90, 1)]
+    assert all(event["total_frames"] == 165 for event in events)
+    assert all(event["elapsed_ms"] >= 0 for event in events)
+    assert all("percent" not in event for event in events)
+
+
+def test_progress_is_dropped_when_nobody_is_listening(
+    run_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """파일·목록으로 돌리는 경로는 알림을 받을 자리가 없다. 그래도 렌더는 끝난다."""
+
+    def reporting(*args: Any, **kwargs: Any) -> Path:
+        kwargs["on_progress"](
+            video_renderer.RenderProgress(frame=1, total_frames=2, scene_index=0)
+        )
+        return run_dir / "final_short.mp4"
+
+    monkeypatch.setattr(video_renderer, "render", reporting)
+    (run_dir / "final_short.mp4").write_bytes(b"stub")
+
+    assert result_of(call("render", run_dir=str(run_dir), project=json.loads(
+        (run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8")
+    )))["output_path"].endswith("final_short.mp4")
+
+
+@needs_ffmpeg
+def test_render_makes_a_playable_file_with_the_edited_duration(run_dir: Path) -> None:
+    """**앱 경로가 CLI와 같은 규격을 낸다** — 같은 `video_renderer.render`를 지나기 때문이다.
+
+    사람이 얹은 길이(#82)가 결과에 반영되는지도 함께 본다. 오버라이드는 확정 검증 **뒤에**
+    얹히므로(`apply_scene_overrides`) 낭독보다 짧은 값도 렌더까지 간다.
+    """
+    body = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    body["render"]["scene_overrides"] = [{"role": "hook", "duration": 1.0}]
+
+    result = result_of(render_call(run_dir, body)[0])
+
+    output = Path(result["output_path"])
+    assert output.name == "final_short.mp4" and output.parent == run_dir.resolve()
+    assert result["bytes"] > 0
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration:stream=width,height,codec_name", "-of", "json", str(output)],
+        capture_output=True, text=True, check=True,
+    )
+    streams = json.loads(probe.stdout)
+    # 2.5초 hook을 1.0초로 줄였으므로 3.0초 countdown과 합쳐 4.0초다.
+    assert float(streams["format"]["duration"]) == pytest.approx(4.0, abs=0.05)
+    assert {stream["codec_name"] for stream in streams["streams"]} == {"h264", "aac"}
+    assert [stream for stream in streams["streams"] if stream.get("width")][0]["width"] == 1080
+
+
+def test_serving_arranges_to_kill_ffmpeg_when_the_backend_goes_away(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**렌더 중에 앱이 닫히면 자식 ffmpeg가 남는다** (#30).
+
+    렌더는 daemon 스레드에서 돌아 stdin EOF로 `serve`가 돌아올 때 그 스레드는 그냥 사라지지만,
+    ffmpeg는 계속 돌아 사용자가 앱을 닫은 뒤에 `final_short.mp4`를 완성한다.
+    """
+    registered: list[Any] = []
+    monkeypatch.setattr(api.atexit, "register", lambda hook: registered.append(hook))
+
+    api.serve(stdin=io.StringIO(""), stdout=io.StringIO())
+
+    assert video_renderer.kill_active in registered
+
+
 def test_a_slow_method_does_not_hold_the_dispatch_loop(run_dir: Path) -> None:
     """**프리뷰 한 번이 2~3초다.** 그 사이 저장도 다른 요청도 받지 못하면 앱이 멈춘 것과
-    구분되지 않는다. 응답은 `id`로 짝을 찾으므로 순서가 뒤바뀌어도 앱이 헷갈리지 않는다."""
-    assert "preview" in api.BACKGROUND_METHODS
+    구분되지 않는다. 응답은 `id`로 짝을 찾으므로 순서가 뒤바뀌어도 앱이 헷갈리지 않는다.
+
+    **최종 렌더도 같은 자리를 지난다** (#30) — 그쪽이 훨씬 길고, 렌더 중에도 다른 화면을 볼
+    수 있어야 한다 (D2 확정 스펙 3.3).
+    """
+    assert {"preview", "render"} <= api.BACKGROUND_METHODS
     lines = [
         json.dumps({"id": 1, "method": "preview", "params": {}}),
         json.dumps({"id": 2, "method": "ping", "params": {"값": 1}}),

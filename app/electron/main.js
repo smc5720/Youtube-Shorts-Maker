@@ -209,6 +209,15 @@ let ask = (options) => dialog.showMessageBox(mainWindow, options)
 // 무엇으로 판정하는지는 그대로 지난다.
 let pick = (options) => dialog.showOpenDialog(mainWindow, options)
 
+// 렌더가 만든 파일을 파일 관리자에서 보여주는 자리 (#30). 같은 이유로 바꿔 끼운다 —
+// **탐색기 창은 모달이 아니지만 스모크가 도는 동안 창을 쌓는다.** 열지 못해도 화면의
+// 경로는 그대로 남으므로 실패는 값으로 돌려준다.
+let reveal = (target) => {
+  if (!fs.existsSync(target)) return false
+  shell.showItemInFolder(target)
+  return true
+}
+
 // 저장하지 않은 변경이 있는 채로 창을 닫을 때. **버리는 선택지만 주지 않는다** —
 // 이 앱에서 잃는 것은 사용자가 검수하며 고친 내용이다.
 async function confirmClose () {
@@ -329,6 +338,9 @@ app.whenReady().then(async () => {
     })
     return canceled ? null : filePaths[0]
   })
+  // 렌더 결과를 파일 탐색기에서 보여준다 (#30). **`ask`·`pick`과 같은 자리를 지난다** —
+  // 스모크가 여기를 바꿔 끼우지 않으면 자동 실행 중에 탐색기 창이 뜬다.
+  ipcMain.handle('reveal', (_event, target) => reveal(String(target)))
   // **동기다.** `invoke`로 받으면 렌더러가 화면을 고친 뒤에도 main이 잠깐 옛 값을 들고
   // 있고, 그 사이에 창을 닫으면 확인 없이 닫힌다 — 스모크가 실제로 1ms 차이로 밟았다.
   // 렌더러를 잠깐 세우더라도 "화면에 보이는 상태 = main이 아는 상태"가 성립해야 한다.
@@ -353,7 +365,8 @@ app.whenReady().then(async () => {
       backendInfo: () => backendInfo,
       externalRequests: () => externalRequests,
       setAsk: (handler) => { ask = handler },
-      setPick: (handler) => { pick = handler }
+      setPick: (handler) => { pick = handler },
+      setReveal: (handler) => { reveal = handler }
     })
   }
 })

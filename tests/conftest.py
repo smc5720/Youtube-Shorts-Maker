@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import io
 import subprocess
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -230,6 +231,21 @@ class StubFFmpeg:
             return subprocess.CompletedProcess(command, 0, "", "")
         raise AssertionError(f"대역이 모르는 외부 명령이다: {command[0]}")
 
+    def popen(self, command: list[str], **kwargs: Any) -> StubProcess:
+        """`Popen`으로 부르는 자리는 최종 렌더뿐이다 (#30, `_run_with_progress`).
+
+        **`run` 대역과 같은 판단을 지난다** — 명령을 기록하고 목적지 파일을 쓰고 종료 코드를
+        정하는 것이 한 곳에 있어야 `render_returncode`로 실패를 만드는 테스트가 두 경로에서
+        갈리지 않는다. 달라지는 것은 결과를 어떤 객체로 돌려주는지뿐이다.
+        """
+        completed = self(command, **kwargs)
+        errors = kwargs.get("stderr")
+        if completed.stderr and hasattr(errors, "write"):
+            errors.write(completed.stderr)
+        # 진행 줄도 흘려 준다. 없으면 `-progress`를 읽는 쪽이 훅을 한 번도 부르지 않아,
+        # 진행률을 쓰는 코드가 대역 위에서 조용히 통과한다.
+        return StubProcess(completed.returncode, "frame=1\nprogress=end\n")
+
     @property
     def mix_count(self) -> int:
         return len(self.mix_commands)
@@ -239,11 +255,33 @@ class StubFFmpeg:
         return len(self.render_commands)
 
 
+class StubProcess:
+    """`subprocess.Popen` 대역. 이미 끝난 프로세스처럼 답한다."""
+
+    def __init__(self, returncode: int, progress: str) -> None:
+        self.returncode = returncode
+        self.stdout = io.StringIO(progress)
+
+    def wait(self, timeout: float | None = None) -> int:
+        return self.returncode
+
+    def poll(self) -> int:
+        return self.returncode
+
+    def kill(self) -> None:  # pragma: no cover - 끝난 프로세스는 죽이지 않는다
+        pass
+
+
 @pytest.fixture
 def stub_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> Iterator[StubFFmpeg]:
-    """`ffprobe`·`ffmpeg` 호출을 가짜로 바꾼다."""
+    """`ffprobe`·`ffmpeg` 호출을 가짜로 바꾼다.
+
+    **`run`과 `Popen` 둘을 바꾼다** (#30). 최종 렌더만 `Popen`을 쓰는데(진행률을 읽어야 한다)
+    하나만 바꿔 두면 **가짜 오디오를 진짜 FFmpeg가 받아** 그 경로의 테스트가 전부 실패한다.
+    """
     stub = StubFFmpeg()
     # `speech_module.subprocess`와 `timeline_module.subprocess`,
     # `video_renderer.subprocess`는 같은 모듈 객체다.
     monkeypatch.setattr(speech_module.subprocess, "run", stub)
+    monkeypatch.setattr(speech_module.subprocess, "Popen", stub.popen)
     yield stub

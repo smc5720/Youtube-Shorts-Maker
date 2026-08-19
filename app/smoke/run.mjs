@@ -1,7 +1,7 @@
-// 앱 스모크 (#26, #27, #28, #82, #79, #80, #81, #83) — 앱을 실제로 띄워 완료 조건을 밟고
+// 앱 스모크 (#26, #27, #28, #82, #79, #80, #81, #83, #30) — 앱을 실제로 띄워 완료 조건을 밟고
 // 결과를 남긴다.
 //
-// 여섯 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
+// 여덟 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
 //   1. edit             — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
 //   2. verify           — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
@@ -13,13 +13,17 @@
 //                         (#28, #83)
 //   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋·배경 파일·볼륨·자막 문구·오버레이가
 //                         남았는지 (#28, #82, #79, #80, #81, #83)
-//   6. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
+//   6. render           — 경고 게이트 · 진행률 · 완료 · 실패 · 다시 시도 · 파일 위치 (#30)
+//   7. render-kill      — 렌더 도중 Electron만 강제 종료해 ffmpeg가 남는지 (#30)
+//   8. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
 //
-// **3번은 FFmpeg를 요구한다.** 실제 프레임이 나오는지가 그 시나리오의 절반이라 대역으로
+// **3·6·7번은 FFmpeg를 요구한다.** 실제 프레임과 실제 mp4가 그 시나리오의 절반이라 대역으로
 // 바꾸면 확인하려는 것이 확인되지 않는다. 4번은 요구하지 않는다 — 그 화면에는 프리뷰가 없고
 // 콘텐츠 편집이 프레임을 다시 만들지 않는 것 자체가 확인 대상이다.
 //
-// **순서가 있다.** 4번이 `run-smoke`의 두 파일을 고치므로 앞선 시나리오보다 뒤에 온다.
+// **순서가 있다.** 4번이 `run-smoke`의 두 파일을 고치므로 앞선 시나리오보다 뒤에 오고,
+// **6번은 그 편집 전부가 실제 렌더를 지나는지를 보므로 마지막 편집 뒤에 온다** — 사람이 얹은
+// 길이·자막 문구·오버레이가 mp4까지 가는지가 그 시나리오의 절반이다 (#30).
 //
 // 실행: npm run smoke   (결과는 app/smoke/results.json)
 
@@ -278,7 +282,129 @@ results.phases.push({ scenario: 'questions-verify', ...qVerify, result: qVerifyR
 if (qVerifyResult) results.checks.push(...qVerifyResult.checks)
 record('문제 편집 재시작 시나리오가 끝난다', qVerifyResult && qVerifyResult.ok && !qVerify.timedOut)
 
-// --- 6. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
+// --- 6. 최종 렌더 (#30) -------------------------------------------------------------
+
+// **여기까지의 편집이 그대로 렌더에 들어간다** — 사람이 얹은 길이·자막 문구(`%`·`:` 포함)·
+// 오버레이가 실제 mp4를 지나고, 남아 있는 `flagged`·`unverified`가 게이트를 밟는다.
+const ffmpegPids = () => {
+  if (process.platform === 'win32') {
+    const listed = spawnSync('tasklist', ['/FI', 'IMAGENAME eq ffmpeg.exe', '/NH', '/FO', 'CSV'], { encoding: 'utf8' })
+    return new Set((listed.stdout || '').split('\n')
+      .map((line) => /^"ffmpeg\.exe","(\d+)"/.exec(line.trim()))
+      .filter(Boolean).map((match) => match[1]))
+  }
+  const listed = spawnSync('pgrep', ['-x', 'ffmpeg'], { encoding: 'utf8' })
+  return new Set((listed.stdout || '').split('\n').map((line) => line.trim()).filter(Boolean))
+}
+
+const renderOut = path.join(WORK, 'render.json')
+const render = await wait(electron('render', {
+  SHORTS_SMOKE_RUN: RUN,
+  SHORTS_SMOKE_OUT: renderOut,
+  SHORTS_SMOKE_SHOT_RENDER: path.join(APP_DIR, 'smoke', 'screenshot-render.png'),
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+}), 300000)
+
+const renderResult = fs.existsSync(renderOut) ? JSON.parse(fs.readFileSync(renderOut, 'utf8')) : null
+results.phases.push({ scenario: 'render', ...render, result: renderResult })
+if (renderResult) results.checks.push(...renderResult.checks)
+record('렌더 시나리오가 끝난다', renderResult && renderResult.ok && !render.timedOut)
+
+// **CLI와 같은 규격이어야 한다** — 앱이 부르는 것은 같은 `video_renderer.render`이고, 앱 쪽에
+// 명령을 다시 조립하는 코드가 없다는 것이 이 확인의 뜻이다 (PRD 6.3).
+const OUTPUT = path.join(RUN, 'final_short.mp4')
+record('앱이 실행한 렌더가 mp4를 남긴다', fs.existsSync(OUTPUT), OUTPUT)
+if (fs.existsSync(OUTPUT)) {
+  const probed = spawnSync('ffprobe', [
+    '-v', 'error', '-show_entries', 'format=duration:stream=codec_name,width,height,r_frame_rate',
+    '-of', 'json', OUTPUT
+  ], { encoding: 'utf8' })
+  const media = probed.status === 0 ? JSON.parse(probed.stdout) : null
+  const video = media && media.streams.find((stream) => stream.width)
+  const audio = media && media.streams.find((stream) => !stream.width)
+  record('규격이 1080x1920 30fps h264 + aac이다',
+    Boolean(video) && video.width === 1080 && video.height === 1920
+    && video.codec_name === 'h264' && video.r_frame_rate === '30/1'
+    && Boolean(audio) && audio.codec_name === 'aac',
+    JSON.stringify(media && media.streams))
+
+  // **사람이 얹은 길이가 결과에 반영된다** (#82 → #30). 오버라이드는 확정 검증 뒤에 얹히므로
+  // 낭독보다 짧은 값도 렌더까지 가고, 그만큼 총 길이가 줄어야 한다.
+  const scenesFile = JSON.parse(fs.readFileSync(path.join(RUN, 'scenes.json'), 'utf8'))
+  const projectFile = JSON.parse(fs.readFileSync(path.join(RUN, 'project.json'), 'utf8'))
+  const applied = scenesFile.scenes.map((scene) => {
+    const override = (projectFile.render.scene_overrides ?? []).find((item) =>
+      item.role === scene.role && (item.question_id ?? null) === (scene.question_id ?? null))
+    return override && typeof override.duration === 'number' ? override.duration : scene.duration
+  })
+  // 프레임 정렬 총 길이 — `video_renderer.align()`과 같은 계산이다 (PRD 7.7).
+  const frames = applied.reduce((sum, duration) => sum + Math.max(1, Math.round(duration * 30)), 0)
+  const expected = frames / 30
+  const duration = Number(media.format.duration)
+  record('총 길이가 사람이 얹은 길이를 반영한다',
+    Math.abs(duration - expected) < 0.05,
+    `${duration} / ${expected} (오버라이드 ${JSON.stringify(projectFile.render.scene_overrides ?? [])})`)
+}
+
+// --- 7. 렌더 도중 강제 종료 (#30) ---------------------------------------------------
+
+// **자식 ffmpeg가 남으면 사용자가 앱을 닫은 뒤에 mp4가 완성된다.** 렌더 스레드는 daemon이라
+// 백엔드가 끝날 때 그냥 사라지므로, 죽이는 것은 `api.serve`의 `atexit`이다.
+//
+// **긴 run을 쓴다.** `run-smoke`는 28초 영상이라 이 머신에서 3~4초에 끝나고, 그러면 죽이려는
+// 순간에 ffmpeg가 이미 없을 수 있다 — 92.5초 쪽은 10초 넘게 돌아 창이 넉넉하다.
+// 배경은 프리셋으로 되돌린다: 이 run이 가리키던 사용자 파일은 5번 시나리오를 위해 지워졌고
+// (없는 파일은 명령을 만들기 전에 걸린다) 그러면 렌더가 시작조차 하지 않는다.
+const longFixture = JSON.parse(fs.readFileSync(path.join(LONG, 'project.json'), 'utf8'))
+longFixture.background = JSON.parse(fs.readFileSync(path.join(RUN, 'project.json'), 'utf8')).background
+fs.writeFileSync(path.join(LONG, 'project.json'), JSON.stringify(longFixture, null, 2) + '\n')
+
+const ffmpegBefore = ffmpegPids()
+const killReady = path.join(WORK, 'render-kill.json')
+const killing = electron('render-kill', {
+  SHORTS_SMOKE_RUN: LONG,
+  SHORTS_SMOKE_READY: killReady,
+  SHORTS_SMOKE_OUT: path.join(WORK, 'render-kill-result.json'),
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+})
+
+let killState = null
+for (let attempt = 0; attempt < 600 && !killState; attempt += 1) {
+  await delay(100)
+  if (fs.existsSync(killReady)) killState = JSON.parse(fs.readFileSync(killReady, 'utf8'))
+}
+const spawnedFfmpeg = [...ffmpegPids()].filter((pid) => !ffmpegBefore.has(pid))
+record('렌더 중 ffmpeg가 떠 있다', Boolean(killState) && spawnedFfmpeg.length > 0,
+  `${JSON.stringify(killState)} ffmpeg=${spawnedFfmpeg.join(',')}`)
+
+if (killState) {
+  // **트리를 죽이지 않는다** (`/T` 없음) — 백엔드와 그 자식이 스스로 사라지는지를 본다.
+  if (process.platform === 'win32') spawnSync('taskkill', ['/F', '/PID', String(killState.electron)])
+  else process.kill(killState.electron, 'SIGKILL')
+
+  let gone = false
+  for (let attempt = 0; attempt < 100 && !gone; attempt += 1) {
+    await delay(200)
+    const now = ffmpegPids()
+    gone = !alive(killState.backend) && spawnedFfmpeg.every((pid) => !now.has(pid))
+  }
+  record('렌더 중 앱을 종료하면 백엔드도 ffmpeg도 남지 않는다', gone,
+    `backend=${killState.backend} ffmpeg=${spawnedFfmpeg.join(',')}`)
+  if (!gone) {
+    for (const pid of [killState.backend, ...spawnedFfmpeg]) {
+      if (process.platform === 'win32') spawnSync('taskkill', ['/F', '/PID', String(pid)])
+      else { try { process.kill(Number(pid), 'SIGKILL') } catch { /* 이미 없다 */ } }
+    }
+  }
+}
+killing.kill()
+
+// 잘린 mp4를 치운다 — 부분 산출물을 최종 결과로 오인하지 않게 하는 것은 #36의 몫이고,
+// 여기서는 스모크가 남긴 것을 스모크가 정리한다.
+fs.rmSync(OUTPUT, { force: true })
+fs.rmSync(path.join(LONG, 'final_short.mp4'), { force: true })
+
+// --- 8. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
 
 const readyPath = path.join(WORK, 'ready.json')
 const idle = electron('idle', {
@@ -313,7 +439,7 @@ if (ready) {
 }
 idle.kill()
 
-// --- 7. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
+// --- 9. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
 
 // 실행 중 감시(main의 `onBeforeRequest`)와 **다른 층의 확인이다.** 그쪽은 "시도가 없었다"를,
 // 이쪽은 "시도할 대상이 빌드에 없다"를 본다 — 시안의 CDN 링크가 되살아나는 경로가 이쪽이다
@@ -332,7 +458,7 @@ record('CSS가 원격 폰트를 부르지 않는다', remote.length === 0, remot
 const fonts = bundled.filter((name) => name.endsWith('.otf'))
 record('번들 폰트가 dist에 들어간다', fonts.length === 3, fonts.join(', '))
 
-// --- 8. 프리셋 이름이 앱 코드에 없는가 (#79) -----------------------------------------
+// --- 10. 프리셋 이름이 앱 코드에 없는가 (#79) -----------------------------------------
 
 // **목록의 출처가 하나여야 한다.** 프리셋은 `assets/`가 소유하고(D1 확정 스펙 6장) 앱은
 // 백엔드를 지나서만 그것을 안다 — 동결 배포에서 `assets/`는 백엔드 실행 파일 옆이라 앱에서

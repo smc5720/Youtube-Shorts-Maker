@@ -14,7 +14,7 @@ import { StaleBadge } from './Stale'
 import { StatusBadge } from './StatusBadge'
 
 export function QuestionScreen ({
-  module: type, content, items, selectedId, acknowledged, stale, captionsStale,
+  module: type, content, items, selectedId, acknowledged, stale, captionsStale, locked,
   onSelect, onChange, onAcknowledge, onAdd, onRemove, onMove
 }: {
   module: ContentModule
@@ -26,6 +26,11 @@ export function QuestionScreen ({
   stale: number[]
   /** 자막만 낡은 문제 (#83). 해설처럼 낭독으로 가지 않는 문구만 바뀐 것이다. */
   captionsStale: number[]
+  /**
+   * 렌더가 도는 중인가 (#30). 폼과 목록 동작이 잠긴다 — **판정은 `App`에 있다**
+   * (`renderingRef`), 여기서는 그것을 보여 준다 (확정 스펙 3.3).
+   */
+  locked: boolean
   onSelect: (id: number) => void
   onChange: (next: Content) => void
   onAcknowledge: (id: number) => void
@@ -84,7 +89,11 @@ export function QuestionScreen ({
         </div>
       </aside>
 
-      <section className="panel panel--editor" data-testid="question-editor">
+      <section
+        className={`panel panel--editor${locked ? ' panel--locked' : ''}`}
+        data-testid="question-editor"
+        data-locked={locked}
+      >
         {selected
           ? (
             <>

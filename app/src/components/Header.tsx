@@ -2,11 +2,18 @@
 
 import { Icon } from './Icon'
 
-/** S2(장면·프리뷰)와 S3(문제 편집). 확정 스펙 3.1과 3.2가 서로 다른 분할이라 화면이 갈린다. */
-export type View = 'scenes' | 'questions'
+/**
+ * S2(장면·프리뷰) · S3(문제 편집) · S5(렌더). 셋이 서로 다른 분할이라 화면이 갈린다
+ * (확정 스펙 3.1·3.2·3.3).
+ *
+ * **렌더도 화면이지 모달이 아니다** (#30). 진행 중에 다른 화면을 볼 수 있어야 하므로
+ * (확정 스펙 3.3) 덮어 버리는 표현을 쓸 수 없다.
+ */
+export type View = 'scenes' | 'questions' | 'render'
 
 export function Header ({
-  projectPath, unsaved, busy, canSave, view, canEditContent, onView, onOpen, onSave
+  projectPath, unsaved, busy, canSave, view, canEditContent, rendering,
+  onView, onOpen, onSave
 }: {
   projectPath: string | null
   unsaved: boolean
@@ -14,6 +21,8 @@ export function Header ({
   canSave: boolean
   view: View
   canEditContent: boolean
+  /** 렌더가 도는 중인가 (#30). 저장은 잠기고 화면 이동은 열려 있다. */
+  rendering: boolean
   onView: (next: View) => void
   onOpen: () => void
   onSave: () => void
@@ -21,10 +30,13 @@ export function Header ({
   return (
     <header className="header">
       <span className="t-title header__title">YouTube Shorts Maker</span>
-      {projectPath && canEditContent && (
+      {projectPath && (
         <span className="viewswitch" data-testid="view-switch" role="group">
           <ViewTab view="scenes" current={view} text="장면" onView={onView} />
-          <ViewTab view="questions" current={view} text="문제 편집" onView={onView} />
+          {/* 편집기가 등록되지 않은 타입에는 이 탭이 없다. 렌더는 콘텐츠를 몰라도 된다. */}
+          {canEditContent && (
+            <ViewTab view="questions" current={view} text="문제 편집" onView={onView} />
+          )}
         </span>
       )}
       {projectPath && (
@@ -41,10 +53,22 @@ export function Header ({
           <Icon name="folder" />
           프로젝트 열기
         </button>
-        <button className="button button--primary" onClick={onSave} disabled={!canSave || busy}>
+        <button className="button" onClick={onSave} disabled={!canSave || busy || rendering}>
           <Icon name="save" />
           저장
         </button>
+        {/* **렌더는 화면 이동이지 실행이 아니다** (#30). 여기서 곧바로 시작하면 확인이 필요한
+            문제를 사용자가 보기 전에 인코딩이 돈다 — 게이트는 S5의 체크박스다. */}
+        {projectPath && (
+          <button
+            className="button button--primary"
+            data-testid="header-render"
+            data-selected={view === 'render'}
+            onClick={() => onView('render')}
+          >
+            렌더
+          </button>
+        )}
       </div>
     </header>
   )

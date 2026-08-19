@@ -28,8 +28,9 @@ HTTP / 파일 교환)을 재서 stdio를 골랐고, 결정적인 축은 지연�
 - **오래 걸리는 메서드는 스레드로 나간다** (`BACKGROUND_METHODS`, #27). 프리뷰 한 번이 이
   머신에서 2~3초이고, 그동안 루프를 잡고 있으면 앱은 저장도 다른 장면 선택도 하지 못한다.
   응답은 `id`로 짝을 찾으므로 순서가 뒤바뀌어도 앱이 헷갈리지 않는다 (스파이크 7장).
-
-`render`·진행률은 #30이 붙인다.
+- **최종 렌더는 응답 하나로 끝나지 않는다** (`render`, #30). 진행 상황이 요청과 짝이 없는
+  알림으로 나가고, 그래서 메서드가 `notify`를 받는다 — 그 알림에도 요청 `id`를 실어 보내는
+  것은 재시도한 뒤 이전 렌더의 늦은 알림이 화면을 거꾸로 돌리지 않게 하기 위함이다.
 """
 
 from __future__ import annotations
@@ -76,17 +77,56 @@ CLI는 렌더 단계에서 없다는 사실을 말하며 멈추지만, 앱은 �
 """
 
 
+Notifier = Callable[..., None]
+"""요청과 짝이 없는 알림을 보내는 함수 — `notify("render_progress", frame=1, ...)` (#30).
+
+`serve`가 만들어 넘기고, 그 구현이 `event` 이름과 요청 `id`를 함께 실어 한 줄로 내보낸다.
+알림을 쓰지 않는 메서드는 이 인자를 받지 않는다 (`_plain`).
+"""
+
+Handler = Callable[[dict[str, Any], Notifier], Any]
+
+
+def _plain(handler: Callable[[dict[str, Any]], Any]) -> Handler:
+    """알림을 쓰지 않는 메서드를 공통 서명에 맞춘다.
+
+    **여덟 메서드에 쓰지 않는 인자를 달지 않기 위한 것이다.** 알림이 필요한 것은 지금 `render`
+    하나뿐이고(#30), 그 하나 때문에 나머지가 `notify`를 받아 무시하면 "이 메서드도 알림을
+    낼 수 있다"로 읽힌다.
+    """
+
+    def wrapped(params: dict[str, Any], notify: Notifier) -> Any:
+        return handler(params)
+
+    return wrapped
+
+
 class ApiError(Exception):
     """앱에 그대로 전달되는 실패. `code`가 앱의 분기 기준이다."""
 
-    def __init__(self, code: str, message: str, details: Iterable[str] = ()) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: Iterable[str] = (),
+        *,
+        raw: str = "",
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.details = list(details)
+        self.raw = raw
+        """기계가 낸 원문 (#30). 앱이 `mono`로 그리고 사용자가 그대로 복사한다.
+
+        **`details`와 다르다.** 그쪽은 사람이 읽는 줄의 목록(위반한 필드, 다음에 할 일)이고
+        이쪽은 ffmpeg stderr처럼 손대지 않아야 하는 덩어리다 (D2 확정 스펙 3.3).
+        """
 
     def payload(self) -> dict[str, Any]:
-        return {"code": self.code, "message": self.message, "details": self.details}
+        body = {"code": self.code, "message": self.message, "details": self.details}
+        # **없으면 칸도 없다.** 빈 문자열을 실어 보내면 앱이 빈 `mono` 상자를 그린다.
+        return body if not self.raw else {**body, "raw": self.raw}
 
 
 # --- 저장 -----------------------------------------------------------------------
@@ -427,24 +467,112 @@ def method_preview(params: dict[str, Any]) -> Any:
     }
 
 
-METHODS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "ping": method_ping,
-    "env": method_env,
-    "presets": method_presets,
-    "open": method_open,
-    "save": method_save,
-    "scenes": method_scenes,
-    "content": method_content,
-    "save_content": method_save_content,
-    "preview": method_preview,
+def method_render(params: dict[str, Any], notify: Notifier) -> Any:
+    """최종 `final_short.mp4`를 만든다 (PRD 7.9, 이슈 #30).
+
+    **프리뷰와 같은 입력 규칙이다** — 프로젝트를 앱에서 받고(파일을 다시 읽으면 화면에서 본
+    것과 결과가 갈린다) 저장과 같은 검증을 지난다. 그래서 **저장하지 않은 편집도 렌더에
+    반영되고**, 그 사실을 경고 목록으로 말하는 것은 앱 쪽이다 (D2 확정 스펙 4장의 `warn`).
+
+    **`flagged` 게이트는 여기 없다.** 사람이 확인했는지는 `project.json`의 `review`가 들고
+    있고 그 판단은 앱이 한다 — 백엔드가 막으면 CLI 렌더(경고 후 진행, 종료 코드 0)와 규칙이
+    갈린다 (퀴즈 스펙 5.2).
+
+    **동시에 둘을 돌리지 않는다.** 같은 `final_short.mp4`를 두 ffmpeg가 쓰면 결과가 어느
+    쪽인지 알 수 없고, 앱의 버튼 잠금은 창이 여럿이거나 스모크가 직접 부를 때 성립하지 않는다.
+
+    진행 알림은 ffmpeg가 내는 주기(기본 0.5초)를 그대로 따른다 — 따로 조절하지 않는 이유는
+    **실측 28초 영상 하나가 다섯 줄**이고(이 머신에서 3.4초 렌더) 앱이 마지막 값만 그리기
+    때문이다.
+
+    Raises:
+        ApiError: 이미 렌더가 돌고 있을 때(`busy`), 프로젝트가 계약을 어겼을 때(`schema`),
+            장면 목록을 읽지 못할 때(`not_found`/`schema`), 렌더가 실패했을 때(`render`).
+    """
+    run_dir = _run_dir(params)
+    project = params.get("project")
+    if not isinstance(project, dict):
+        raise ApiError("bad_request", "params.project는 project.json 내용(매핑)이어야 한다")
+
+    try:
+        validate_project(project)
+    except SchemaError as error:
+        raise ApiError(
+            "schema",
+            f"{PROJECT_SCHEMA.name}의 계약을 어겨 렌더하지 않았다.",
+            error.messages,
+        ) from error
+
+    if not _RENDER_LOCK.acquire(blocking=False):
+        raise ApiError(
+            "busy",
+            "이미 렌더가 돌고 있다. 끝난 뒤에 다시 시작한다.",
+            ["같은 출력 파일에 두 ffmpeg가 쓰면 결과가 어느 쪽인지 알 수 없다"],
+        )
+    try:
+        scenes = method_scenes({"run_dir": str(run_dir)})["scenes"]
+        started = time.perf_counter()
+
+        def report(progress: video_renderer.RenderProgress) -> None:
+            notify(
+                "render_progress",
+                frame=progress.frame,
+                total_frames=progress.total_frames,
+                scene_index=progress.scene_index,
+                # **퍼센트와 남은 시간은 싣지 않는다.** 경과 시간과 프레임 수가 있으면 화면이
+                # 계산할 수 있고, 그 표현은 시안이 정한다 (D2 확정 스펙 3.3).
+                elapsed_ms=round((time.perf_counter() - started) * 1000),
+            )
+
+        try:
+            output = video_renderer.render(
+                project, scenes, run_dir=run_dir, on_progress=report
+            )
+        except RenderError as error:
+            raise ApiError(
+                "render",
+                f"렌더에 실패했다 — {error}",
+                [
+                    "FFmpeg가 PATH에 있는지, 배경·폰트·오디오 경로가 맞는지 확인한다",
+                    "같은 명령과 stderr가 run.log에 남는다",
+                ],
+                # ffmpeg stderr는 사람이 읽는 문구와 갈라져 온다 (`RenderError.raw`).
+                raw=error.raw,
+            ) from error
+
+        return {
+            "output_path": str(output),
+            "bytes": output.stat().st_size,
+            "elapsed_ms": round((time.perf_counter() - started) * 1000),
+        }
+    finally:
+        _RENDER_LOCK.release()
+
+
+METHODS: dict[str, Handler] = {
+    "ping": _plain(method_ping),
+    "env": _plain(method_env),
+    "presets": _plain(method_presets),
+    "open": _plain(method_open),
+    "save": _plain(method_save),
+    "scenes": _plain(method_scenes),
+    "content": _plain(method_content),
+    "save_content": _plain(method_save_content),
+    "preview": _plain(method_preview),
+    "render": method_render,
 }
 
-BACKGROUND_METHODS = frozenset({"preview"})
+BACKGROUND_METHODS = frozenset({"preview", "render"})
 """디스패치 루프를 잡고 있으면 안 되는 메서드 (`serve`).
 
-프리뷰 한 번이 2~3초다. 그 사이 저장도 다른 요청도 받지 못하면 앱이 멈춘 것과 구분되지
-않는다. 여기 이름을 추가하는 조건은 "사람이 기다린다고 느낄 만큼 걸린다"이다.
+프리뷰 한 번이 2~3초이고 최종 렌더는 그보다 훨씬 길다. 그 사이 저장도 다른 요청도 받지
+못하면 앱이 멈춘 것과 구분되지 않고, **렌더 중에도 다른 화면을 볼 수 있어야 한다**
+(D2 확정 스펙 3.3). 여기 이름을 추가하는 조건은 "사람이 기다린다고 느낄 만큼 걸린다"이다.
 """
+
+_RENDER_LOCK = threading.Lock()
+"""렌더는 한 번에 하나다 (`method_render`). 프리뷰 락과 갈라 둔 이유는 둘이 서로를 막을 이유가
+없기 때문이다 — 프리뷰는 캐시를 지키고 이쪽은 출력 파일을 지킨다."""
 
 
 # --- 프리뷰 캐시 -----------------------------------------------------------------
@@ -558,12 +686,18 @@ def _load(path: Path) -> dict[str, Any]:
 # --- 디스패치 -------------------------------------------------------------------
 
 
-def handle(request: Any) -> dict[str, Any]:
+def handle(
+    request: Any, *, emit: Callable[[dict[str, Any]], None] | None = None
+) -> dict[str, Any]:
     """요청 하나를 처리해 응답 하나를 만든다.
 
     **예외를 밖으로 내지 않는다.** 백엔드가 요청 하나 때문에 죽으면 앱은 열려 있고 저장은
     불가능한 상태가 된다 — 사용자에게는 그것이 가장 나쁜 실패다. 알 수 없는 예외도
     `internal`로 실어 보내고 루프는 계속 돈다.
+
+    Args:
+        emit: 줄 하나를 내보내는 함수. 주면 진행 알림이 여기로 나가고(#30), 주지 않으면
+            알림은 버려진다 — 파일·목록으로 돌리는 경로가 그쪽이다.
     """
     if not isinstance(request, dict):
         return _failure(None, ApiError("bad_request", "요청은 JSON 객체 한 줄이어야 한다"))
@@ -585,8 +719,14 @@ def handle(request: Any) -> dict[str, Any]:
             ),
         )
 
+    def notify(event: str, **fields: Any) -> None:
+        # **알림에도 요청 `id`를 싣는다.** 재시도한 뒤 이전 렌더의 늦은 알림이 오면 화면이
+        # 거꾸로 갈 수 있고, 앱은 프리뷰에서 같은 함정을 티켓으로 막고 있다 (#30).
+        if emit is not None:
+            emit({"event": event, "id": identifier, **fields})
+
     try:
-        return {"id": identifier, "result": handler(params)}
+        return {"id": identifier, "result": handler(params, notify)}
     except ApiError as error:
         return _failure(identifier, error)
     except Exception as error:  # noqa: BLE001 - 무엇이든 앱에 전달하고 루프는 유지한다
@@ -619,10 +759,18 @@ def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> None:
         # **응답을 이 루프가 내지 않는다.** 끝나는 순서가 요청 순서와 다를 수 있고, 그래도
         # 되는 이유는 앱이 `id`로 짝을 찾기 때문이다 (`electron/main.js`의 `pending`).
         # daemon인 것은 stdin이 닫혔을 때 프리뷰가 종료를 붙잡지 않기 위해서다.
-        threading.Thread(target=lambda: emit(handle(request)), daemon=True).start()
+        threading.Thread(
+            target=lambda: emit(handle(request, emit=emit)), daemon=True
+        ).start()
+
+    # **렌더 중에 백엔드가 끝나면 ffmpeg가 남는다** (#30). 렌더 스레드는 daemon이라 stdin EOF로
+    # 이 함수가 돌아올 때 그냥 사라지지만, 자식 ffmpeg는 계속 돌아 사용자가 앱을 닫은 뒤에
+    # `final_short.mp4`를 완성한다. `atexit`인 것은 정상 종료(EOF)에서 확실히 지나는 자리이기
+    # 때문이고, 강제 종료로 남은 것까지 지키지는 못한다 (프리뷰 임시 디렉터리와 같은 선이다).
+    atexit.register(video_renderer.kill_active)
 
     emit({"event": "ready", "pid": os.getpid(), "protocol": PROTOCOL_VERSION})
-    for response in respond(stdin, background=background):
+    for response in respond(stdin, background=background, emit=emit):
         emit(response)
 
 
@@ -630,6 +778,7 @@ def respond(
     lines: Iterable[str],
     *,
     background: Callable[[dict[str, Any]], None] | None = None,
+    emit: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """요청 줄들 → 응답들. 파일이나 목록으로도 돌릴 수 있게 stdio와 분리한다.
 
@@ -637,6 +786,8 @@ def respond(
         background: 주면 `BACKGROUND_METHODS`의 요청을 그쪽에 넘기고 여기서는 아무것도
             내지 않는다 — 그 응답은 넘겨받은 쪽이 직접 쓴다. 주지 않으면 전부 순서대로
             처리한다(테스트와 파일 입력이 그 경로다).
+        emit: 진행 알림이 나가는 자리 (#30). `background`와 갈라 둔 이유는 알림이 응답과
+            달리 **요청 하나에 여러 줄**이고, 여기서 `yield`로는 표현되지 않기 때문이다.
     """
     for line in lines:
         line = line.strip()
@@ -654,7 +805,7 @@ def respond(
         ):
             background(request)
             continue
-        yield handle(request)
+        yield handle(request, emit=emit)
 
 
 def _use_utf8() -> None:

@@ -184,11 +184,17 @@ export interface Scenes {
 export interface ApiError {
   /**
    * `not_found` | `schema` | `io` | `render` | `assets` | `bad_request` |
-   * `unknown_method` | `internal` | `backend`
+   * `unknown_method` | `internal` | `backend` | `busy`
    */
   code: string
   message: string
   details: string[]
+  /**
+   * 기계가 낸 원문 (#30). 있으면 `mono`로 그리고 손대지 않는다 — ffmpeg stderr가 그것이다.
+   *
+   * **`details`와 다르다.** 그쪽은 사람이 읽는 줄의 목록(위반한 필드, 다음에 할 일)이다.
+   */
+  raw?: string
 }
 
 export type Response<T> = { result: T; error?: undefined } | { result?: undefined; error: ApiError }
@@ -311,6 +317,44 @@ export interface PreviewResult {
   png: string
 }
 
+/**
+ * 최종 렌더의 결과 (#30). 실패는 `ApiError`로 오므로 여기에는 성공만 있다.
+ *
+ * **경로를 백엔드가 정한다** — 파일명은 `project.json`의 `render.output`이고 자리는 run
+ * 디렉터리 루트다. 시안이 적은 `runs/…/out/final.mp4`는 틀린 값이다 (확정 스펙 1.3).
+ */
+export interface RenderResult {
+  output_path: string
+  bytes: number
+  elapsed_ms: number
+}
+
+/**
+ * 렌더 진행 알림 (#30). **요청과 짝이 없는 줄로 온다** (`onBackendEvent`).
+ *
+ * **퍼센트도 남은 시간도 없다.** 그 둘은 이 값에서 화면이 계산한다 — 백엔드가 아는 것은
+ * 프레임 수와 그것이 어느 장면인지이고(`video_renderer.RenderProgress`), 어떻게 보일지는
+ * 확정 스펙 3.3이 정한다.
+ */
+export interface RenderProgressEvent {
+  event: 'render_progress'
+  /** 이 진행이 어느 렌더 요청의 것인가. 재시도하면 이전 렌더의 늦은 알림이 올 수 있다. */
+  id: number
+  frame: number
+  total_frames: number
+  /** `scenes.json`의 장면 인덱스. 화면은 이것으로 역할 이름을 찾는다. */
+  scene_index: number
+  elapsed_ms: number
+}
+
+export const RENDER_PROGRESS = 'render_progress'
+
+/** 알림 한 줄이 렌더 진행인가. 다른 `event`가 늘어도 이 함수만 본다. */
+export function isRenderProgress (message: unknown): message is RenderProgressEvent {
+  const value = message as Partial<RenderProgressEvent> | null
+  return value?.event === RENDER_PROGRESS && typeof value.frame === 'number'
+}
+
 export interface AppContext {
   smoke: string | boolean | null
   backend: { command: string | null; pid: number | null; ready: boolean; failure: string | null }
@@ -331,6 +375,13 @@ export interface Bridge {
    * 소유하므로(`presets.background_files`), main이 자기 목록을 들면 그 순간 두 벌이 된다.
    */
   pickBackgroundFile(extensions: string[]): Promise<string | null>
+  /**
+   * 렌더 결과를 파일 탐색기에서 보여준다 (#30). 성공 여부를 돌려준다.
+   *
+   * **바깥으로 나가는 요청이 아니다** — 파일 관리자를 여는 것이고 네트워크가 없다
+   * (`shell.showItemInFolder`). 열지 못해도 완료 카드의 경로는 그대로 남는다.
+   */
+  reveal(path: string): Promise<boolean>
   /** 동기다 — main이 아는 상태가 화면보다 늦으면 확인 없이 닫히는 틈이 생긴다. */
   setUnsaved(value: boolean): void
   saveResult(ok: boolean): Promise<void>

@@ -23,12 +23,25 @@ import { OpenScreen } from './components/OpenScreen'
 import { Preview, type PreviewFrame } from './components/Preview'
 import { Properties } from './components/Properties'
 import { QuestionScreen } from './components/QuestionScreen'
+import {
+  RenderScreen,
+  type RenderNote,
+  type RenderState,
+  type RenderWarningItem
+} from './components/RenderScreen'
 import { SceneList } from './components/SceneList'
-import { editedCaptions, effectiveScenes, overrideKey, sameOverride } from './scenes'
+import {
+  cutsNarration,
+  editedCaptions,
+  effectiveScenes,
+  overrideKey,
+  sameOverride
+} from './scenes'
 import { contentModule } from './types'
 import {
   bridge,
   captionsStale,
+  isRenderProgress,
   review,
   TIMING_SCENE,
   type ApiError,
@@ -42,6 +55,7 @@ import {
   type PresetsResult,
   type PreviewResult,
   type Project,
+  type RenderResult,
   type Review,
   type SaveContentResult,
   type Scene,
@@ -76,6 +90,19 @@ export function App () {
   const [frame, setFrame] = useState<PreviewFrame | null>(null)
   const [pending, setPending] = useState<number | null>(null)
   const [previewError, setPreviewError] = useState<ApiError | null>(null)
+
+  // 최종 렌더 (#30). **결과가 프로젝트에 남지 않는다** — 렌더는 산출물을 만드는 실행이고
+  // 편집 상태가 아니다. 그래서 프로젝트를 다시 열면 이 상태도 처음으로 돌아간다.
+  const [render, setRender] = useState<RenderState>({ kind: 'idle' })
+  // 경고 카드의 확인 체크박스. **`review.acknowledged`와 다른 값이다** — 그쪽은 문제별
+  // 검수 기록이고(#28) 이쪽은 "이번 렌더를 이대로 진행한다"는 한 번의 동의다. 파일에 남기면
+  // 다음 실행에서도 확인한 것으로 읽힌다.
+  const [renderGate, setRenderGate] = useState(false)
+  const rendering = render.kind === 'running'
+  // 편집 콜백이 잠금을 볼 때 쓰는 값. 상태를 deps에 넣으면 렌더가 시작·종료할 때마다 편집
+  // 콜백 전부가 새로 만들어지고, 바뀐 참조가 속성 패널을 통째로 다시 그리게 한다.
+  const renderingRef = useRef(rendering)
+  renderingRef.current = rendering
 
   // **두 파일 중 어느 쪽이든 바뀌면 저장되지 않은 변경이다.** 헤더의 pill 하나가 둘을
   // 함께 말하고, 창을 닫을 때 main이 보는 플래그도 이 값이다.
@@ -154,6 +181,8 @@ export function App () {
     setPending(null)
     setPreviewError(null)
     setBackgroundReject(null)
+    setRender({ kind: 'idle' })
+    setRenderGate(false)
     setError(listed.error ?? null)
     return true
   }, [api])
@@ -193,12 +222,25 @@ export function App () {
     return true
   }, [api, opened, project, content])
 
+  /**
+   * 프로젝트를 고치는 **단일 지점** — 렌더 중에는 아무것도 바뀌지 않는다 (#30).
+   *
+   * 확정 스펙 3.3의 "편집만 잠긴다"를 화면에서만 구현하면(컨트롤을 비활성으로 그리는 것)
+   * 스모크와 메뉴·단축키가 그 잠금을 지나가고, 그때 **방금 렌더에 넘긴 상태와 화면이 갈린다** —
+   * 렌더는 앱이 넘긴 프로젝트로 돌기 때문이다. 그래서 판정이 여기 있고 화면은 그것을 보여
+   * 주기만 한다 (`locked`).
+   */
+  const patchProject = useCallback((change: (current: Project) => Project) => {
+    if (renderingRef.current) return
+    setProject((previous) => previous && change(previous))
+  }, [])
+
   const edit = useCallback((section: 'render' | 'audio', field: string, value: unknown) => {
-    setProject((previous) => previous && {
+    patchProject((previous) => ({
       ...previous,
       [section]: { ...previous[section], [field]: value }
-    })
-  }, [])
+    }))
+  }, [patchProject])
 
   /**
    * 트랙 볼륨 (#81). **선형 게인을 그대로 쌓는다** — 슬라이더의 0~100은 화면의 눈금이고,
@@ -227,25 +269,25 @@ export function App () {
    * 조합 자체는 막지 않으므로 배경은 이 뒤에 따로 고를 수 있다.
    */
   const editStyle = useCallback((style: CaptionStylePreset) => {
-    setProject((previous) => previous && {
+    patchProject((previous) => ({
       ...previous,
       background: previous.background.kind === 'preset'
         ? { ...previous.background, value: style.background }
         : previous.background,
       render: { ...previous.render, caption_style: style.name }
-    })
-  }, [])
+    }))
+  }, [patchProject])
 
   /** 배경 프리셋 교체 (#79). 스타일과 독립이다 — 차단할 조합이 없다 (D1 확정 스펙 6.3). */
   const editBackground = useCallback((name: string) => {
     // 프리셋으로 돌아오면 거부 표시도 사라진다 — 고칠 것이 없어진 자리에 남아 있으면
     // 지금 배경이 거부된 것으로 읽힌다.
     setBackgroundReject(null)
-    setProject((previous) => previous && {
+    patchProject((previous) => ({
       ...previous,
       background: { ...previous.background, kind: 'preset', value: name }
-    })
-  }, [])
+    }))
+  }, [patchProject])
 
   /**
    * 배경을 사용자 파일로 교체한다 (#80).
@@ -270,16 +312,16 @@ export function App () {
       return
     }
     setBackgroundReject(null)
-    setProject((previous) => previous && {
+    patchProject((previous) => ({
       ...previous,
       background: { ...previous.background, kind, value: picked }
-    })
-  }, [api, presets])
+    }))
+  }, [api, patchProject, presets])
 
   /** `review`를 고친 프로젝트. 없던 섹션은 빈 값에서 시작한다 (옛 run 디렉터리). */
   const patchReview = useCallback((change: (current: Review) => Review) => {
-    setProject((previous) => previous && { ...previous, review: change(review(previous)) })
-  }, [])
+    patchProject((previous) => ({ ...previous, review: change(review(previous)) }))
+  }, [patchProject])
 
   /**
    * 장면 하나에 얹은 편집을 고친다 — **세 편집이 이 함수를 공유한다** (#82의 길이, #83의
@@ -294,8 +336,7 @@ export function App () {
   const patchOverride = useCallback((
     scene: Scene, change: (current: SceneOverride) => SceneOverride
   ) => {
-    setProject((previous) => {
-      if (!previous) return previous
+    patchProject((previous) => {
       const key = overrideKey(scene)
       const current = previous.render.scene_overrides ?? []
       const existing = current.find((item) => sameOverride(item, key)) ?? key
@@ -309,7 +350,7 @@ export function App () {
           : [...current, next]
       return { ...previous, render: { ...previous.render, scene_overrides: list } }
     })
-  }, [])
+  }, [patchProject])
 
   /**
    * 장면 길이 조정 (#82).
@@ -419,7 +460,7 @@ export function App () {
    * 문구 편집은 갈린다 — 그쪽은 `scenes.json`이 기준이라 되돌리면 표시도 사라진다.)
    */
   const editContent = useCallback((next: Content) => {
-    if (!type || !content) return
+    if (!type || !content || renderingRef.current) return
     const before = new Map(type.items(content).map((item) => [item.id, item]))
     const changed = (field: 'narration' | 'captions') => type.items(next)
       .filter((item) => {
@@ -451,7 +492,7 @@ export function App () {
   }, [type, content, patchReview])
 
   const addItem = useCallback(() => {
-    if (!type || !content) return
+    if (!type || !content || renderingRef.current) return
     const added = type.add(content, reservedIds)
     setContent(added.content)
     // 새 항목은 오디오도 자막도 **아예 없다.** `stale`이 "낡음"과 "없음"을 함께 뜻한다 —
@@ -461,7 +502,7 @@ export function App () {
   }, [type, content, reservedIds, patchReview])
 
   const removeItem = useCallback((id: number) => {
-    if (!type || !content) return
+    if (!type || !content || renderingRef.current) return
     const remaining = type.items(content).filter((item) => item.id !== id)
     setContent(type.remove(content, id))
     // 지운 번호는 세 목록에서도 빠진다. 남겨 두면 나중에 같은 번호가 다시 생겼을 때
@@ -478,7 +519,7 @@ export function App () {
   const moveItem = useCallback((id: number, delta: number) => {
     // **순서만 바뀌면 그 항목의 오디오는 그대로다.** 낡는 것은 `scenes.json`의 장면 배열이고,
     // 그것은 저장하지 않는다 — 두 파일의 번호 나열을 비교하면 나온다 (`orderStale`).
-    if (type && content) setContent(type.move(content, id, delta))
+    if (type && content && !renderingRef.current) setContent(type.move(content, id, delta))
   }, [type, content])
 
   const acknowledge = useCallback((id: number) => {
@@ -502,6 +543,144 @@ export function App () {
     })
     return inScenes.join(',') !== items.map((item) => item.id).join(',')
   }, [scenes, items])
+
+  /**
+   * 렌더 전에 확인해야 하는 문제 (#30, 확정 스펙 3.3).
+   *
+   * **`verified`가 아닌 것 전부다** — `unverified`도 "판단 근거가 없다"이므로 확인 대상이고
+   * (퀴즈 스펙 5.2), 사람이 확인한 것(`review.acknowledged`)은 여기서 빠진다 (확정 스펙 1.4).
+   *
+   * **콘텐츠의 필드를 보지 않는다.** 셸이 아는 것은 `ContentItem`의 다섯 칸이고, 어느 필드가
+   * 검증 상태인지는 타입 모듈의 지식이다 (#28의 경계).
+   */
+  const renderWarnings = useMemo<RenderWarningItem[]>(() => {
+    if (!project) return []
+    const acknowledged = review(project).acknowledged
+    return items
+      .map((item, index) => ({ item, position: index + 1 }))
+      .filter(({ item }) => item.status !== 'verified' && !acknowledged.includes(item.id))
+      .map(({ item, position }) => ({
+        id: item.id,
+        position,
+        title: item.title,
+        status: item.status,
+        confidence: item.confidence,
+        source: item.source
+      }))
+  }, [items, project])
+
+  /**
+   * 렌더를 막지 않는 경고들 (#30).
+   *
+   * **게이트는 `flagged` 하나뿐이다.** 낡음으로 막으면 재생성(#77)이 없는 지금 앱에서 렌더를
+   * 아예 할 수 없고, 짧은 길이와 저장하지 않은 변경은 값이 이미 적용된 상태다 — 셋 다 알리는
+   * 것으로 끝내고 색으로 종류를 갈라 준다 (확정 스펙 4장).
+   */
+  const renderNotes = useMemo<RenderNote[]>(() => {
+    if (!project) return []
+    const state = review(project)
+    const notes: RenderNote[] = []
+    if (orderStale) {
+      notes.push({
+        kind: 'todo',
+        title: '장면 구성이 낡았다',
+        body: '문제 순서나 개수가 바뀌었다. 지금 렌더하면 옛 구성으로 나온다.'
+      })
+    }
+    if (state.stale.length > 0) {
+      notes.push({
+        kind: 'todo',
+        title: `음성까지 낡은 문제 ${state.stale.length}개`,
+        body: '낭독 문구가 바뀌었다. voice.mp3와 captions.srt는 아직 옛 문구다.'
+      })
+    }
+    const onlyCaptions = captionsStale(state).filter((id) => !state.stale.includes(id))
+    if (onlyCaptions.length > 0 || captionEdits.length > 0) {
+      notes.push({
+        kind: 'todo',
+        title: '자막이 낡았다',
+        body: '자막 문구가 바뀌었다. 번인 자막은 고친 문구로 나오지만 captions.srt는 옛 문구다.'
+      })
+    }
+    if (state.timeline_stale === true) {
+      notes.push({
+        kind: 'todo',
+        title: '타임라인이 낡았다',
+        body: '장면 길이를 고쳐 이후 장면의 시작 시각이 밀렸다. 낭독과 자막 시각이 어긋난다.'
+      })
+    }
+    // **낭독보다 짧은 길이는 값이 적용되는 경고다** (#82). 렌더는 그 길이로 돌고 낭독이 잘린다.
+    const cut = shownScenes.filter((scene) => cutsNarration(scene, scene.duration)).length
+    if (cut > 0) {
+      notes.push({
+        kind: 'warn',
+        title: `낭독보다 짧은 장면 ${cut}개`,
+        body: '그 장면의 낭독이 잘린 채로 렌더된다.'
+      })
+    }
+    // **렌더는 앱이 들고 있는 프로젝트로 돈다** (`api.method_render`). 파일을 다시 읽지 않으므로
+    // 저장하지 않은 편집도 결과에 들어가고, 그 사실을 말하지 않으면 파일과 영상이 갈린 것을
+    // 사용자가 알 방법이 없다.
+    if (unsaved) {
+      notes.push({
+        kind: 'warn',
+        title: '저장하지 않은 변경이 있다',
+        body: '화면의 값 그대로 렌더된다. 파일에는 아직 없으므로 저장은 따로 해야 한다.'
+      })
+    }
+    return notes
+  }, [project, orderStale, captionEdits, shownScenes, unsaved])
+
+  /**
+   * 최종 렌더를 시작한다 (#30).
+   *
+   * **프리뷰와 같은 입력이다** — 파일이 아니라 지금 화면의 프로젝트를 넘긴다. 백엔드가 같은
+   * 검증을 지나므로 계약을 어긴 값은 여기서도 걸린다 (`api.method_render`).
+   */
+  const startRender = useCallback(async () => {
+    if (!opened || !project || renderingRef.current) return false
+
+    setRender({ kind: 'running', progress: null })
+    const response = await api.call<RenderResult>(
+      'render', { run_dir: opened.runDir, project }
+    )
+    if (response.error) {
+      // **거절은 실패가 아니다.** 백엔드가 두 번째 렌더를 막았다는 뜻이고 첫 렌더는 그대로
+      // 돌고 있다 — 그 상태를 실패 카드로 덮으면 화면이 "실패"를 말하는 동안 인코딩이 계속
+      // 돈다. 그래서 공용 알림으로만 알린다 (`api.method_render`의 `busy`).
+      if (response.error.code === 'busy') {
+        setError(response.error)
+        return false
+      }
+      setRender({
+        kind: 'failed',
+        message: response.error.message,
+        details: response.error.details,
+        // 없으면 빈 문자열이다 — 카드가 빈 `mono` 상자를 그리지 않는다.
+        raw: response.error.raw ?? ''
+      })
+      return false
+    }
+    setRender({ kind: 'done', result: response.result })
+    setError(null)
+    return true
+  }, [api, opened, project])
+
+  /**
+   * 진행 알림을 받는다. **요청과 짝이 없는 줄이라 응답 경로가 아니다** (`onBackendEvent`).
+   *
+   * `id`가 작은 알림은 버린다 — main이 요청마다 증가시키는 값이므로 큰 쪽이 최신이고, 다시
+   * 시도한 뒤 이전 렌더의 남은 줄이 도착해도 화면이 거꾸로 가지 않는다. 앱은 자기 요청의
+   * `id`를 모르지만(그 번호는 main이 매긴다) **최신인지는 이 비교로 충분하다.**
+   */
+  const progressId = useRef(0)
+  useEffect(() => api.onBackendEvent((message) => {
+    if (!isRenderProgress(message) || message.id < progressId.current) return
+    progressId.current = message.id
+    setRender((current) => (
+      current.kind === 'running' ? { kind: 'running', progress: message } : current
+    ))
+  }), [api])
 
   // 고른 것이 없으면 첫 항목이다. 상태에 미리 넣지 않는 이유는 목록이 바뀔 때(삭제) 그
   // 값이 사라진 항목을 가리킬 수 있기 때문이다.
@@ -613,6 +792,11 @@ export function App () {
       // **UI가 부르는 것과 같은 함수다** (#81). 화면의 슬라이더는 눈금을 게인으로 바꿔 이
       // 함수를 부르고, 스모크는 게인을 직접 준다 — 눈금과 게인의 매핑은 화면의 지식이다.
       editVolume,
+      // 렌더도 **UI가 부르는 것과 같은 함수다** (#30). 게이트 체크박스는 카드에서 직접 누르지만
+      // 손잡이를 함께 두는 이유는, 확인이 필요한 문제가 있는 run에서 시작이 비활성인 것을
+      // 보려면 스모크가 그 값을 껐다 켜야 하기 때문이다.
+      render: startRender,
+      renderGate: (value: boolean) => setRenderGate(value),
       editContent,
       acknowledge,
       addItem,
@@ -643,6 +827,12 @@ export function App () {
         selected,
         selectedItem: activeItem,
         orderStale,
+        // 렌더 상태 (#30). **결과 객체를 그대로 준다** — 경로·바이트·경과 시간이 백엔드에서 온
+        // 값이고, 스모크가 그 파일을 직접 열어 규격을 확인한다.
+        render,
+        renderGate,
+        renderWarnings,
+        renderNotes,
         pending,
         frame: frame && { index: frame.index, bytes: frame.png.length, elapsedMs: frame.elapsedMs },
         previewError
@@ -663,6 +853,7 @@ export function App () {
         // 편집기가 등록되지 않은 타입이면 문제 편집으로 갈 수 없다. 화면을 막는 것이 아니라
         // 그 화면만 없다 — 장면 목록과 프리뷰는 그대로 돈다.
         canEditContent={Boolean(type && content)}
+        rendering={rendering}
         onView={setView}
         onOpen={() => { void open() }}
         onSave={() => { void save() }}
@@ -687,8 +878,10 @@ export function App () {
           </div>
         )}
         {/* **`accent` 파랑이다** — 결함이 아니라 사용자가 해야 할 일이고, 주황으로 그리면
-            `flagged`와 같은 종류로 읽힌다 (확정 스펙 4장). 두 화면 모두에 뜬다. */}
-        {project && opened && orderStale && (
+            `flagged`와 같은 종류로 읽힌다 (확정 스펙 4장). 편집하는 두 화면에 뜬다 —
+            렌더 화면은 같은 사실을 자기 경고 목록에 담으므로 여기서 또 그리면 한 화면에
+            같은 알림이 두 번 선다 (#30). */}
+        {project && opened && orderStale && view !== 'render' && (
           <div className="body__notices">
             <Notice kind="todo" title="장면 구성이 낡았다" testid="notice-order-stale">
               문제 순서나 개수가 바뀌었다. 장면 목록·총 길이·프리뷰는 아직 옛 구성이고,
@@ -697,9 +890,26 @@ export function App () {
           </div>
         )}
         {project && opened
-          ? (view === 'questions' && type && content
+          ? (view === 'render'
+              ? (
+                <RenderScreen
+                  state={render}
+                  warnings={renderWarnings}
+                  notes={renderNotes}
+                  acknowledgedAll={renderGate}
+                  scenes={shownScenes}
+                  // 장면 목록을 읽지 못하면 렌더할 것이 없다 — 확정 `scenes.json`이 입력이다.
+                  canRender={scenes !== null}
+                  onAcknowledgeAll={setRenderGate}
+                  onStart={() => { void startRender() }}
+                  onReveal={(path) => { void api.reveal(path) }}
+                  onOpen={(id) => { setSelectedItem(id); setView('questions') }}
+                />
+                )
+              : view === 'questions' && type && content
               ? (
                 <QuestionScreen
+                  locked={rendering}
                   module={type}
                   content={content}
                   items={items}
@@ -734,6 +944,7 @@ export function App () {
                     : <aside className="panel panel--scenes"><div className="panel__head"><span className="t-heading">장면</span></div></aside>}
                   <Preview frame={frame} scene={scene} pending={pending} error={previewError} />
                   <Properties
+                    locked={rendering}
                     project={project}
                     scene={scene}
                     index={selected}

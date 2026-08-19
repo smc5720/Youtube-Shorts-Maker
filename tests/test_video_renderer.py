@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import subprocess
@@ -579,13 +580,53 @@ def test_render_rejects_a_draft_scene_list(tmp_path: Path) -> None:
         render(project_with(), draft, run_dir=tmp_path)
 
 
+class FakeProcess:
+    """`subprocess.Popen`을 대신하는 최소 구현 (#30).
+
+    **진짜 ffmpeg를 부르지 않는 실패 경로를 여기서 밟는다.** `render`가 이제 `Popen`을 직접
+    쓰므로 `run`을 바꿔 끼우던 자리가 이것으로 바뀌었고, 확인하는 것은 그대로다 — 종료 코드,
+    stderr, 상한을 넘긴 프로세스를 죽이는지.
+    """
+
+    def __init__(
+        self, *, code: int = 0, progress: str = "", stderr: str = "", hang: bool = False
+    ) -> None:
+        self.stdout = io.StringIO(progress)
+        self.returncode = code
+        self._stderr = stderr
+        self._hang = hang
+        self.killed = False
+        self.waits: list[float | None] = []
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.waits.append(timeout)
+        if self._hang and not self.killed:
+            raise subprocess.TimeoutExpired("ffmpeg", timeout or 0)
+        return self.returncode
+
+    def poll(self) -> int | None:
+        return None if (self._hang and not self.killed) else self.returncode
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> FakeProcess:
+        def spawn(command: list[str], **kwargs: Any) -> FakeProcess:
+            # stderr 파일에 쓰는 것은 진짜 ffmpeg의 몫이므로 여기서 대신 쓴다.
+            kwargs["stderr"].write(self._stderr)
+            return self
+
+        monkeypatch.setattr(video_renderer.subprocess, "Popen", spawn)
+        return self
+
+
 def test_a_missing_ffmpeg_says_what_to_install(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def missing(*args: Any, **kwargs: Any) -> None:
         raise FileNotFoundError(2, "그런 파일이 없다")
 
-    monkeypatch.setattr(video_renderer.subprocess, "run", missing)
+    monkeypatch.setattr(video_renderer.subprocess, "Popen", missing)
 
     with pytest.raises(RenderError, match="ffmpeg를 찾을 수 없다"):
         render(project_with(), scenes_with(1.0), run_dir=tmp_path)
@@ -594,31 +635,108 @@ def test_a_missing_ffmpeg_says_what_to_install(
 def test_a_failing_ffmpeg_carries_the_exit_code_and_stderr(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """명령 전문과 stderr가 run.log에 남아야 실패한 렌더를 손으로 재현할 수 있다."""
+    """명령 전문과 stderr가 run.log에 남아야 실패한 렌더를 손으로 재현할 수 있다.
 
-    def failing(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 1, "", "Invalid argument")
-
-    monkeypatch.setattr(video_renderer.subprocess, "run", failing)
+    **stderr는 메시지가 아니라 `raw`로 온다** (#30). 앱의 실패 카드가 사람이 읽는 원인과
+    원문을 다르게 그리므로 한 문자열에 섞지 않는다 (D2 확정 스펙 3.3).
+    """
+    FakeProcess(code=1, stderr="Invalid argument").install(monkeypatch)
 
     with caplog.at_level("DEBUG"):
-        with pytest.raises(RenderError, match="Invalid argument"):
+        with pytest.raises(RenderError, match="종료 코드 1") as failure:
             render(project_with(), scenes_with(1.0), run_dir=tmp_path)
 
+    assert failure.value.raw == "Invalid argument"
+    assert OUTPUT_NAME in str(failure.value)
     assert "렌더 명령 ffmpeg" in caplog.text
     assert "Invalid argument" in caplog.text
 
 
-def test_a_timeout_names_the_output(
+def test_a_timeout_names_the_output_and_kills_ffmpeg(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def slow(command: list[str], **kwargs: Any) -> None:
-        raise subprocess.TimeoutExpired(command, video_renderer.FFMPEG_TIMEOUT_SEC)
-
-    monkeypatch.setattr(video_renderer.subprocess, "run", slow)
+    """**상한을 넘긴 프로세스를 죽인다** — 남겨 두면 인코딩이 계속 돈다 (#30)."""
+    process = FakeProcess(hang=True).install(monkeypatch)
 
     with pytest.raises(RenderError, match=OUTPUT_NAME):
         render(project_with(), scenes_with(1.0), run_dir=tmp_path)
+
+    assert process.killed
+    assert process.waits[0] == video_renderer.FFMPEG_TIMEOUT_SEC
+
+
+def test_progress_reports_frames_and_the_scene_they_belong_to(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`-progress` 줄 → `RenderProgress` (#30).
+
+    **퍼센트도 남은 시간도 없다.** 진행 프레임과 총 프레임, 그리고 그 프레임이 속한 장면이
+    전부이고 나머지는 화면의 계산이다 (D2 확정 스펙 3.3).
+    """
+    # 1초 + 1초 = 30프레임씩 두 장면. ffmpeg는 묶음마다 `frame=`을 낸다.
+    lines = "frame=1\nfps=0\nprogress=continue\nframe=31\nfps=30\nprogress=end\n"
+    FakeProcess(progress=lines).install(monkeypatch)
+
+    seen: list[video_renderer.RenderProgress] = []
+    render(
+        project_with(), scenes_with(1.0, 1.0), run_dir=tmp_path, on_progress=seen.append
+    )
+
+    assert [(item.frame, item.scene_index) for item in seen] == [(1, 0), (31, 1)]
+    assert {item.total_frames for item in seen} == {60}
+
+
+def test_a_running_render_is_registered_so_it_can_be_killed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**앱 백엔드가 끝날 때 자식 ffmpeg를 죽이려면 그 프로세스를 들고 있어야 한다** (#30).
+
+    렌더 스레드는 daemon이라 그냥 사라지고, 남은 ffmpeg는 사용자가 앱을 닫은 뒤에
+    `final_short.mp4`를 완성한다. 끝난 뒤에는 집합이 비어야 `kill_active()`의 개수가
+    거짓말을 하지 않는다.
+    """
+    seen: list[int] = []
+    FakeProcess(progress="frame=1\n").install(monkeypatch)
+
+    render(
+        project_with(),
+        scenes_with(1.0),
+        run_dir=tmp_path,
+        on_progress=lambda _progress: seen.append(len(video_renderer._ACTIVE)),
+    )
+
+    assert seen == [1]
+    assert len(video_renderer._ACTIVE) == 0
+
+
+def test_kill_active_kills_what_is_still_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    running = FakeProcess(hang=True)
+    finished = FakeProcess(code=0)
+    monkeypatch.setattr(video_renderer, "_ACTIVE", {running, finished})
+
+    assert video_renderer.kill_active() == 2
+    assert running.killed
+    # 이미 끝난 프로세스에는 `kill`을 보내지 않는다 — 그 pid가 재사용됐을 수 있다.
+    assert not finished.killed
+
+
+def test_the_render_command_asks_ffmpeg_for_progress(tmp_path: Path) -> None:
+    """훅이 없어도 붙는다 — CLI와 앱이 같은 명령으로 돈다 (#30)."""
+    seen: list[list[str]] = []
+
+    class Recorder(FakeProcess):
+        def install_recording(self, monkeypatch: pytest.MonkeyPatch) -> None:
+            def spawn(command: list[str], **kwargs: Any) -> FakeProcess:
+                seen.append(command)
+                return self
+
+            monkeypatch.setattr(video_renderer.subprocess, "Popen", spawn)
+
+    with pytest.MonkeyPatch.context() as patch:
+        Recorder().install_recording(patch)
+        render(project_with(), scenes_with(1.0), run_dir=tmp_path)
+
+    assert seen[0][:3] == ["ffmpeg", "-progress", "pipe:1"]
 
 
 # --- 실제 렌더 (FFmpeg 필요) -------------------------------------------------
