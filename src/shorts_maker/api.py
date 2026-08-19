@@ -31,6 +31,9 @@ HTTP / 파일 교환)을 재서 stdio를 골랐고, 결정적인 축은 지연�
 - **최종 렌더는 응답 하나로 끝나지 않는다** (`render`, #30). 진행 상황이 요청과 짝이 없는
   알림으로 나가고, 그래서 메서드가 `notify`를 받는다 — 그 알림에도 요청 `id`를 실어 보내는
   것은 재시도한 뒤 이전 렌더의 늦은 알림이 화면을 거꾸로 돌리지 않게 하기 위함이다.
+- **재생성도 같은 모양이다** (`regenerate`, #77). 다른 점은 취소가 있다는 것이고, 그 취소는
+  **별도 요청 줄**로 들어온다 (`cancel_regenerate`) — 재생성이 백그라운드 스레드로 나가
+  디스패치 루프가 비어 있기 때문에 성립한다.
 """
 
 from __future__ import annotations
@@ -50,14 +53,20 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import overlay, video_renderer
+from . import regenerate as regenerate_module
 from .assets import AssetError, background_presets, caption_styles
-from .run_context import serialize_artifact
+from .captions import CaptionError
+from .config import ConfigError
+from .regenerate import RegenerateCancelled
+from .run_context import commit_staged, serialize_artifact, stage_text, staging_path
 from .schemas import SchemaError, load_project, validate_project
 from .schemas import project as project_schema
 from .schemas.core import Schema
 from .schemas.project import PREVIEW_BLIND_SECTIONS, PROJECT_SCHEMA
 from .schemas.scenes import SCENES_SCHEMA, load_scenes
-from .shorts_types import ShortsTypeError, get_type
+from .shorts_types import ShortsType, ShortsTypeError, get_type
+from .timeline import TimelineError
+from .tts import TTSError
 from .video_renderer import RenderError
 
 PROTOCOL_VERSION = 1
@@ -90,9 +99,9 @@ Handler = Callable[[dict[str, Any], Notifier], Any]
 def _plain(handler: Callable[[dict[str, Any]], Any]) -> Handler:
     """알림을 쓰지 않는 메서드를 공통 서명에 맞춘다.
 
-    **여덟 메서드에 쓰지 않는 인자를 달지 않기 위한 것이다.** 알림이 필요한 것은 지금 `render`
-    하나뿐이고(#30), 그 하나 때문에 나머지가 `notify`를 받아 무시하면 "이 메서드도 알림을
-    낼 수 있다"로 읽힌다.
+    **대부분의 메서드에 쓰지 않는 인자를 달지 않기 위한 것이다.** 알림을 내는 것은 오래
+    걸리는 둘(`render` #30, `regenerate` #77)뿐이고, 그 둘 때문에 나머지가 `notify`를 받아
+    무시하면 "이 메서드도 알림을 낼 수 있다"로 읽힌다.
     """
 
     def wrapped(params: dict[str, Any], notify: Notifier) -> Any:
@@ -139,19 +148,13 @@ def write_atomically(path: Path, content: str) -> None:
     프로세스가 죽으면, 열어 둔 파일을 그대로 쓰는 방식은 원본을 반쯤 쓰인 상태로 남긴다 —
     사용자가 편집한 프로젝트가 아니라 **아무도 열 수 없는 파일**이 된다.
 
-    같은 디렉터리에 임시 파일을 두는 것은 `os.replace`가 볼륨을 넘지 못하기 때문이고
-    (run 디렉터리가 다른 드라이브일 수 있다), 교체 전 `fsync`는 내용이 디스크에 닿기 전에
-    디렉터리 엔트리만 바뀌는 것을 막는다.
+    임시 파일의 자리와 `fsync`는 `run_context`가 소유한다 — 재생성(#77)이 산출물 넷을
+    한꺼번에 바꿔 끼울 때 같은 규칙을 써야 하고, 두 곳에 적으면 한쪽만 고쳐진다.
     """
-    temporary = path.with_name(f"{path.name}.tmp-{os.getpid()}")
     try:
-        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        commit_staged([(stage_text(path, content), path)])
     except OSError as error:
-        temporary.unlink(missing_ok=True)
+        staging_path(path).unlink(missing_ok=True)
         raise ApiError("io", f"저장하지 못했다: {path} — {error}") from error
 
 
@@ -395,19 +398,8 @@ def method_save_content(params: dict[str, Any]) -> Any:
 
 
 def _content_schema(params: dict[str, Any]) -> Schema:
-    """`params.type`이 가리키는 타입의 콘텐츠 계약.
-
-    등록되지 않은 타입은 `bad_request`다 — 백엔드가 고장 난 것이 아니라 앱이 이 백엔드가
-    모르는 타입의 프로젝트를 열었다는 뜻이고(동결 배포에서 세대가 갈릴 수 있다), 앱은 그때
-    편집 폼을 닫고 나머지 화면을 그대로 둔다.
-    """
-    name = params.get("type")
-    if not isinstance(name, str) or not name.strip():
-        raise ApiError("bad_request", "params.type에 쇼츠 타입 이름이 필요하다")
-    try:
-        return get_type(name).content_schema
-    except ShortsTypeError as error:
-        raise ApiError("bad_request", str(error)) from error
+    """`params.type`이 가리키는 타입의 콘텐츠 계약."""
+    return _shorts_type(params).content_schema
 
 
 def method_preview(params: dict[str, Any]) -> Any:
@@ -549,6 +541,126 @@ def method_render(params: dict[str, Any], notify: Notifier) -> Any:
         _RENDER_LOCK.release()
 
 
+def method_regenerate(params: dict[str, Any], notify: Notifier) -> Any:
+    """편집을 반영해 장면·오디오·자막을 다시 만든다 (이슈 #77).
+
+    **입력이 파일이다 — 프리뷰·렌더와 갈리는 지점이 그것 하나다.** 그 둘은 앱이 든 프로젝트를
+    받지만(저장하지 않은 편집도 화면과 결과가 같아야 한다) 이쪽은 `run_dir`과 `type`만 받는다.
+    저장하지 않은 콘텐츠로 돌리면 콘텐츠 파일과 `scenes.json`이 서로 다른 문구를 들게 되고
+    어느 쪽이 원본인지 알 수 없다 — 그래서 **앱이 재생성 전에 저장한다.**
+
+    **동시에 둘을 돌리지 않는다.** 렌더와 같은 이유이고(`method_render`) 같은 자리다 — 앱의
+    버튼 잠금은 창이 여럿이거나 스모크가 직접 부를 때 성립하지 않는다.
+
+    **취소는 별도 요청 줄이다** (`method_cancel_regenerate`). 이 메서드가 백그라운드 스레드에서
+    도는 동안 디스패치 루프는 비어 있다 (`serve`).
+
+    Raises:
+        ApiError: 이미 재생성이 돌고 있을 때(`busy`), 설정 기록이 없을 때(`config`), 산출물이
+            계약을 어겼을 때(`schema`), 합성·타임라인·자막·쓰기가 실패했을 때(`regenerate`).
+    """
+    run_dir = _run_dir(params)
+    shorts_type = _shorts_type(params)
+
+    if not _REGENERATE_LOCK.acquire(blocking=False):
+        raise ApiError(
+            "busy",
+            "이미 재생성이 돌고 있다. 끝난 뒤에 다시 시작한다.",
+            ["같은 산출물을 두 실행이 쓰면 결과가 어느 쪽인지 알 수 없다"],
+        )
+    try:
+        _CANCEL_REGENERATE.clear()
+        started = time.perf_counter()
+
+        def report(progress: regenerate_module.Progress) -> None:
+            notify(
+                "regenerate_progress",
+                step=progress.step,
+                done=progress.done,
+                total=progress.total,
+                elapsed_ms=round((time.perf_counter() - started) * 1000),
+            )
+
+        try:
+            report_result = regenerate_module.regenerate(
+                run_dir,
+                shorts_type=shorts_type,
+                on_progress=report,
+                should_cancel=_CANCEL_REGENERATE.is_set,
+            )
+        except RegenerateCancelled:
+            # **실패가 아니다.** 산출물은 이전 상태 그대로이고 앱은 그것을 실패 카드로
+            # 그리지 않는다 — 오류로 실어 보내면 사용자가 스스로 누른 취소를 고장으로 읽는다.
+            return {
+                "cancelled": True,
+                "elapsed_ms": round((time.perf_counter() - started) * 1000),
+            }
+        except ConfigError as error:
+            raise ApiError(
+                "config",
+                "이 run 디렉터리의 설정 기록을 읽을 수 없다 — 재생성하지 않았다.",
+                error.messages,
+            ) from error
+        except SchemaError as error:
+            raise ApiError(
+                "schema",
+                "계약을 어긴 산출물이 있어 재생성하지 않았다. 이전 산출물은 그대로다.",
+                error.messages,
+            ) from error
+        except (TTSError, TimelineError, CaptionError, OSError, ValueError) as error:
+            raise ApiError(
+                "regenerate",
+                f"재생성에 실패했다 — {error}",
+                ["이전 scenes.json·captions.srt·voice.mp3·project.json은 그대로다"],
+            ) from error
+
+        return {
+            "cancelled": False,
+            "scene_count": report_result.scene_count,
+            "segment_count": report_result.segment_count,
+            # **몇 개를 실제로 합성했는가.** "자막만 낡음"이 TTS 없이 끝나는지가 이 값으로
+            # 드러난다 — 실행 경로를 나누지 않는 근거이기도 하다 (D2 확정 스펙 7.3).
+            "synthesized": report_result.synthesized,
+            "cue_count": report_result.cue_count,
+            "total_sec": report_result.total_sec,
+            "dropped_overrides": report_result.dropped_overrides,
+            "elapsed_ms": round((time.perf_counter() - started) * 1000),
+        }
+    finally:
+        _REGENERATE_LOCK.release()
+
+
+def method_cancel_regenerate(params: dict[str, Any]) -> Any:
+    """돌고 있는 재생성을 다음 단계 경계에서 멈춘다 (#77).
+
+    **깃발 하나를 세울 뿐이다.** 실제로 멈추는 것은 재생성 쪽이고, 그래서 이 응답이 돌아온
+    시점에 아직 한 단계가 더 돌 수 있다 — 교체 전에 멈추므로 잘린 산출물은 남지 않는다.
+
+    돌고 있지 않아도 실패가 아니다. 사용자가 끝나는 순간에 누른 것과 구분할 방법이 없고,
+    둘 다 "이 뒤로는 아무 일도 일어나지 않는다"로 끝난다.
+    """
+    running = _REGENERATE_LOCK.locked()
+    if running:
+        _CANCEL_REGENERATE.set()
+    return {"running": running}
+
+
+def _shorts_type(params: dict[str, Any]) -> ShortsType:
+    """`params.type`이 가리키는 타입 선언.
+
+    등록되지 않은 타입은 `bad_request`다 — 백엔드가 고장 난 것이 아니라 앱이 이 백엔드가
+    모르는 타입의 프로젝트를 열었다는 뜻이고(동결 배포에서 세대가 갈릴 수 있다), 앱은 그때
+    편집 폼을 닫고 나머지 화면을 그대로 둔다.
+    """
+    name = params.get("type")
+    if not isinstance(name, str) or not name.strip():
+        raise ApiError("bad_request", "params.type에 쇼츠 타입 이름이 필요하다")
+    try:
+        return get_type(name)
+    except ShortsTypeError as error:
+        raise ApiError("bad_request", str(error)) from error
+
+
 METHODS: dict[str, Handler] = {
     "ping": _plain(method_ping),
     "env": _plain(method_env),
@@ -560,9 +672,11 @@ METHODS: dict[str, Handler] = {
     "save_content": _plain(method_save_content),
     "preview": _plain(method_preview),
     "render": method_render,
+    "regenerate": method_regenerate,
+    "cancel_regenerate": _plain(method_cancel_regenerate),
 }
 
-BACKGROUND_METHODS = frozenset({"preview", "render"})
+BACKGROUND_METHODS = frozenset({"preview", "render", "regenerate"})
 """디스패치 루프를 잡고 있으면 안 되는 메서드 (`serve`).
 
 프리뷰 한 번이 2~3초이고 최종 렌더는 그보다 훨씬 길다. 그 사이 저장도 다른 요청도 받지
@@ -573,6 +687,17 @@ BACKGROUND_METHODS = frozenset({"preview", "render"})
 _RENDER_LOCK = threading.Lock()
 """렌더는 한 번에 하나다 (`method_render`). 프리뷰 락과 갈라 둔 이유는 둘이 서로를 막을 이유가
 없기 때문이다 — 프리뷰는 캐시를 지키고 이쪽은 출력 파일을 지킨다."""
+
+_REGENERATE_LOCK = threading.Lock()
+"""재생성도 한 번에 하나다 (`method_regenerate`, #77).
+
+**렌더 락과 갈라 둔다.** 둘이 쓰는 파일이 겹치지 않고(이쪽은 `scenes.json`·`voice.mp3`·
+`captions.srt`·`project.json`, 그쪽은 `final_short.mp4`), 서로를 막으면 렌더 중에 재생성을
+시작하려던 사용자가 이유를 알 수 없는 거절을 받는다 — 잠기는 것은 편집이고 그 판정은 앱에 있다
+(`App.patchProject`)."""
+
+_CANCEL_REGENERATE = threading.Event()
+"""취소 깃발 (`method_cancel_regenerate`). 재생성이 단계 경계에서만 본다."""
 
 
 # --- 프리뷰 캐시 -----------------------------------------------------------------

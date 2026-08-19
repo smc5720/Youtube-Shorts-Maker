@@ -12,7 +12,7 @@ import { Icon } from './Icon'
 export type View = 'scenes' | 'questions' | 'render'
 
 export function Header ({
-  projectPath, unsaved, busy, canSave, view, canEditContent, rendering,
+  projectPath, unsaved, busy, canSave, view, canEditContent, locked,
   onView, onOpen, onSave
 }: {
   projectPath: string | null
@@ -21,8 +21,11 @@ export function Header ({
   canSave: boolean
   view: View
   canEditContent: boolean
-  /** 렌더가 도는 중인가 (#30). 저장은 잠기고 화면 이동은 열려 있다. */
-  rendering: boolean
+  /**
+   * 편집이 잠겼는가 — 렌더(#30)나 재생성(#77)이 도는 중이다. 저장은 잠기고 화면 이동은
+   * 열려 있다. **판정은 `App`에 있다** (`lockedRef`), 여기서는 그것을 보여 준다.
+   */
+  locked: boolean
   onView: (next: View) => void
   onOpen: () => void
   onSave: () => void
@@ -53,7 +56,7 @@ export function Header ({
           <Icon name="folder" />
           프로젝트 열기
         </button>
-        <button className="button" onClick={onSave} disabled={!canSave || busy || rendering}>
+        <button className="button" onClick={onSave} disabled={!canSave || busy || locked}>
           <Icon name="save" />
           저장
         </button>

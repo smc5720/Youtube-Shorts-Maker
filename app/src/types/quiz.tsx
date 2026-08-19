@@ -130,7 +130,7 @@ export const quiz: ContentModule = {
 }
 
 function QuizEditor ({
-  content, item, acknowledged, stale, captionsStale, onChange, onAcknowledge
+  content, item, acknowledged, stale, captionsStale, regenerate, onChange, onAcknowledge
 }: EditorProps) {
   const list = questions(content)
   const question = list.find((entry) => entry.id === item.id)
@@ -150,10 +150,11 @@ function QuizEditor ({
         <VerifyCard item={item} acknowledged={acknowledged} onAcknowledge={onAcknowledge} />
       )}
       {/* **강한 쪽만 그린다** (#83). 음성까지 낡았으면 자막도 낡았고, 카드 둘이 같은 일을
-          두 번 말하면 폼 위가 카드로 덮인다. */}
+          두 번 말하면 폼 위가 카드로 덮인다. **버튼은 셸이 만든 것을 그대로 넣는다** (#77) —
+          두 카드가 같은 실행을 부르므로 문구만 갈린다. */}
       {stale
-        ? <StaleCard kind="audio" />
-        : captionsStale && <StaleCard kind="captions" />}
+        ? <StaleCard kind="audio">{regenerate}</StaleCard>
+        : captionsStale && <StaleCard kind="captions">{regenerate}</StaleCard>}
 
       <TextArea label="질문" value={question.question} rows={3} onChange={(value) => patch({ question: value })} />
       <TextInput label="정답" value={question.answer} onChange={(value) => patch({ answer: value })} />

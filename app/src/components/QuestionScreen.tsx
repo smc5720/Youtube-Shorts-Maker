@@ -10,12 +10,13 @@
 import type { Content } from '../protocol'
 import type { ContentItem, ContentModule } from '../types'
 import { Icon } from './Icon'
+import { RegenerateButton, type RegenerateState } from './Regenerate'
 import { StaleBadge } from './Stale'
 import { StatusBadge } from './StatusBadge'
 
 export function QuestionScreen ({
   module: type, content, items, selectedId, acknowledged, stale, captionsStale, locked,
-  onSelect, onChange, onAcknowledge, onAdd, onRemove, onMove
+  regenerate, onSelect, onChange, onAcknowledge, onAdd, onRemove, onMove, onRegenerate
 }: {
   module: ContentModule
   content: Content
@@ -27,16 +28,20 @@ export function QuestionScreen ({
   /** 자막만 낡은 문제 (#83). 해설처럼 낭독으로 가지 않는 문구만 바뀐 것이다. */
   captionsStale: number[]
   /**
-   * 렌더가 도는 중인가 (#30). 폼과 목록 동작이 잠긴다 — **판정은 `App`에 있다**
-   * (`renderingRef`), 여기서는 그것을 보여 준다 (확정 스펙 3.3).
+   * 렌더나 재생성이 도는 중인가 (#30, #77). 폼과 목록 동작이 잠긴다 — **판정은 `App`에
+   * 있다**(`lockedRef`), 여기서는 그것을 보여 준다 (확정 스펙 3.3).
    */
   locked: boolean
+  /** 재생성 상태 (#77). 낡음 카드의 버튼이 이것을 보고 문구를 바꾼다. */
+  regenerate: RegenerateState
   onSelect: (id: number) => void
   onChange: (next: Content) => void
   onAcknowledge: (id: number) => void
   onAdd: () => void
   onRemove: (id: number) => void
   onMove: (id: number, delta: number) => void
+  /** 낡음 카드의 재생성 (#77). **렌더 화면의 버튼과 같은 실행이다.** */
+  onRegenerate: () => void
 }) {
   const selected = items.find((item) => item.id === selectedId) ?? null
   const position = items.findIndex((item) => item.id === selectedId)
@@ -129,6 +134,17 @@ export function QuestionScreen ({
                   acknowledged={acknowledged.includes(selected.id)}
                   stale={stale.includes(selected.id)}
                   captionsStale={captionsStale.includes(selected.id)}
+                  // **버튼을 셸이 만들어 내려보낸다** (#77). 문구는 낡음 종류에 따라 갈리지만
+                  // 부르는 것은 하나이고, 그 판단도 실행도 타입의 지식이 아니다.
+                  regenerate={
+                    <RegenerateButton
+                      label={stale.includes(selected.id) ? '음성까지 재생성' : '자막 재생성'}
+                      state={regenerate}
+                      disabled={locked}
+                      onStart={onRegenerate}
+                      testid="stale-regenerate"
+                    />
+                  }
                   onChange={onChange}
                   onAcknowledge={() => onAcknowledge(selected.id)}
                 />

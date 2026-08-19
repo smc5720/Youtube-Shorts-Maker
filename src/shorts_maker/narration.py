@@ -21,7 +21,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,12 +45,21 @@ MANIFEST_NAME = "segments.json"
 
 MANIFEST_VERSION = 1
 
+SegmentHook = Callable[[int, int, bool], None]
+"""`(끝난 개수, 전체 개수, 재사용했는가)` (#77).
+
+**재사용 여부를 함께 준다.** 재생성이 "무엇을 다시 만들었는가"를 보고하는 근거이고, 그 판단은
+`segments.json`을 읽는 이 모듈만 할 수 있다 — 호출부가 파일 수정 시각으로 다시 세면 같은 판단이
+두 곳에 생긴다.
+"""
+
 
 def synthesize_segments(
     scenes: Mapping[str, Any],
     *,
     run_dir: Path,
     synthesizer: SpeechSynthesizer,
+    on_segment: SegmentHook | None = None,
 ) -> dict[str, Any]:
     """`narrate: true` 장면마다 세그먼트를 만들고 오디오 필드를 채운 장면 목록을 돌려준다.
 
@@ -61,6 +70,10 @@ def synthesize_segments(
         scenes: `scenes.json` 내용. 초안 상태다.
         run_dir: 이번 run의 출력 디렉터리. 세그먼트 경로의 기준이다.
         synthesizer: `tts.create_synthesizer(config)`가 만든 합성기.
+        on_segment: 세그먼트 하나가 끝날 때마다 부른다 (#77). 앱의 재생성이 진행을 그리는
+            자리이고, **이 단계만 `n/m`을 낼 수 있다** — 낭독 장면 수를 아는 것이 여기다.
+            **취소도 이 훅으로 들어온다**: 예외를 던지면 그 자리에서 멈추고, 그때까지 만든
+            세그먼트는 기록과 함께 남아 다음 실행이 이어서 한다.
 
     Raises:
         TTSError: 합성이 재시도를 다 쓰고도 실패했거나 길이를 재지 못했을 때.
@@ -73,6 +86,8 @@ def synthesize_segments(
     updated = copy.deepcopy(dict(scenes))
     provider = synthesizer.provider
     manifest = _Manifest.load(run_dir, provider=provider.name, voice=provider.voice)
+    total = sum(1 for scene in updated["scenes"] if scene.get("narrate"))
+    done = 0
 
     for index, scene in enumerate(updated["scenes"]):
         if not scene.get("narrate"):
@@ -83,7 +98,8 @@ def synthesize_segments(
         destination = run_dir / relative
         text = scene["text"]
 
-        if manifest.matches(index, text) and destination.is_file():
+        reused = manifest.matches(index, text) and destination.is_file()
+        if reused:
             LOGGER.debug("세그먼트 재사용 %s — 텍스트가 바뀌지 않았다", relative)
             duration_sec = synthesizer.measure(destination)
         else:
@@ -92,6 +108,10 @@ def synthesize_segments(
 
         scene["audio"] = relative
         scene["audio_duration"] = _rounded(duration_sec, relative)
+
+        done += 1
+        if on_segment is not None:
+            on_segment(done, total, reused)
 
     # 채워 넣은 결과가 계약을 벗어나지 않는지 확인한다. 확정 검증은 아직 쓰지 않는다 —
     # `duration`과 `narration_offset`이 비어 있는 것이 이 단계의 정상 상태다 (#16).

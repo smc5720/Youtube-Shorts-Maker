@@ -1,29 +1,33 @@
-// 앱 스모크 (#26, #27, #28, #82, #79, #80, #81, #83, #30) — 앱을 실제로 띄워 완료 조건을 밟고
-// 결과를 남긴다.
+// 앱 스모크 (#26, #27, #28, #82, #79, #80, #81, #83, #30, #77) — 앱을 실제로 띄워 완료 조건을
+// 밟고 결과를 남긴다.
 //
-// 여덟 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
+// 열 번 띄운다. **한 프로세스 안에서 다시 여는 것은 "재시작"의 증거가 되지 못하기 때문이다.**
 //
-//   1. edit             — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
-//   2. verify           — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
-//   3. preview          — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27),
-//                         장면 길이 조정 (#82), 자막 스타일·배경 프리셋 교체 (#79),
-//                         배경 사용자 파일과 미지원 형식 거부 (#80), 트랙 볼륨 (#81),
-//                         자막 문구와 텍스트 오버레이 (#83)
-//   4. questions        — 2분할 · 세 상태 표기 · 확인 기록 · 낡음 두 종류 · 순서·추가·삭제
-//                         (#28, #83)
-//   5. questions-verify — 다시 띄워서 문제 편집·길이·프리셋·배경 파일·볼륨·자막 문구·오버레이가
-//                         남았는지 (#28, #82, #79, #80, #81, #83)
-//   6. render           — 경고 게이트 · 진행률 · 완료 · 실패 · 다시 시도 · 파일 위치 (#30)
-//   7. render-kill      — 렌더 도중 Electron만 강제 종료해 ffmpeg가 남는지 (#30)
-//   8. idle             — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
+//   1. edit               — 열기 · 스키마 오류 · 편집 표시 · 닫기 확인 · 저장 · 저장하며 닫기 (#26)
+//   2. verify             — 다시 띄워서 저장한 것이 그대로 열리는지 (#26)
+//   3. preview            — 3분할 · 장면 목록 · 프리뷰 프레임 · 대기 표현 2종 · 총 길이 (#27),
+//                           장면 길이 조정 (#82), 자막 스타일·배경 프리셋 교체 (#79),
+//                           배경 사용자 파일과 미지원 형식 거부 (#80), 트랙 볼륨 (#81),
+//                           자막 문구와 텍스트 오버레이 (#83)
+//   4. questions          — 2분할 · 세 상태 표기 · 확인 기록 · 낡음 두 종류 · 순서·추가·삭제
+//                           (#28, #83)
+//   5. questions-verify   — 다시 띄워서 문제 편집·길이·프리셋·배경 파일·볼륨·자막 문구·오버레이가
+//                           남았는지 (#28, #82, #79, #80, #81, #83)
+//   6. regenerate         — 편집 → 저장 → 재생성 → 표시 해제 · 취소 · 진행 · 편집 잠금 (#77)
+//   7. regenerate-verify  — 다시 띄워서 지워진 표시가 파일에서도 지워졌는지 (#77)
+//   8. render             — 경고 게이트 · 진행률 · 완료 · 실패 · 다시 시도 · 파일 위치 (#30)
+//   9. render-kill        — 렌더 도중 Electron만 강제 종료해 ffmpeg가 남는지 (#30)
+//  10. idle               — 띄운 뒤 Electron만 강제 종료해 백엔드가 남는지 (스파이크 4.2)
 //
-// **3·6·7번은 FFmpeg를 요구한다.** 실제 프레임과 실제 mp4가 그 시나리오의 절반이라 대역으로
-// 바꾸면 확인하려는 것이 확인되지 않는다. 4번은 요구하지 않는다 — 그 화면에는 프리뷰가 없고
-// 콘텐츠 편집이 프레임을 다시 만들지 않는 것 자체가 확인 대상이다.
+// **3·6·8·9번은 FFmpeg를 요구한다.** 실제 프레임과 실제 mp4, 실제 오디오 실측이 그 시나리오의
+// 절반이라 대역으로 바꾸면 확인하려는 것이 확인되지 않는다. 4번은 요구하지 않는다 — 그 화면에는
+// 프리뷰가 없고 콘텐츠 편집이 프레임을 다시 만들지 않는 것 자체가 확인 대상이다.
 //
 // **순서가 있다.** 4번이 `run-smoke`의 두 파일을 고치므로 앞선 시나리오보다 뒤에 오고,
-// **6번은 그 편집 전부가 실제 렌더를 지나는지를 보므로 마지막 편집 뒤에 온다** — 사람이 얹은
+// **8번은 그 편집 전부가 실제 렌더를 지나는지를 보므로 마지막 편집 뒤에 온다** — 사람이 얹은
 // 길이·자막 문구·오버레이가 mp4까지 가는지가 그 시나리오의 절반이다 (#30).
+// **6·7번은 전용 run을 쓴다** — 재생성이 재합성 없이 끝나려면 콘텐츠와 세그먼트 기록이
+// 맞아떨어져야 하고, 앞선 시나리오가 고친 `run-smoke`는 그 상태가 아니다 (#77).
 //
 // 실행: npm run smoke   (결과는 app/smoke/results.json)
 
@@ -92,13 +96,19 @@ if (made.status !== 0) {
   process.exit(1)
 }
 const {
-  run: RUN, long: LONG, background: BG, unsupported: BG_BAD,
+  run: RUN, long: LONG, regen: REGEN, background: BG, unsupported: BG_BAD,
   // **웨이트 목록을 이 파일에 적지 않는다** (#83). 픽스처가 스키마에서 읽어 보내므로, 시안이
   // 적은 400·600이 되살아나면 아래 확인이 걸린다 (확정 스펙 7.1-2).
   overlay_weights: OVERLAY_WEIGHTS
 } = JSON.parse(made.stdout.trim())
 record('스모크가 열 run 디렉터리를 만든다', fs.existsSync(path.join(RUN, 'project.json')), RUN)
 record('상한을 넘는 run 디렉터리도 만든다', fs.existsSync(path.join(LONG, 'scenes.json')), LONG)
+// **재생성은 설정 기록과 진짜 세그먼트 오디오를 요구한다** (#92, #15). 둘 중 하나만 없어도
+// 한 단계도 지나지 못하고, 세그먼트가 없으면 그 실행이 네트워크로 나간다.
+record('재생성이 돌 수 있는 run 디렉터리를 만든다',
+  fs.existsSync(path.join(REGEN, 'config.used.yaml'))
+  && fs.readdirSync(path.join(REGEN, 'audio')).filter((name) => name.endsWith('.mp3')).length === 6,
+  REGEN)
 // **run 디렉터리 밖이다** (#80). 앱은 고른 파일을 복사하지 않고 있는 자리를 가리킨다.
 record('배경 파일이 run 디렉터리 밖에 있다',
   fs.existsSync(BG) && !BG.startsWith(RUN) && !BG.startsWith(LONG), BG)
@@ -282,7 +292,87 @@ results.phases.push({ scenario: 'questions-verify', ...qVerify, result: qVerifyR
 if (qVerifyResult) results.checks.push(...qVerifyResult.checks)
 record('문제 편집 재시작 시나리오가 끝난다', qVerifyResult && qVerifyResult.ok && !qVerify.timedOut)
 
-// --- 6. 최종 렌더 (#30) -------------------------------------------------------------
+// --- 6. 재생성 (#77) ----------------------------------------------------------------
+
+// **세그먼트 파일이 다시 쓰이지 않는 것이 이 시나리오의 전제다.** 고치는 것이 장면 길이·자막
+// 문구·해설뿐이라 낭독 문구가 그대로이고, 재사용 판단은 `audio/segments.json`이 한다 (#15).
+const segments = () => Object.fromEntries(
+  fs.readdirSync(path.join(REGEN, 'audio'))
+    .filter((name) => name.endsWith('.mp3'))
+    .map((name) => [name, fs.statSync(path.join(REGEN, 'audio', name)).mtimeMs])
+)
+const segmentsBefore = segments()
+
+const regenOut = path.join(WORK, 'regenerate.json')
+const regenerate = await wait(electron('regenerate', {
+  SHORTS_SMOKE_REGEN: REGEN,
+  SHORTS_SMOKE_OUT: regenOut,
+  SHORTS_SMOKE_SHOT_REGEN: path.join(APP_DIR, 'smoke', 'screenshot-regenerate.png'),
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+}), 300000)
+
+const regenResult = fs.existsSync(regenOut) ? JSON.parse(fs.readFileSync(regenOut, 'utf8')) : null
+results.phases.push({ scenario: 'regenerate', ...regenerate, result: regenResult })
+if (regenResult) results.checks.push(...regenResult.checks)
+record('재생성 시나리오가 끝난다', regenResult && regenResult.ok && !regenerate.timedOut)
+
+record('세그먼트 오디오가 다시 쓰이지 않는다',
+  JSON.stringify(segments()) === JSON.stringify(segmentsBefore),
+  JSON.stringify(segments()))
+
+// **사람이 얹은 편집이 두 산출물에 반영된다** (PRD 14.1). 자막 문구는 `captions.srt`에,
+// 해설은 자막 읽기 하한을 지나 길이에 반영된다.
+// **줄바꿈을 지우고 본다.** SRT는 `captions.max_chars_per_line`으로 어절 단위로 접히므로
+// (`captions.wrap`) 긴 문구는 여러 줄에 걸린다 — 원문 그대로 찾으면 접힌 것을 없는 것으로 읽는다.
+const regenCaptions = fs.readFileSync(path.join(REGEN, 'captions.srt'), 'utf8').replace(/\s+/g, ' ')
+record('고친 자막 문구가 captions.srt에 들어간다', regenCaptions.includes(MARKERS.regenCaption))
+record('고친 해설도 captions.srt에 들어간다', regenCaptions.includes(MARKERS.regenExplanation))
+
+// **`scenes.json`은 사람이 얹은 값을 들지 않는다** — 그것이 오버라이드를 `project.json`에
+// 둔 이유이고, 재생성이 장면을 다시 만들어도 그대로여야 한다 (#83, PRD 14.1).
+const regenScenes = JSON.parse(fs.readFileSync(path.join(REGEN, 'scenes.json'), 'utf8'))
+const regenProject = JSON.parse(fs.readFileSync(path.join(REGEN, 'project.json'), 'utf8'))
+record('재생성한 scenes.json에는 사람이 얹은 문구가 없다',
+  regenScenes.scenes[3].text !== MARKERS.regenCaption
+  && regenScenes.scenes.every((scene) => !('overlays' in scene)),
+  regenScenes.scenes[3].text)
+
+// **`voice.mp3`가 오버라이드를 얹은 타임라인으로 만들어진다** (#77 완료 조건). 얹지 않고
+// 만들면 사람이 길이를 고친 순간부터 낭독이 화면과 어긋난다.
+const appliedTotal = regenScenes.scenes.reduce((sum, scene) => {
+  const override = (regenProject.render.scene_overrides ?? []).find((item) =>
+    item.role === scene.role && (item.question_id ?? null) === (scene.question_id ?? null))
+  return sum + (override && typeof override.duration === 'number' ? override.duration : scene.duration)
+}, 0)
+const probedVoice = spawnSync('ffprobe', [
+  '-v', 'error', '-show_entries', 'format=duration', '-of', 'json',
+  path.join(REGEN, 'voice.mp3')
+], { encoding: 'utf8' })
+const voiceSec = probedVoice.status === 0
+  ? Number(JSON.parse(probedVoice.stdout).format.duration)
+  : null
+record('voice.mp3 길이가 사람이 얹은 길이를 반영한다',
+  voiceSec !== null && Math.abs(voiceSec - appliedTotal) < 0.05,
+  `${voiceSec} / ${appliedTotal}`)
+
+// --- 7. 재시작하고 재생성 결과 확인 --------------------------------------------------
+
+const regenVerifyOut = path.join(WORK, 'regenerate-verify.json')
+const regenVerify = await wait(electron('regenerate-verify', {
+  SHORTS_SMOKE_REGEN: REGEN,
+  SHORTS_SMOKE_OUT: regenVerifyOut,
+  SHORTS_APP_LOG: path.join(WORK, 'app.log')
+}), 120000)
+
+const regenVerifyResult = fs.existsSync(regenVerifyOut)
+  ? JSON.parse(fs.readFileSync(regenVerifyOut, 'utf8'))
+  : null
+results.phases.push({ scenario: 'regenerate-verify', ...regenVerify, result: regenVerifyResult })
+if (regenVerifyResult) results.checks.push(...regenVerifyResult.checks)
+record('재생성 재시작 시나리오가 끝난다',
+  regenVerifyResult && regenVerifyResult.ok && !regenVerify.timedOut)
+
+// --- 8. 최종 렌더 (#30) -------------------------------------------------------------
 
 // **여기까지의 편집이 그대로 렌더에 들어간다** — 사람이 얹은 길이·자막 문구(`%`·`:` 포함)·
 // 오버레이가 실제 mp4를 지나고, 남아 있는 `flagged`·`unverified`가 게이트를 밟는다.
@@ -346,7 +436,7 @@ if (fs.existsSync(OUTPUT)) {
     `${duration} / ${expected} (오버라이드 ${JSON.stringify(projectFile.render.scene_overrides ?? [])})`)
 }
 
-// --- 7. 렌더 도중 강제 종료 (#30) ---------------------------------------------------
+// --- 9. 렌더 도중 강제 종료 (#30) ---------------------------------------------------
 
 // **자식 ffmpeg가 남으면 사용자가 앱을 닫은 뒤에 mp4가 완성된다.** 렌더 스레드는 daemon이라
 // 백엔드가 끝날 때 그냥 사라지므로, 죽이는 것은 `api.serve`의 `atexit`이다.
@@ -404,7 +494,7 @@ killing.kill()
 fs.rmSync(OUTPUT, { force: true })
 fs.rmSync(path.join(LONG, 'final_short.mp4'), { force: true })
 
-// --- 8. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
+// --- 10. 강제 종료 뒤 백엔드가 남는가 -------------------------------------------------
 
 const readyPath = path.join(WORK, 'ready.json')
 const idle = electron('idle', {
@@ -439,7 +529,7 @@ if (ready) {
 }
 idle.kill()
 
-// --- 9. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
+// --- 11. 번들이 바깥을 가리키지 않는가 -------------------------------------------------
 
 // 실행 중 감시(main의 `onBeforeRequest`)와 **다른 층의 확인이다.** 그쪽은 "시도가 없었다"를,
 // 이쪽은 "시도할 대상이 빌드에 없다"를 본다 — 시안의 CDN 링크가 되살아나는 경로가 이쪽이다
@@ -458,7 +548,7 @@ record('CSS가 원격 폰트를 부르지 않는다', remote.length === 0, remot
 const fonts = bundled.filter((name) => name.endsWith('.otf'))
 record('번들 폰트가 dist에 들어간다', fonts.length === 3, fonts.join(', '))
 
-// --- 10. 프리셋 이름이 앱 코드에 없는가 (#79) -----------------------------------------
+// --- 12. 프리셋 이름이 앱 코드에 없는가 (#79) -----------------------------------------
 
 // **목록의 출처가 하나여야 한다.** 프리셋은 `assets/`가 소유하고(D1 확정 스펙 6장) 앱은
 // 백엔드를 지나서만 그것을 안다 — 동결 배포에서 `assets/`는 백엔드 실행 파일 옆이라 앱에서

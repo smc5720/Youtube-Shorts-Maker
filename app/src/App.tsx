@@ -23,6 +23,7 @@ import { OpenScreen } from './components/OpenScreen'
 import { Preview, type PreviewFrame } from './components/Preview'
 import { Properties } from './components/Properties'
 import { QuestionScreen } from './components/QuestionScreen'
+import { RegenerateNotice, type RegenerateState } from './components/Regenerate'
 import {
   RenderScreen,
   type RenderNote,
@@ -41,6 +42,7 @@ import { contentModule } from './types'
 import {
   bridge,
   captionsStale,
+  isRegenerateProgress,
   isRenderProgress,
   review,
   TIMING_SCENE,
@@ -55,6 +57,7 @@ import {
   type PresetsResult,
   type PreviewResult,
   type Project,
+  type RegenerateResult,
   type RenderResult,
   type Review,
   type SaveContentResult,
@@ -98,11 +101,16 @@ export function App () {
   // 검수 기록이고(#28) 이쪽은 "이번 렌더를 이대로 진행한다"는 한 번의 동의다. 파일에 남기면
   // 다음 실행에서도 확인한 것으로 읽힌다.
   const [renderGate, setRenderGate] = useState(false)
+  // 재생성 (#77). **렌더와 같은 자리에 둔다** — 둘 다 산출물을 만드는 실행이고 편집 상태가
+  // 아니다. 다른 점은 결과가 run 디렉터리의 파일이라 **끝난 뒤 화면을 다시 읽는다**는 것이다.
+  const [regen, setRegen] = useState<RegenerateState>({ kind: 'idle' })
   const rendering = render.kind === 'running'
-  // 편집 콜백이 잠금을 볼 때 쓰는 값. 상태를 deps에 넣으면 렌더가 시작·종료할 때마다 편집
+  const regenerating = regen.kind === 'running'
+  // 편집 콜백이 잠금을 볼 때 쓰는 값. 상태를 deps에 넣으면 실행이 시작·종료할 때마다 편집
   // 콜백 전부가 새로 만들어지고, 바뀐 참조가 속성 패널을 통째로 다시 그리게 한다.
-  const renderingRef = useRef(rendering)
-  renderingRef.current = rendering
+  const locked = rendering || regenerating
+  const lockedRef = useRef(locked)
+  lockedRef.current = locked
 
   // **두 파일 중 어느 쪽이든 바뀌면 저장되지 않은 변경이다.** 헤더의 pill 하나가 둘을
   // 함께 말하고, 창을 닫을 때 main이 보는 플래그도 이 값이다.
@@ -144,19 +152,17 @@ export function App () {
     [scenes, project]
   )
 
-  const open = useCallback(async (target?: string) => {
-    const runDir = target ?? await api.pickRunDir()
-    if (!runDir) return false
-
-    setBusy(true)
+  /**
+   * run 디렉터리의 세 파일을 읽어 화면에 앉힌다.
+   *
+   * **여는 것과 재생성 뒤가 같은 경로다** (#77). 재생성은 앱이 든 값을 받지 않고 파일만
+   * 바꾸므로, 화면이 그 파일들을 다시 읽지 않으면 편집이 반영된 장면·낡음 표시가 보이지
+   * 않는다. 갈리는 것은 **어디를 보고 있었는가**뿐이라(열기는 처음으로 돌아가고 재생성은
+   * 보던 화면에 머문다) 그 초기화는 호출부에 있다.
+   */
+  const load = useCallback(async (runDir: string) => {
     const response = await api.call<OpenResult>('open', { run_dir: runDir })
-    if (response.error) {
-      // **열지 못한 것이 앱을 멈추지 않는다.** 이미 열려 있던 프로젝트는 그대로 두고
-      // 원인만 띄운다 — 고쳐서 다시 고르면 되는 상황이다.
-      setBusy(false)
-      setError(response.error)
-      return false
-    }
+    if (response.error) return { opened: false, scenes: null, error: response.error }
 
     // **장면 목록과 콘텐츠는 따로 묻는다.** 읽지 못하는 것이 프로젝트를 열지 못할 이유는
     // 아니다 — `project.json`의 값은 여전히 보이고 고칠 수 있어야 하고, 콘텐츠가 없으면
@@ -166,7 +172,6 @@ export function App () {
     const loaded = contentModule(response.result.project.type)
       ? await api.call<ContentResult>('content', { run_dir: opening, type: response.result.project.type })
       : null
-    setBusy(false)
 
     setOpened({ runDir: opening, path: response.result.project_path })
     setProject(response.result.project)
@@ -174,8 +179,25 @@ export function App () {
     setScenes(listed.result?.scenes ?? null)
     setContent(loaded?.result?.content ?? null)
     setContentBaseline(loaded?.result ? JSON.stringify(loaded.result.content) : null)
+    return { opened: true, scenes: listed.result?.scenes ?? null, error: listed.error ?? null }
+  }, [api])
+
+  const open = useCallback(async (target?: string) => {
+    const runDir = target ?? await api.pickRunDir()
+    if (!runDir) return false
+
+    setBusy(true)
+    const outcome = await load(runDir)
+    setBusy(false)
+    if (!outcome.opened) {
+      // **열지 못한 것이 앱을 멈추지 않는다.** 이미 열려 있던 프로젝트는 그대로 두고
+      // 원인만 띄운다 — 고쳐서 다시 고르면 되는 상황이다.
+      setError(outcome.error)
+      return false
+    }
+
     setView('scenes')
-    setSelected(listed.result ? 0 : null)
+    setSelected(outcome.scenes ? 0 : null)
     setSelectedItem(null)
     setFrame(null)
     setPending(null)
@@ -183,9 +205,10 @@ export function App () {
     setBackgroundReject(null)
     setRender({ kind: 'idle' })
     setRenderGate(false)
-    setError(listed.error ?? null)
+    setRegen({ kind: 'idle' })
+    setError(outcome.error)
     return true
-  }, [api])
+  }, [api, load])
 
   const save = useCallback(async () => {
     if (!opened || !project) return false
@@ -231,7 +254,7 @@ export function App () {
    * 주기만 한다 (`locked`).
    */
   const patchProject = useCallback((change: (current: Project) => Project) => {
-    if (renderingRef.current) return
+    if (lockedRef.current) return
     setProject((previous) => previous && change(previous))
   }, [])
 
@@ -367,19 +390,26 @@ export function App () {
   /**
    * 자막 문구 편집 (#83).
    *
-   * **`review`를 건드리지 않는다.** 문구가 고쳐졌다는 사실은 `scene_overrides[].text`와
-   * `scenes.json`을 비교하면 나오므로(`editedCaptions`) 적어 두면 어느 쪽이 원본인지
-   * 모호해진다 — `orderStale`과 같은 판단이다. 그래서 **되돌리면 표시도 사라진다**: 콘텐츠
-   * 편집의 `stale`이 되돌려도 남는 것과 갈리는 이유는 그쪽에 비교할 기준이 없기 때문이다.
+   * **`timeline_stale`을 함께 건다** (#77에서 들어왔다). 그 전까지 "자막이 낡았다"의 근거는
+   * `scene_overrides[].text`와 `scenes.json`의 비교였는데(`editedCaptions`), 재생성이 **얹은
+   * 문구로** `captions.srt`를 만들면서 그 비교는 "낡았는가"가 아니라 "고쳤는가"가 됐다 —
+   * 비교 기준이 파일에서 사라졌으므로 적어 둔다. 얹은 편집 둘(길이·문구)이 산출물에 닿는
+   * 시점이 같아서 칸도 하나다.
+   *
+   * 그래서 **되돌려도 이 표시는 남는다.** 낡지 않은 것을 낡았다고 말하는 쪽이 반대보다
+   * 안전하고, 지우는 것은 재생성이다 — 콘텐츠 편집의 `stale`과 같은 규칙이 됐다.
+   * `editedCaptions`가 그리는 "고쳤다" 표시는 여전히 되돌리면 사라진다.
    */
   const editCaption = useCallback((scene: Scene, text: string) => {
     patchOverride(scene, (current) => ({ ...current, text }))
-  }, [patchOverride])
+    patchReview((current) => ({ ...current, timeline_stale: true }))
+  }, [patchOverride, patchReview])
 
   /** 자막 문구를 `scenes.json`의 값으로 되돌린다. 키를 지우는 것이 곧 되돌리기다. */
   const revertCaption = useCallback((scene: Scene) => {
     patchOverride(scene, ({ text: _dropped, ...rest }) => rest)
-  }, [patchOverride])
+    patchReview((current) => ({ ...current, timeline_stale: true }))
+  }, [patchOverride, patchReview])
 
   /**
    * 텍스트 오버레이 추가 (#83).
@@ -460,7 +490,7 @@ export function App () {
    * 문구 편집은 갈린다 — 그쪽은 `scenes.json`이 기준이라 되돌리면 표시도 사라진다.)
    */
   const editContent = useCallback((next: Content) => {
-    if (!type || !content || renderingRef.current) return
+    if (!type || !content || lockedRef.current) return
     const before = new Map(type.items(content).map((item) => [item.id, item]))
     const changed = (field: 'narration' | 'captions') => type.items(next)
       .filter((item) => {
@@ -492,7 +522,7 @@ export function App () {
   }, [type, content, patchReview])
 
   const addItem = useCallback(() => {
-    if (!type || !content || renderingRef.current) return
+    if (!type || !content || lockedRef.current) return
     const added = type.add(content, reservedIds)
     setContent(added.content)
     // 새 항목은 오디오도 자막도 **아예 없다.** `stale`이 "낡음"과 "없음"을 함께 뜻한다 —
@@ -502,7 +532,7 @@ export function App () {
   }, [type, content, reservedIds, patchReview])
 
   const removeItem = useCallback((id: number) => {
-    if (!type || !content || renderingRef.current) return
+    if (!type || !content || lockedRef.current) return
     const remaining = type.items(content).filter((item) => item.id !== id)
     setContent(type.remove(content, id))
     // 지운 번호는 세 목록에서도 빠진다. 남겨 두면 나중에 같은 번호가 다시 생겼을 때
@@ -519,7 +549,7 @@ export function App () {
   const moveItem = useCallback((id: number, delta: number) => {
     // **순서만 바뀌면 그 항목의 오디오는 그대로다.** 낡는 것은 `scenes.json`의 장면 배열이고,
     // 그것은 저장하지 않는다 — 두 파일의 번호 나열을 비교하면 나온다 (`orderStale`).
-    if (type && content && !renderingRef.current) setContent(type.move(content, id, delta))
+    if (type && content && !lockedRef.current) setContent(type.move(content, id, delta))
   }, [type, content])
 
   const acknowledge = useCallback((id: number) => {
@@ -595,18 +625,21 @@ export function App () {
       })
     }
     const onlyCaptions = captionsStale(state).filter((id) => !state.stale.includes(id))
-    if (onlyCaptions.length > 0 || captionEdits.length > 0) {
+    if (onlyCaptions.length > 0) {
       notes.push({
         kind: 'todo',
         title: '자막이 낡았다',
         body: '자막 문구가 바뀌었다. 번인 자막은 고친 문구로 나오지만 captions.srt는 옛 문구다.'
       })
     }
+    // **장면에 얹은 편집 둘이 이 한 칸을 쓴다** (#77). 길이와 자막 문구가 산출물에 닿는 시점이
+    // 같고(재생성 한 번), 문구 쪽은 재생성이 얹은 문구로 `captions.srt`를 만들면서 파일 비교로
+    // 낡음을 말할 수 없게 됐다 — `captionEdits`는 이제 "고쳤다"이지 "낡았다"가 아니다.
     if (state.timeline_stale === true) {
       notes.push({
         kind: 'todo',
-        title: '타임라인이 낡았다',
-        body: '장면 길이를 고쳐 이후 장면의 시작 시각이 밀렸다. 낭독과 자막 시각이 어긋난다.'
+        title: '장면 편집이 반영되지 않았다',
+        body: '장면 길이나 자막 문구를 고쳤다. voice.mp3와 captions.srt는 아직 그 편집 전이다.'
       })
     }
     // **낭독보다 짧은 길이는 값이 적용되는 경고다** (#82). 렌더는 그 길이로 돌고 낭독이 잘린다.
@@ -629,7 +662,10 @@ export function App () {
       })
     }
     return notes
-  }, [project, orderStale, captionEdits, shownScenes, unsaved])
+  }, [project, orderStale, shownScenes, unsaved])
+
+  /** 재생성으로 해소되는 낡음이 하나라도 있는가 (#77). 버튼을 그릴지의 기준이다. */
+  const stale = renderNotes.some((note) => note.kind === 'todo')
 
   /**
    * 최종 렌더를 시작한다 (#30).
@@ -638,7 +674,7 @@ export function App () {
    * 검증을 지나므로 계약을 어긴 값은 여기서도 걸린다 (`api.method_render`).
    */
   const startRender = useCallback(async () => {
-    if (!opened || !project || renderingRef.current) return false
+    if (!opened || !project || lockedRef.current) return false
 
     setRender({ kind: 'running', progress: null })
     const response = await api.call<RenderResult>(
@@ -667,6 +703,59 @@ export function App () {
   }, [api, opened, project])
 
   /**
+   * 편집을 반영해 장면·오디오·자막을 다시 만든다 (#77).
+   *
+   * **렌더·프리뷰와 입력이 갈린다** — 프로젝트를 넘기지 않고 `run_dir`과 `type`만 보낸다.
+   * 재생성은 run 디렉터리의 산출물 집합을 콘텐츠에 맞추는 실행이라 저장하지 않은 값으로
+   * 돌리면 콘텐츠 파일과 `scenes.json`이 서로 다른 문구를 들게 된다. 그래서 **먼저
+   * 저장하고**(실패하면 시작하지 않는다) 끝난 뒤 세 파일을 다시 읽는다.
+   *
+   * 화면은 보던 자리에 머문다 — 문제 편집에서 눌렀는데 장면 목록으로 튀면 방금 고친 문제가
+   * 어떻게 됐는지 볼 수 없다.
+   */
+  const regenerate = useCallback(async () => {
+    if (!opened || !project || lockedRef.current) return false
+    if (unsaved && !(await save())) return false
+
+    setRegen({ kind: 'running', progress: null })
+    const response = await api.call<RegenerateResult>(
+      'regenerate', { run_dir: opened.runDir, type: project.type }
+    )
+    if (response.error) {
+      // **거절은 실패가 아니다** (`startRender`와 같은 규칙). 돌고 있는 재생성의 상태를
+      // 덮으면 화면이 "실패"를 말하는 동안 합성이 계속 돈다.
+      if (response.error.code === 'busy') {
+        setError(response.error)
+        return false
+      }
+      setRegen({ kind: 'failed', error: response.error })
+      return false
+    }
+
+    if (response.result.cancelled) {
+      // **산출물이 이전 상태 그대로다** — 다시 읽을 것이 없다.
+      setRegen({ kind: 'cancelled' })
+      return false
+    }
+    // 파일이 바뀌었으므로 화면이 다시 읽는다. 프리뷰는 `scenes`가 갈리는 순간 지문이 바뀌어
+    // 새 프레임을 받는다 (`api._signature`).
+    const outcome = await load(opened.runDir)
+    setRegen({ kind: 'done', result: response.result })
+    setError(outcome.error)
+    return true
+  }, [api, opened, project, unsaved, save, load])
+
+  /**
+   * 재생성을 멈춘다 — **별도 요청 줄이다** (`api.method_cancel_regenerate`).
+   *
+   * 재생성은 백그라운드 스레드로 나가 디스패치 루프가 비어 있으므로 이 줄이 도착한다.
+   * 실제로 멈추는 것은 다음 단계 경계이고, 교체 전이라 잘린 산출물이 남지 않는다.
+   */
+  const cancelRegenerate = useCallback(async () => {
+    await api.call('cancel_regenerate')
+  }, [api])
+
+  /**
    * 진행 알림을 받는다. **요청과 짝이 없는 줄이라 응답 경로가 아니다** (`onBackendEvent`).
    *
    * `id`가 작은 알림은 버린다 — main이 요청마다 증가시키는 값이므로 큰 쪽이 최신이고, 다시
@@ -675,11 +764,23 @@ export function App () {
    */
   const progressId = useRef(0)
   useEffect(() => api.onBackendEvent((message) => {
-    if (!isRenderProgress(message) || message.id < progressId.current) return
-    progressId.current = message.id
-    setRender((current) => (
-      current.kind === 'running' ? { kind: 'running', progress: message } : current
-    ))
+    // **두 실행이 같은 규칙을 쓴다** (#30의 렌더, #77의 재생성). 알림 종류를 늘릴 때 여기
+    // 하나만 보면 되도록 판별을 `protocol`의 함수에 둔다.
+    if (isRenderProgress(message)) {
+      if (message.id < progressId.current) return
+      progressId.current = message.id
+      setRender((current) => (
+        current.kind === 'running' ? { kind: 'running', progress: message } : current
+      ))
+      return
+    }
+    if (isRegenerateProgress(message)) {
+      if (message.id < progressId.current) return
+      progressId.current = message.id
+      setRegen((current) => (
+        current.kind === 'running' ? { kind: 'running', progress: message } : current
+      ))
+    }
   }), [api])
 
   // 고른 것이 없으면 첫 항목이다. 상태에 미리 넣지 않는 이유는 목록이 바뀔 때(삭제) 그
@@ -723,8 +824,12 @@ export function App () {
     })
     // `project`가 아니라 `projectKey`로 건다 — 같은 내용의 새 객체가 재요청을 만들면
     // 편집하지 않았는데도 FFmpeg가 돈다.
+    //
+    // **`scenes`는 객체 그대로 건다** (#77). 이 값이 새로 오는 것은 열 때와 재생성 뒤뿐이고,
+    // 그때는 백엔드가 파일에서 읽는 장면이 갈렸다는 뜻이라 프레임을 다시 받아야 한다 —
+    // 프로젝트만 보면 재생성이 프로젝트를 건드리지 않은 경우에 화면이 옛 그림에 머문다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, opened, projectKey, selected])
+  }, [api, opened, projectKey, scenes, selected])
 
   useEffect(() => {
     void api.context().then(setContext)
@@ -797,6 +902,10 @@ export function App () {
       // 보려면 스모크가 그 값을 껐다 켜야 하기 때문이다.
       render: startRender,
       renderGate: (value: boolean) => setRenderGate(value),
+      // 재생성도 **UI가 부르는 것과 같은 함수다** (#77). 저장 → 실행 → 다시 읽기까지 한
+      // 함수 안에 있으므로, 스모크가 저장을 따로 부르지 않아도 그 순서가 지켜진다.
+      regenerate,
+      cancelRegenerate,
       editContent,
       acknowledge,
       addItem,
@@ -833,6 +942,9 @@ export function App () {
         renderGate,
         renderWarnings,
         renderNotes,
+        // 재생성 상태 (#77). `progress`가 단계 이름이라 스모크가 어느 단계까지 갔는지 본다.
+        regen,
+        stale,
         pending,
         frame: frame && { index: frame.index, bytes: frame.png.length, elapsedMs: frame.elapsedMs },
         previewError
@@ -853,7 +965,7 @@ export function App () {
         // 편집기가 등록되지 않은 타입이면 문제 편집으로 갈 수 없다. 화면을 막는 것이 아니라
         // 그 화면만 없다 — 장면 목록과 프리뷰는 그대로 돈다.
         canEditContent={Boolean(type && content)}
-        rendering={rendering}
+        locked={locked}
         onView={setView}
         onOpen={() => { void open() }}
         onSave={() => { void save() }}
@@ -875,6 +987,17 @@ export function App () {
               </Notice>
             )}
             {error && <ErrorNotice error={error} />}
+          </div>
+        )}
+        {/* **재생성 상태는 화면과 무관하게 선다** (#77). 진행 중에도 다른 화면을 볼 수 있고
+            (확정 스펙 3.3), 시작한 화면에만 그리면 옮긴 사용자가 무슨 일이 도는지 알 수 없다. */}
+        {project && opened && regen.kind !== 'idle' && (
+          <div className="body__notices">
+            <RegenerateNotice
+              state={regen}
+              onCancel={() => { void cancelRegenerate() }}
+              onDismiss={() => setRegen({ kind: 'idle' })}
+            />
           </div>
         )}
         {/* **`accent` 파랑이다** — 결함이 아니라 사용자가 해야 할 일이고, 주황으로 그리면
@@ -900,8 +1023,13 @@ export function App () {
                   scenes={shownScenes}
                   // 장면 목록을 읽지 못하면 렌더할 것이 없다 — 확정 `scenes.json`이 입력이다.
                   canRender={scenes !== null}
+                  // 낡음을 해소하는 실행이 이 화면에도 있다 (#77). **막지는 않는다** — 게이트는
+                  // `flagged` 하나뿐이고 낡은 채로 렌더하는 것은 사용자의 선택이다.
+                  regenerate={regen}
+                  canRegenerate={stale}
                   onAcknowledgeAll={setRenderGate}
                   onStart={() => { void startRender() }}
+                  onRegenerate={() => { void regenerate() }}
                   onReveal={(path) => { void api.reveal(path) }}
                   onOpen={(id) => { setSelectedItem(id); setView('questions') }}
                 />
@@ -909,7 +1037,7 @@ export function App () {
               : view === 'questions' && type && content
               ? (
                 <QuestionScreen
-                  locked={rendering}
+                  locked={locked}
                   module={type}
                   content={content}
                   items={items}
@@ -917,6 +1045,10 @@ export function App () {
                   acknowledged={review(project).acknowledged}
                   stale={review(project).stale}
                   captionsStale={captionsStale(review(project))}
+                  // 낡음 카드의 재생성 버튼 (확정 스펙 7.3). **두 종류가 같은 실행을 부른다** —
+                  // 갈리는 것은 TTS 재합성이 일어나는지뿐이고 그 판단은 백엔드에 있다.
+                  regenerate={regen}
+                  onRegenerate={() => { void regenerate() }}
                   onSelect={setSelectedItem}
                   onChange={editContent}
                   onAcknowledge={acknowledge}
@@ -944,7 +1076,7 @@ export function App () {
                     : <aside className="panel panel--scenes"><div className="panel__head"><span className="t-heading">장면</span></div></aside>}
                   <Preview frame={frame} scene={scene} pending={pending} error={previewError} />
                   <Properties
-                    locked={rendering}
+                    locked={locked}
                     project={project}
                     scene={scene}
                     index={selected}

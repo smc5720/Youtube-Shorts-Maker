@@ -190,6 +190,18 @@ class Timeline:
         return tuple(spans)
 
 
+def scene_key(value: Mapping[str, Any]) -> tuple[str, Any]:
+    """오버라이드 항목과 장면을 짝짓는 키 — `(role, question_id)` (PRD 14.1).
+
+    **장면 인덱스가 아니다.** 인덱스는 문제를 추가·삭제하면 밀리고, 그러면 사람이 조정한
+    값이 다른 장면에 붙는다 (#28이 새 문제 번호에서 같은 함정을 밟았다).
+
+    장면과 오버라이드 양쪽에 쓴다 — 두 어휘가 `scenes.json`의 공통 필드라 같은 함수로
+    읽힌다. 재생성(#77)이 가리킬 장면이 없어진 항목을 정리할 때도 이 키를 쓴다.
+    """
+    return (str(value["role"]), value.get("question_id"))
+
+
 def apply_scene_overrides(
     project: Mapping[str, Any], scenes: Mapping[str, Any]
 ) -> Mapping[str, Any]:
@@ -217,14 +229,10 @@ def apply_scene_overrides(
     if not overrides:
         return scenes
 
-    # 키는 `(role, question_id)`다. 장면 인덱스로 잡으면 문제를 추가·삭제할 때 밀린다.
-    pending = {
-        (str(item["role"]), item.get("question_id")): item for item in overrides
-    }
+    pending = {scene_key(item): item for item in overrides}
     applied: list[dict[str, Any]] = []
     for scene in scenes["scenes"]:
-        key = (str(scene["role"]), scene.get("question_id"))
-        override = pending.pop(key, None)
+        override = pending.pop(scene_key(scene), None)
         edits = _scene_edits(override)
         applied.append(dict(scene) if not edits else {**scene, **edits})
 
