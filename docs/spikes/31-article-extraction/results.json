@@ -1,0 +1,526 @@
+{
+ "python": "3.13.2",
+ "versions": {
+  "trafilatura": "2.2.0",
+  "readability-lxml": "0.8.4.1",
+  "justext": "3.0.2",
+  "lxml": "6.1.2"
+ },
+ "fetch": [
+  {
+   "page": "article (yna)",
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "status": 200,
+   "content_type": "text/html;charset=UTF-8",
+   "bytes": 155662,
+   "meta_charset": "utf-8"
+  },
+  {
+   "page": "article (hani)",
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "status": 200,
+   "content_type": "text/html; charset=utf-8",
+   "bytes": 131791,
+   "meta_charset": "utf-8"
+  },
+  {
+   "page": "article (mk)",
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "status": 200,
+   "content_type": "text/html;charset=UTF-8",
+   "bytes": 223412,
+   "meta_charset": "UTF-8"
+  },
+  {
+   "page": "js-render/login (x.com)",
+   "url": "https://x.com/home",
+   "status": 200,
+   "content_type": "text/html; charset=utf-8",
+   "bytes": 276885,
+   "meta_charset": "utf-8"
+  },
+  {
+   "page": "login (naver cafe)",
+   "url": "https://cafe.naver.com/joonggonara",
+   "status": 200,
+   "content_type": "text/html;charset=MS949",
+   "bytes": 862065,
+   "meta_charset": "KSC5601"
+  },
+  {
+   "page": "csr job post (wanted)",
+   "url": "https://www.wanted.co.kr/wd/265643",
+   "status": 200,
+   "content_type": "text/html; charset=utf-8",
+   "bytes": 135710,
+   "meta_charset": "utf-8"
+  },
+  {
+   "page": "long article (wikipedia)",
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "status": 200,
+   "content_type": "text/html; charset=UTF-8",
+   "bytes": 1496054,
+   "meta_charset": "UTF-8"
+  },
+  {
+   "page": "paywall (wsj)",
+   "url": "https://www.wsj.com/tech/ai",
+   "status": 401,
+   "bytes": 0
+  },
+  {
+   "page": "paywall (nyt)",
+   "url": "https://www.nytimes.com/section/technology",
+   "status": 200,
+   "content_type": "text/html; charset=utf-8",
+   "bytes": 778866,
+   "meta_charset": "utf-8"
+  }
+ ],
+ "extraction": [
+  {
+   "page": "article (yna)",
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "extractor": "stdlib",
+   "chars": 5154,
+   "ms": 11,
+   "title": "&apos;내 에어팟인 줄&apos;…헬스장서 절도 혐의 경찰관, 정직 1개월 | 연합뉴스",
+   "junk_hits": [
+    "많이 본 뉴스"
+   ],
+   "head": "'내 에어팟인 줄'…헬스장서 절도 혐의 경찰관, 정직 1개월 | 연합뉴스 / 연합뉴스 / 본문 바로가기 / 메뉴 바로가기 / 광고 / 새로운 연합뉴스를 만나세요 / 회원이 되시면 뉴스가 특별해 집니다. / 닫기 / 최신뉴스 / 정치 / 북한 / 경제 / 마켓",
+   "error": ""
+  },
+  {
+   "page": "article (yna)",
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "extractor": "trafilatura",
+   "chars": 478,
+   "ms": 824,
+   "title": "'내 에어팟인 줄'…헬스장서 절도 혐의 경찰관, 정직 1개월 | 연합뉴스",
+   "junk_hits": [],
+   "head": "(완주=연합뉴스) 나보배 기자 = 에어팟을 훔친 혐의를 받는 경찰관이 중징계 처분을 받았다. / 19일 전북 완주경찰서 등에 따르면 경찰은 최근 A경위에 대한 징계위원회를 열어 정직 1개월 처분을 의결했다. / 경찰 공무원",
+   "error": ""
+  },
+  {
+   "page": "article (yna)",
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "extractor": "readability",
+   "chars": 536,
+   "ms": 185,
+   "title": "'내 에어팟인 줄'…헬스장서 절도 혐의 경찰관, 정직 1개월",
+   "junk_hits": [],
+   "head": "이미지 확대 / 전북경찰청 / [촬영 나보배] / (완주=연합뉴스) 나보배 기자 = 에어팟을 훔친 혐의를 받는 경찰관이 중징계 처분을 받았다. / 19일 전북 완주경찰서 등에 따르면 경찰은 최근 A경위에 대한 징계위원회를 열어 정",
+   "error": ""
+  },
+  {
+   "page": "article (yna)",
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "extractor": "justext",
+   "chars": 0,
+   "ms": 26,
+   "title": "&apos;내 에어팟인 줄&apos;…헬스장서 절도 혐의 경찰관, 정직 1개월 | 연합뉴스",
+   "junk_hits": [],
+   "head": "",
+   "error": ""
+  },
+  {
+   "page": "article (hani)",
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "extractor": "stdlib",
+   "chars": 3504,
+   "ms": 4,
+   "title": "3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전",
+   "junk_hits": [],
+   "head": "3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전 / 본문 / 경제 / 경제일반 / 3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전 / 이주빈 / 기자 / 수정 / 2026-08-19 15:45 / 펼침 / 0:00 / ",
+   "error": ""
+  },
+  {
+   "page": "article (hani)",
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "extractor": "trafilatura",
+   "chars": 1022,
+   "ms": 25,
+   "title": "3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전",
+   "junk_hits": [],
+   "head": "추석 명절을 앞두고 유통업계가 차별화된 선물 세트를 잇달아 선보이며 경쟁에 나섰다. / 19일 유통업계 설명을 종합하면, 추석을 대비해 호텔업계는 프리미엄 미식과 체험형 상품으로 승부수를 띄웠고 편의점업계는 이색 로봇과",
+   "error": ""
+  },
+  {
+   "page": "article (hani)",
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "extractor": "readability",
+   "chars": 1070,
+   "ms": 25,
+   "title": "3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전",
+   "junk_hits": [],
+   "head": "지에스(GS)25에서 선보이는 2026년 추석 선물세트 상품 이미지. 지에스25 제공 / 추석 명절을 앞두고 유통업계가 차별화된 선물 세트를 잇달아 선보이며 경쟁에 나섰다. / 19일 유통업계 설명을 종합하면, 추석을 대비",
+   "error": ""
+  },
+  {
+   "page": "article (hani)",
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "extractor": "justext",
+   "chars": 548,
+   "ms": 14,
+   "title": "3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전",
+   "junk_hits": [],
+   "head": "3천만원 로봇부터 2만원대 실속세트까지…유통가, 추석 선물 총력전 / 19일 유통업계 설명을 종합하면, 추석을 대비해 호텔업계는 프리미엄 미식과 체험형 상품으로 승부수를 띄웠고 편의점업계는 이색 로봇과 인기 캐릭터 상품",
+   "error": ""
+  },
+  {
+   "page": "article (mk)",
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "extractor": "stdlib",
+   "chars": 10623,
+   "ms": 15,
+   "title": "경기도, 5465억원 세출 구조조정하지만…“민생 필수사업은 지킨다” - 매일경제",
+   "junk_hits": [
+    "회원가입",
+    "로그인",
+    "구독하기"
+   ],
+   "head": "경기도, 5465억원 세출 구조조정하지만…“민생 필수사업은 지킨다” - 매일경제 / 뉴스 바로가기 / 햄버거 / AI검색 / 로그인 / 마이페이지 / 로그아웃 / 매일경제 60 / Maeil Business News Korea / 매일경제 60 / 나",
+   "error": ""
+  },
+  {
+   "page": "article (mk)",
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "extractor": "trafilatura",
+   "chars": 2202,
+   "ms": 43,
+   "title": "경기도, 5465억원 세출 구조조정하지만…“민생 필수사업은 지킨다” - 매일경제",
+   "junk_hits": [],
+   "head": "경기도가 5465억 원 규모의 강도 높은 세출 구조조정을 통해 취약계층 생계·돌봄과 저출산 대응, 복지·의료 등 민생 필수사업을 지키기 위한 추가경정예산안을 마련했다. / 정두석 경기도 기획조정실장은 19일 경기도청에서",
+   "error": ""
+  },
+  {
+   "page": "article (mk)",
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "extractor": "readability",
+   "chars": 2223,
+   "ms": 59,
+   "title": "경기도, 5465억원 세출 구조조정하지만…“민생 필수사업은 지킨다”",
+   "junk_hits": [],
+   "head": "사진 확대 / 경기도청 전경. [경기도] / 경기도가 5465억 원 규모의 강도 높은 세출 구조조정을 통해 취약계층 생계·돌봄과 저출산 대응, 복지·의료 등 민생 필수사업을 지키기 위한 추가경정예산안을 마련했다. / 정두석 경",
+   "error": ""
+  },
+  {
+   "page": "article (mk)",
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "extractor": "justext",
+   "chars": 722,
+   "ms": 37,
+   "title": "경기도, 5465억원 세출 구조조정하지만…“민생 필수사업은 지킨다” - 매일경제",
+   "junk_hits": [],
+   "head": "도는 구조조정을 통해 확보한 재원을 우선 2026년 본예산에 반영하지 못했던 민생사업에 투입한다. 관련 예산은 총 2464억 원이다. / 주요 사업은 △노인 장기요양 시설·재가급여 1234억 원 △도교육청 유·초·중·고",
+   "error": ""
+  },
+  {
+   "page": "js-render/login (x.com)",
+   "url": "https://x.com/home",
+   "extractor": "stdlib",
+   "chars": 170,
+   "ms": 1,
+   "title": null,
+   "junk_hits": [],
+   "head": "Something went wrong, but don’t fret — let’s give it another shot. / Try again / Some privacy related extensions may cause i",
+   "error": ""
+  },
+  {
+   "page": "js-render/login (x.com)",
+   "url": "https://x.com/home",
+   "extractor": "trafilatura",
+   "chars": 258,
+   "ms": 14,
+   "title": "자바스크립트를 사용할 수 없습니다.",
+   "junk_hits": [],
+   "head": "We’ve detected that JavaScript is disabled in this browser. Please enable JavaScript or switch to a supported browser to",
+   "error": ""
+  },
+  {
+   "page": "js-render/login (x.com)",
+   "url": "https://x.com/home",
+   "extractor": "readability",
+   "chars": 228,
+   "ms": 6,
+   "title": "",
+   "junk_hits": [],
+   "head": "자바스크립트를 사용할 수 없습니다. / We’ve detected that JavaScript is disabled in this browser. Please enable JavaScript or switch to a ",
+   "error": ""
+  },
+  {
+   "page": "js-render/login (x.com)",
+   "url": "https://x.com/home",
+   "extractor": "justext",
+   "chars": 0,
+   "ms": 8,
+   "title": null,
+   "junk_hits": [],
+   "head": "",
+   "error": ""
+  },
+  {
+   "page": "login (naver cafe)",
+   "url": "https://cafe.naver.com/joonggonara",
+   "extractor": "stdlib",
+   "chars": 9920,
+   "ms": 33,
+   "title": "중고나라 : 네이버 카페",
+   "junk_hits": [
+    "로그인"
+   ],
+   "head": "중고나라 : 네이버 카페 / 게시판 목록 바로가기 / 본문 바로가기 / 웹 접근성이 좋은 모바일 웹에서 사용하겠습니까? / 중고나라 / 카페홈 / 이웃 / 가입카페 / 새글 / 내소식 / 내소식 / 내소식이 없습니다. / 가입한 카페의 활동 알림과 댓글알림을",
+   "error": ""
+  },
+  {
+   "page": "login (naver cafe)",
+   "url": "https://cafe.naver.com/joonggonara",
+   "extractor": "trafilatura",
+   "chars": 800,
+   "ms": 503,
+   "title": "내소식",
+   "junk_hits": [],
+   "head": "                내소식이 없습니다. /                  /             가입한 카페의 활동 알림과 댓글알림을 / 이곳에서 모아볼 수 있어요. /                 최근 30일 이내의 ",
+   "error": ""
+  },
+  {
+   "page": "login (naver cafe)",
+   "url": "https://cafe.naver.com/joonggonara",
+   "extractor": "readability",
+   "chars": 104,
+   "ms": 193,
+   "title": "중고나라 : 네이버 카페",
+   "junk_hits": [],
+   "head": "내소식이 없습니다. / 가입한 카페의 활동 알림과 댓글알림을 / 이곳에서 모아볼 수 있어요. / 최근 30일 이내의 최신순 소식입니다. / 알림의 / 버튼을 클릭하면, 알림을 설정할 수 있어요. / 공지 닫기",
+   "error": ""
+  },
+  {
+   "page": "login (naver cafe)",
+   "url": "https://cafe.naver.com/joonggonara",
+   "extractor": "justext",
+   "chars": 0,
+   "ms": 57,
+   "title": "중고나라 : 네이버 카페",
+   "junk_hits": [],
+   "head": "",
+   "error": ""
+  },
+  {
+   "page": "csr job post (wanted)",
+   "url": "https://www.wanted.co.kr/wd/265643",
+   "extractor": "stdlib",
+   "chars": 1522,
+   "ms": 5,
+   "title": "[위메이드(WEMADE)] [전기아이피-미르의 전설 2,3] 게임 운영 채용 공고 | 원티드",
+   "junk_hits": [
+    "회원가입",
+    "로그인"
+   ],
+   "head": "[위메이드(WEMADE)] [전기아이피-미르의 전설 2,3] 게임 운영 채용 공고 | 원티드 / 채용 / 이력서 / 교육•이벤트 / 콘텐츠 / 소셜 / 프리랜서 / 더보기 / 회원가입 / 회원가입/로그인 / 기업 서비스 / 1 / / / 4 / 위메이드(WEMADE",
+   "error": ""
+  },
+  {
+   "page": "csr job post (wanted)",
+   "url": "https://www.wanted.co.kr/wd/265643",
+   "extractor": "trafilatura",
+   "chars": 963,
+   "ms": 34,
+   "title": "[위메이드(WEMADE)] [전기아이피-미르의 전설 2,3] 게임 운영 채용 공고 | 원티드",
+   "junk_hits": [],
+   "head": "포지션 상세 / 전기아이피(传奇IP)는 위메이드의 일원이며, 미르의 전설(热血传奇)의 지식재산권(IP)을 보유하고 있는 회사입니다. / IP 저작권 및 제휴 사업, 미르의전설2, 미르의전설3, MIR2M 글로벌 서비스를 제",
+   "error": ""
+  },
+  {
+   "page": "csr job post (wanted)",
+   "url": "https://www.wanted.co.kr/wd/265643",
+   "extractor": "readability",
+   "chars": 338,
+   "ms": 20,
+   "title": "[전기아이피-미르의 전설 2,3] 게임 운영",
+   "junk_hits": [],
+   "head": "본 채용 정보는 / 에서 제공한 자료를 바탕으로 원티드랩에서 표현을 수정하고 이의 배열 및 구성을 편집하여 완성한 원티드랩의 저작자산이자 영업자산입니다. 본 정보 및 데이터베이스의 일부 내지는 전부에 대하여 원티드랩의 ",
+   "error": ""
+  },
+  {
+   "page": "csr job post (wanted)",
+   "url": "https://www.wanted.co.kr/wd/265643",
+   "extractor": "justext",
+   "chars": 365,
+   "ms": 11,
+   "title": "[위메이드(WEMADE)] [전기아이피-미르의 전설 2,3] 게임 운영 채용 공고 | 원티드",
+   "junk_hits": [],
+   "head": "자격요건 / 기술 스택 • 툴 / 태그 / 마감일 / 근무지역 / 본 채용 정보는 에서 제공한 자료를 바탕으로 원티드랩에서 표현을 수정하고 이의 배열 및 구성을 편집하여 완성한 원티드랩의 저작자산이자 영업자산입니다. 본 정보 및 데이",
+   "error": ""
+  },
+  {
+   "page": "long article (wikipedia)",
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "extractor": "stdlib",
+   "chars": 93493,
+   "ms": 81,
+   "title": "유튜브 - 위키백과, 우리 모두의 백과사전",
+   "junk_hits": [
+    "로그인"
+   ],
+   "head": "유튜브 - 위키백과, 우리 모두의 백과사전 / 본문으로 이동 / 주 메뉴 / 주 메뉴 / 사이드바로 이동 / 숨기기 / 둘러보기 / 대문 / 최근 바뀜 / 요즘 화제 / 임의 문서로 / 사용자 모임 / 사랑방 / 사용자 모임 / 관리 요청 / 편집 안내 / 소개 / 도움말 / 정",
+   "error": ""
+  },
+  {
+   "page": "long article (wikipedia)",
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "extractor": "trafilatura",
+   "chars": 80787,
+   "ms": 808,
+   "title": "유튜브 - 위키백과, 우리 모두의 백과사전",
+   "junk_hits": [
+    "로그인"
+   ],
+   "head": "유튜브 / | 유튜브 |  |  / |---|---| / | 사이트 종류 | 온라인 비디오 플랫폼, 소셜 미디어 플랫폼 |  / | 회원 가입 | 선택 사항  |  / | 작성된 언어 | 파이썬 (코어/API),[1] C (C파이썬을",
+   "error": ""
+  },
+  {
+   "page": "long article (wikipedia)",
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "extractor": "readability",
+   "chars": 29328,
+   "ms": 459,
+   "title": "위키백과, 우리 모두의 백과사전",
+   "junk_hits": [
+    "로그인"
+   ],
+   "head": "유튜브 / 로고 버전 다크 모드 버전 표시 / 로고 버전 라이트 모드 버전 표시 / 2024년 10월부터 사용된 로고. / 유튜브 검색 결과, 2025년 5월 / 사이트 종류 / 온라인 비디오 플랫폼 / , / 소셜 미디어 플랫폼 / 회원 가입 / 대",
+   "error": ""
+  },
+  {
+   "page": "long article (wikipedia)",
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "extractor": "justext",
+   "chars": 24496,
+   "ms": 172,
+   "title": "유튜브 - 위키백과, 우리 모두의 백과사전",
+   "junk_hits": [],
+   "head": "2006년 11월 13일, 유튜브는 구글에 16억 5천만 달러(2006년 기준 2.44억 달러에 해당)[10]에 인수되었다. 구글은 유튜브의 비즈니스 모델을 광고 수익 창출에서 영화 및 유튜브 자체 제작 독점 콘텐츠",
+   "error": ""
+  },
+  {
+   "page": "paywall (nyt)",
+   "url": "https://www.nytimes.com/section/technology",
+   "extractor": "stdlib",
+   "chars": 5297,
+   "ms": 5,
+   "title": "Technology - The New York Times",
+   "junk_hits": [],
+   "head": "Technology - The New York Times / Skip to content / Skip to site index / Technology / Today’s Paper / Advertisement / SKIP ADVERTISE",
+   "error": ""
+  },
+  {
+   "page": "paywall (nyt)",
+   "url": "https://www.nytimes.com/section/technology",
+   "extractor": "trafilatura",
+   "chars": 3267,
+   "ms": 39,
+   "title": "Technology",
+   "junk_hits": [],
+   "head": "ICE Bars Its Workers From Wearing Meta’s Smart Glasses on the Job / The agency joins a growing number of workplaces and gr",
+   "error": ""
+  },
+  {
+   "page": "paywall (nyt)",
+   "url": "https://www.nytimes.com/section/technology",
+   "extractor": "readability",
+   "chars": 182,
+   "ms": 29,
+   "title": "The New York Times",
+   "junk_hits": [],
+   "head": "California, Colorado, Kentucky and New Jersey have taken the social media giant to trial in the first bellwether federal",
+   "error": ""
+  },
+  {
+   "page": "paywall (nyt)",
+   "url": "https://www.nytimes.com/section/technology",
+   "extractor": "justext",
+   "chars": 0,
+   "ms": 18,
+   "title": "Technology - The New York Times",
+   "junk_hits": [],
+   "head": "",
+   "error": ""
+  }
+ ],
+ "user_agent": [
+  {
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "ua": "honest",
+   "status": 200,
+   "bytes": 155662
+  },
+  {
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "ua": "browser",
+   "status": 200,
+   "bytes": 155662
+  },
+  {
+   "url": "https://www.yna.co.kr/view/AKR20260819128800055",
+   "ua": "none",
+   "status": 200,
+   "bytes": 155662
+  },
+  {
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "ua": "honest",
+   "status": 200,
+   "bytes": 131791
+  },
+  {
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "ua": "browser",
+   "status": 200,
+   "bytes": 131791
+  },
+  {
+   "url": "https://www.hani.co.kr/arti/economy/economy_general/1273599.html",
+   "ua": "none",
+   "status": 200,
+   "bytes": 131791
+  },
+  {
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "ua": "honest",
+   "status": 200,
+   "bytes": 223463
+  },
+  {
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "ua": "browser",
+   "status": 200,
+   "bytes": 223412
+  },
+  {
+   "url": "https://www.mk.co.kr/news/society/12131225",
+   "ua": "none",
+   "status": 403,
+   "bytes": 0
+  },
+  {
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "ua": "honest",
+   "status": 200,
+   "bytes": 1496054
+  },
+  {
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "ua": "browser",
+   "status": 200,
+   "bytes": 1496054
+  },
+  {
+   "url": "https://ko.wikipedia.org/wiki/%EC%9C%A0%ED%8A%9C%EB%B8%8C",
+   "ua": "none",
+   "status": 403,
+   "bytes": 0
+  }
+ ]
+}
