@@ -75,8 +75,9 @@ cp config.example.yaml config.yaml
 
 ### 편집 앱
 
-`app/`에 Electron + React 앱이 있습니다. run 디렉터리를 열어 `project.json`을 읽고 저장하는
-**셸까지** 만들어져 있고, 장면 목록·프리뷰·편집 화면은 다음 이슈들이 채웁니다.
+`app/`에 Electron + React 앱이 있습니다. run 디렉터리를 열어 장면 목록·정지 프레임 프리뷰를
+보고, 문제와 장면 속성(길이·자막 문구·텍스트 오버레이·자막 스타일·배경·볼륨)을 편집한 뒤
+재생성과 최종 렌더까지 실행합니다.
 
 ```bash
 cd app && npm install && npm start
@@ -122,12 +123,12 @@ shorts-maker --topic "세계 지리 상식" --verbose
 
 ## 문서
 
-- [PRD](docs/PRD.md) — 입력 기반 YouTube Shorts 자동 생성 MVP 기획서
+- [PRD](docs/PRD.md) — 기획과 확정 결정 (14장이 결정 목록)
 - [기여 가이드](CONTRIBUTING.md) — 이슈 기반 작업 방식, 라벨 체계, 이슈 리파인먼트 절차
-
-### 쇼츠 타입
-
-- [퀴즈](docs/types/quiz.md) — 상식/지식 퀴즈 쇼츠 (LLM 자동 생성, 주관식 정답 공개형)
+- [퀴즈 타입 스펙](docs/types/quiz.md) — 상식/지식 퀴즈 쇼츠 (LLM 자동 생성, 주관식 정답 공개형)
+- [D1 영상 디자인 스펙](docs/design/d1-video-design-spec.md) — 화면 좌표·크기·색·타이밍
+- [D2 앱 UI 스펙](docs/design/d2-app-design-spec.md) — 토큰·레이아웃·상태 표기
+- `docs/spikes/` — 결정의 근거가 된 실측 기록
 
 ## 개발 워크플로
 
