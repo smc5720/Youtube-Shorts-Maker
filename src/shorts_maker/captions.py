@@ -72,7 +72,23 @@ def build(scenes: Mapping[str, Any], *, config: Config) -> list[Cue]:
     # 입구에서 확정 검증을 한다. 이 함수는 CLI 말고도 앱 백엔드와 테스트가 직접 부르고,
     # 초안이 들어오면 `duration`이 없어 타임코드가 아예 서지 않는다.
     validate_scenes_final(scenes)
+    return build_applied(scenes, config=config)
 
+
+def build_applied(scenes: Mapping[str, Any], *, config: Config) -> list[Cue]:
+    """**확정 검증을 지난 목록에 사람의 편집을 얹은 사본**에서 큐를 만든다 (#77).
+
+    `build`와 갈라 둔 이유는 그 사본이 확정 검증을 통과하지 않기 때문이다 — 사람이 얹은
+    길이는 낭독보다 짧을 수 있고(그래서 `project.json`에 산다) 장면 사본에는 스키마가 모르는
+    오버레이 키가 붙어 있다 (`video_renderer.apply_scene_overrides`). 검증을 그대로 두면
+    **사람이 줄인 길이에서 자막 생성이 실패한다.**
+
+    **초안을 넣는 입구가 아니다.** 여기 오는 목록은 이미 확정 검증을 지난 `scenes.json`에서
+    파생된 것이어야 하고, 그 검증은 재생성이 `scenes.json`을 쓰기 전에 자기 자리에서 한다.
+
+    Raises:
+        CaptionError: 설정값이 자막을 만들 수 없는 값일 때.
+    """
     max_chars = int(config.get("captions.max_chars_per_line"))
     if max_chars < 1:
         # 1 미만이면 어절을 자를 조각이 없어 줄바꿈이 끝나지 않는다. 설정 로더는 범위를

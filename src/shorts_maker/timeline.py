@@ -16,6 +16,9 @@
   (PRD 7.5.1, 6.3). 조정은 `config`로 사람이 한다.
 - **효과음과 배경음악을 섞지 않는다.** `voice.mp3`는 낭독만 담은 트랙이고, 나머지는 렌더
   단계의 별도 트랙이다 (PRD 7.5.2, #23, #35).
+- **입구가 둘이다** (#77). `finalize`는 실측에서 길이를 확정하고, `place_narration`은 이미
+  정해진 길이 위에 오프셋만 다시 매긴다 — 재생성이 **사람이 얹은 길이를 반영한** 트랙을
+  만들어야 하기 때문이고, 그 길이는 확정 검증이 거부하는 값일 수 있다 (PRD 14.1).
 """
 
 from __future__ import annotations
@@ -223,11 +226,79 @@ def finalize(
     timing = _Timing.from_config(config)
     updated = copy.deepcopy(dict(scenes))
 
-    placements: list[Placement] = []
-    start_sec = 0.0
     for index, scene in enumerate(updated["scenes"]):
         duration = _duration_of(scene, index, timing)
         scene["duration"] = duration
+        _warn_if_off_target(index, scene, duration)
+
+    placements, total_sec = _place(updated, run_dir=run_dir, timing=timing)
+    _warn_if_off_range(total_sec)
+
+    # 트랙을 만들기 전에 확정 상태를 확인한다. 계약을 어긴 장면 목록으로 만든 `voice.mp3`는
+    # 어느 장면의 오디오인지 알 수 없는 파일이다.
+    validate_scenes_final(updated)
+
+    _mix_or_skip(placements, run_dir / VOICE_TRACK, total_sec, mix=mix)
+    return updated
+
+
+def place_narration(
+    scenes: Mapping[str, Any],
+    *,
+    run_dir: Path,
+    config: Config,
+    destination: Path,
+    mix: VoiceMixer = mix_voice_track,
+) -> dict[str, Any]:
+    """이미 정해진 `duration` 위에 낭독 오프셋을 다시 매기고 합성 트랙을 만든다 (#77).
+
+    **`finalize`와 갈리는 것은 길이를 정하는 주체다.** 그쪽은 실측 오디오에서 `duration`을
+    확정하고, 이쪽은 받은 길이를 그대로 쓴다 — 재생성이 **사람이 얹은 길이를 반영한
+    타임라인으로** `voice.mp3`와 자막을 만들어야 렌더가 그리는 시각과 낭독이 맞는다
+    (PRD 14.1, `video_renderer.apply_scene_overrides`).
+
+    **확정 검증을 하지 않는다.** 얹은 길이는 낭독보다 짧을 수 있고(그래서 `scenes.json`이
+    아니라 `project.json`에 산다) 장면 사본에는 스키마가 모르는 오버레이 키가 붙어 있을 수
+    있다. 검증은 `scenes.json`에 쓰는 값에만 걸리며 그 자리는 `finalize`다.
+
+    Args:
+        scenes: 모든 장면에 `duration`이 있는 목록. 확정 상태에 편집을 얹은 사본이다.
+        run_dir: 세그먼트 경로의 기준.
+        config: `timing.lead_in_sec`을 읽는다.
+        destination: 합성 트랙을 쓸 자리. **`run_dir / VOICE_TRACK`이 아닐 수 있다** —
+            재생성은 전부 성공했을 때만 산출물을 바꿔 끼운다.
+        mix: 합성 경계. 기본은 FFmpeg 호출이다.
+
+    Returns:
+        `narration_offset`을 다시 매긴 사본. 자막이 이 목록으로 타임코드를 만든다.
+
+    Raises:
+        TimelineError: 길이가 없는 장면이 있거나 합성 트랙을 만들지 못했을 때.
+    """
+    timing = _Timing.from_config(config)
+    updated = copy.deepcopy(dict(scenes))
+    placements, total_sec = _place(updated, run_dir=run_dir, timing=timing)
+    _mix_or_skip(placements, destination, total_sec, mix=mix)
+    return updated
+
+
+def _place(
+    scenes: dict[str, Any], *, run_dir: Path, timing: _Timing
+) -> tuple[list[Placement], float]:
+    """`duration`대로 낭독 오프셋을 매긴다. 받은 장면 목록을 제자리에서 고친다.
+
+    **길이를 정하지 않는다.** 여기 오는 시점에 모든 장면의 `duration`은 이미 정해져 있고,
+    그 값이 실측에서 왔는지 사람이 얹은 것인지는 이 함수의 관심이 아니다 — 그 갈림이
+    `finalize`와 `place_narration` 둘을 나누는 유일한 지점이다.
+    """
+    placements: list[Placement] = []
+    start_sec = 0.0
+    for index, scene in enumerate(scenes["scenes"]):
+        duration = scene.get("duration")
+        if duration is None:
+            raise TimelineError(
+                f"scenes[{index}]: duration이 없다 — 길이가 정해진 장면 목록이어야 한다"
+            )
 
         if scene.get("narrate"):
             offset_sec = round(start_sec + timing.lead_in, DURATION_DIGITS)
@@ -236,29 +307,26 @@ def finalize(
                 Placement(audio=run_dir / scene["audio"], offset_sec=offset_sec)
             )
 
-        _warn_if_off_target(index, scene, duration)
         # 누계도 매번 반올림한다. 반올림한 길이를 그대로 더하지 않으면 뒤쪽 오프셋에
         # 부동소수점 잔여가 쌓여 기록값이 앞선 duration의 합과 어긋난다.
-        start_sec = round(start_sec + duration, DURATION_DIGITS)
+        start_sec = round(start_sec + float(duration), DURATION_DIGITS)
 
-    total_sec = start_sec
-    _warn_if_off_range(total_sec)
+    return placements, start_sec
 
-    # 트랙을 만들기 전에 확정 상태를 확인한다. 계약을 어긴 장면 목록으로 만든 `voice.mp3`는
-    # 어느 장면의 오디오인지 알 수 없는 파일이다.
-    validate_scenes_final(updated)
 
-    if placements:
-        mix(placements, run_dir / VOICE_TRACK, total_sec)
-        LOGGER.debug(
-            "%s 생성 — 총 %.3f초에 세그먼트 %d개", VOICE_TRACK, total_sec, len(placements)
-        )
-    else:
+def _mix_or_skip(
+    placements: Sequence[Placement], destination: Path, total_sec: float, *, mix: VoiceMixer
+) -> None:
+    if not placements:
         # 낭독 장면이 없으면 배치할 것이 없다. 무음 트랙을 만들어 두면 렌더러가 "있으면
         # 쓴다"는 규칙으로 무음을 입힌다 (PRD 6.2 표).
-        LOGGER.debug("낭독 장면이 없어 %s를 만들지 않았다", VOICE_TRACK)
+        LOGGER.debug("낭독 장면이 없어 %s를 만들지 않았다", destination.name)
+        return
 
-    return updated
+    mix(placements, destination, total_sec)
+    LOGGER.debug(
+        "%s 생성 — 총 %.3f초에 세그먼트 %d개", destination.name, total_sec, len(placements)
+    )
 
 
 def _duration_of(scene: Mapping[str, Any], index: int, timing: _Timing) -> float:

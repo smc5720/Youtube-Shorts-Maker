@@ -57,6 +57,12 @@ export interface EditorProps {
   stale: boolean
   /** 자막만 낡았다 (#83). 둘이 함께 참일 수 있고 그때는 강한 쪽만 그린다. */
   captionsStale: boolean
+  /**
+   * 낡음 카드의 재생성 버튼 (#77). **폼 안에 들어가지만 셸이 만든다** — 두 낡음이 같은
+   * 실행을 부르고(갈리는 것은 TTS 재합성이 일어나는지뿐이다) 그 판단도 실행도 타입의
+   * 지식이 아니다. 타입 모듈이 하는 일은 카드를 **어디에 둘지** 정하는 것까지다.
+   */
+  regenerate: ReactElement
   onChange: (next: Content) => void
   onAcknowledge: () => void
 }

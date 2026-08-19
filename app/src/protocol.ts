@@ -121,10 +121,16 @@ export interface Review {
    */
   captions_stale?: number[]
   /**
-   * 장면 길이를 고쳐 `captions.srt`·`voice.mp3`가 어긋난 상태 (#82).
+   * 사람이 장면에 얹은 편집(길이 #82, 자막 문구 #83)이 `captions.srt`·`voice.mp3`에 아직
+   * 반영되지 않은 상태.
    *
    * **목록이 아니라 참·거짓이다** — 길이 하나를 고치면 그 뒤 장면의 시작 시각이 전부 밀려
-   * 낡는 대상이 타임라인 전체다 (PRD 14.1).
+   * 낡는 대상이 타임라인 전체이고, 문구는 문제에 속하지 않는 `hook`·`cta`에서도 고칠 수 있어
+   * 항목 번호로는 표현되지 않는다 (PRD 14.1).
+   *
+   * **#77에서 문구 편집이 이 칸으로 들어왔다.** 그 전에는 `editedCaptions`(파일 비교)가 그
+   * 근거였는데, 재생성이 **얹은 문구로** `captions.srt`를 만들면서 그 비교는 "낡았는가"가
+   * 아니라 "고쳤는가"가 됐다 — 비교 기준이 파일에서 사라졌으므로 적어 둔다.
    */
   timeline_stale?: boolean
 }
@@ -353,6 +359,49 @@ export const RENDER_PROGRESS = 'render_progress'
 export function isRenderProgress (message: unknown): message is RenderProgressEvent {
   const value = message as Partial<RenderProgressEvent> | null
   return value?.event === RENDER_PROGRESS && typeof value.frame === 'number'
+}
+
+/**
+ * 재생성의 결과 (#77). **실패는 `ApiError`로 오므로 여기에는 성공과 취소만 있다** —
+ * 취소는 사용자가 누른 것이고, 오류로 오면 앱이 실패 카드를 그린다.
+ */
+export interface RegenerateResult {
+  cancelled: boolean
+  /** 취소되면 아래 값들이 없다 — 만든 것이 없기 때문이다. */
+  scene_count?: number
+  segment_count?: number
+  /** 실제로 합성한 세그먼트 수. 자막만 낡은 편집은 0으로 끝난다 (D2 확정 스펙 7.3). */
+  synthesized?: number
+  cue_count?: number
+  total_sec?: number
+  dropped_overrides?: number
+  elapsed_ms: number
+}
+
+/**
+ * 재생성 진행 알림 (#77). 렌더(#30)와 같은 모양이지만 **단위가 프레임이 아니라 단계다.**
+ *
+ * 단계마다 걸리는 시간이 크게 다르므로(대부분이 세그먼트 합성이다) 퍼센트가 없다 —
+ * 어느 단계인지와 그 안의 `n/m`이 전부다.
+ */
+export interface RegenerateProgressEvent {
+  event: 'regenerate_progress'
+  id: number
+  /** `shorts_maker.regenerate.STEPS`의 한 이름. 모르는 이름은 화면이 그대로 보여 준다. */
+  step: string
+  /** 세그먼트가 아닌 단계에서는 둘 다 0이다. */
+  done: number
+  total: number
+  elapsed_ms: number
+}
+
+export const REGENERATE_PROGRESS = 'regenerate_progress'
+
+export function isRegenerateProgress (
+  message: unknown
+): message is RegenerateProgressEvent {
+  const value = message as Partial<RegenerateProgressEvent> | null
+  return value?.event === REGENERATE_PROGRESS && typeof value.step === 'string'
 }
 
 export interface AppContext {

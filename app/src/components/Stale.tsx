@@ -49,10 +49,10 @@ export function StaleBadge ({ kind }: { kind: StaleKind }) {
 }
 
 /**
- * 카드. `children`은 그 상태에서 할 수 있는 동작이 온다.
+ * 카드. `children`은 그 상태에서 할 수 있는 동작이 온다 — S3에서는 재생성 버튼이다 (#77).
  *
- * **`audio`에는 S2에서 동작을 주지 않는다** — 재생성은 문제 편집(S3)에서 하고, 여기서는
- * 읽기 전용이다 (확정 스펙 7.3).
+ * **S2(속성 패널)에는 동작을 주지 않는다** — 재생성은 문제 편집(S3)과 렌더 화면(S5)에서
+ * 하고, 여기서는 읽기 전용이다 (확정 스펙 7.3).
  */
 export function StaleCard ({ kind, children }: { kind: StaleKind, children?: ReactNode }) {
   const spec = KINDS[kind]
@@ -62,7 +62,7 @@ export function StaleCard ({ kind, children }: { kind: StaleKind, children?: Rea
       <div className="stale-card__body">
         <div className="stale-card__title">{spec.title}</div>
         <div className="t-caption">{spec.body}</div>
-        {children}
+        {children && <div className="stale-card__actions">{children}</div>}
       </div>
     </div>
   )

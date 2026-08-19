@@ -266,6 +266,34 @@ body {
   color: var(--accent);
 }
 
+/* 재생성이 끝난 알림 (#77). **`ok` 초록이다** — 확정 스펙 4장의 "정상"이고, 렌더 완료 카드와
+ * 같은 색이다. 알림 넷 중 이것만 사용자가 닫는다 (나머지는 원인이 사라지면 저절로 사라진다). */
+.notice--ok {
+  border-left-color: var(--ok);
+}
+
+.notice__icon--ok {
+  color: var(--ok);
+}
+
+/* 재생성 진행 중임을 아이콘이 함께 말한다. `prefers-reduced-motion`에서는 문구만 남는다 —
+ * 상태는 색·모양·문구 셋으로 이미 갈려 있으므로 회전이 없어도 잃는 정보가 없다. */
+@keyframes icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon--spin {
+  animation: icon-spin 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon--spin {
+    animation: none;
+  }
+}
+
 .notice__body {
   flex: 1 1 auto;
   min-width: 0;
@@ -1388,6 +1416,20 @@ body {
 /* 알림은 카드 사이에서 아래 여백을 갖지 않는다 — 간격은 `.render`의 `gap`이 준다. */
 .render__notes .notice:last-child {
   margin-bottom: 0;
+}
+
+/* **낡음을 해소하는 실행이 그 알림 바로 아래에 있다** (#77). 시작 버튼과 달리 고정되지
+ * 않는다 — 이 화면에서 사용자가 하려는 일은 렌더이고, 재생성은 그 앞의 선택이다. */
+.render__regenerate {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  margin-top: var(--s5);
+}
+
+.render__regenerate .t-caption {
+  flex: 1 1 260px;
 }
 
 .rcard {

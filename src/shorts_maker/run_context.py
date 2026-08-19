@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Iterator
+import os
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -107,6 +108,52 @@ def write_text_artifact(run_dir: Path, name: str, content: str) -> Path:
     path = run_dir / name
     path.write_text(content, encoding="utf-8", newline="\n")
     return path
+
+
+# --- 이미 있는 파일을 바꿔 끼우는 자리 ---------------------------------------------
+
+
+def staging_path(path: Path) -> Path:
+    """`path`를 바꿔 끼우기 전에 쓰는 임시 경로.
+
+    **확장자를 유지한다.** FFmpeg는 출력 형식을 확장자로 정하므로 `voice.mp3.tmp-123`처럼
+    뒤에 붙이면 "Unable to find a suitable output format"으로 실패한다 — 재생성(#77)이
+    합성 트랙을 임시 파일에 만드는 경로가 그것이다.
+
+    **같은 디렉터리다.** `os.replace`는 볼륨을 넘지 못하고, run 디렉터리는 다른 드라이브일
+    수 있다.
+    """
+    return path.with_name(f"{path.stem}.tmp-{os.getpid()}{path.suffix}")
+
+
+def stage_text(path: Path, content: str) -> Path:
+    """`path`의 임시 파일에 내용을 쓰고 그 경로를 돌려준다. 교체는 `commit_staged`가 한다.
+
+    교체 전 `fsync`는 내용이 디스크에 닿기 전에 디렉터리 엔트리만 바뀌는 것을 막는다.
+    """
+    temporary = staging_path(path)
+    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+    return temporary
+
+
+def commit_staged(staged: Iterable[tuple[Path, Path]]) -> None:
+    """`(임시, 최종)` 쌍을 차례로 바꿔 끼운다.
+
+    **전부 만든 뒤에 부르는 자리다** (#77). 여러 산출물이 한 실행의 결과일 때, 만드는 도중에
+    실패하면 이전 파일들이 그대로 남아야 한다 — 하나씩 제자리에 쓰면 반쯤 갱신된 run
+    디렉터리가 남고 그 상태는 어느 파일이 낡았는지 말해 주지 않는다.
+    """
+    for temporary, destination in staged:
+        os.replace(temporary, destination)
+
+
+def discard_staged(staged: Iterable[tuple[Path, Path]]) -> None:
+    """만들다 만 임시 파일을 치운다. 없어도 실패하지 않는다."""
+    for temporary, _ in staged:
+        temporary.unlink(missing_ok=True)
 
 
 @contextmanager

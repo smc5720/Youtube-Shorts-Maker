@@ -11,6 +11,7 @@
 import type { RenderProgressEvent, RenderResult, Scene } from '../protocol'
 import { Icon } from './Icon'
 import { Notice } from './Notice'
+import { RegenerateButton, type RegenerateState } from './Regenerate'
 import { StatusBadge } from './StatusBadge'
 import type { VerifyStatus } from '../types'
 
@@ -45,8 +46,8 @@ export type RenderState =
   | { kind: 'failed', message: string, details: string[], raw: string }
 
 export function RenderScreen ({
-  state, warnings, notes, acknowledgedAll, scenes, canRender,
-  onAcknowledgeAll, onStart, onReveal, onOpen
+  state, warnings, notes, acknowledgedAll, scenes, canRender, regenerate, canRegenerate,
+  onAcknowledgeAll, onStart, onRegenerate, onReveal, onOpen
 }: {
   state: RenderState
   /** 확인이 필요한 문제. 사람이 이미 확인한 것은 여기 오지 않는다 (확정 스펙 1.4). */
@@ -58,8 +59,14 @@ export function RenderScreen ({
   scenes: Scene[]
   /** 장면 목록을 읽지 못했거나 렌더가 도는 중이면 시작할 수 없다. */
   canRender: boolean
+  /** 재생성이 도는 중인가 (#77). 버튼 문구가 그것을 말한다 — 진행은 전역 알림이 그린다. */
+  regenerate: RegenerateState
+  /** 재생성으로 해소될 낡음이 있는가. 없으면 버튼을 그리지 않는다 — 할 일이 없다. */
+  canRegenerate: boolean
   onAcknowledgeAll: (value: boolean) => void
   onStart: () => void
+  /** 낡음 목록 아래의 "재생성 실행" (#77). S3의 낡음 카드와 **같은 실행이다.** */
+  onRegenerate: () => void
   onReveal: (path: string) => void
   /** 목록의 "열기" — S3의 그 문제로 간다 (확정 스펙 3.3). */
   onOpen: (id: number) => void
@@ -116,6 +123,25 @@ export function RenderScreen ({
               {note.body}
             </Notice>
           ))}
+          {/* **낡음을 해소하는 실행이 알림 바로 아래에 있다** (#77). 여기 없으면 사용자는
+              "낡았다"를 읽고 문제 편집으로 가서 카드를 찾아야 하고, 낡음이 장면 편집에서
+              온 경우(길이·자막 문구)에는 그 카드가 아예 없다. */}
+          {canRegenerate && (
+            <div className="render__regenerate">
+              {/* **`canRender`를 보지 않는다.** 장면 목록을 읽지 못하는 것이야말로 재생성이
+                  고치는 상태다 — 렌더가 도는 동안만 잠근다 (그때는 편집도 잠긴다). */}
+              <RegenerateButton
+                label="재생성 실행"
+                state={regenerate}
+                disabled={running}
+                onStart={onRegenerate}
+                testid="render-regenerate"
+              />
+              <span className="t-caption">
+                편집을 반영해 장면·오디오·자막을 다시 만든다. 저장하지 않은 편집은 먼저 저장된다.
+              </span>
+            </div>
+          )}
         </div>
       )}
 

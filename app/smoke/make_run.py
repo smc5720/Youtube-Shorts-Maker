@@ -9,10 +9,12 @@
 대역이 더 커진다. 대신 **역할 구성은 퀴즈 장면 템플릿이 내는 것과 같게** 둔다 — 문제 그룹과
 총 길이가 화면에서 갈리는 지점이라 고정 길이 장면만으로는 #27의 완료 조건을 밟지 못한다.
 
-두 개를 만든다.
+세 개를 만든다.
 
 - `run-smoke` — 28.0초. **목표(45~60초)보다 짧지만 경고가 아니다** (확정 스펙 1.8)
 - `run-smoke-long` — 92.5초. 유튜브 쇼츠 상한을 넘어 **경고 색을 쓰는 유일한 경우**
+- `run-regen` — 재생성(#77)이 실제로 돌 수 있는 run. 위 둘과 달리 **설정 기록과 진짜
+  세그먼트 오디오가 있고**, 그 둘이 없으면 재생성이 한 단계도 지나지 못한다
 
 **콘텐츠 산출물도 함께 쓴다** (#28). 파일명은 레지스트리에서 가져오고, 문제 번호는 장면의
 `question_id`와 같게 둔다 — 둘이 어긋나면 앱이 "장면 구성이 낡았다"를 처음부터 띄운다.
@@ -35,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import struct
+import subprocess
 import sys
 import zlib
 from pathlib import Path
@@ -43,12 +46,13 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from shorts_maker import project  # noqa: E402
-from shorts_maker.config import load_config  # noqa: E402
-from shorts_maker.run_context import write_artifact  # noqa: E402
+from shorts_maker import captions, narration, project, timeline  # noqa: E402
+from shorts_maker.config import RUN_CONFIG_FILENAME, load_config, serialize_config  # noqa: E402
+from shorts_maker.run_context import write_artifact, write_text_artifact  # noqa: E402
 from shorts_maker.schemas.project import OVERLAY_WEIGHTS, PROJECT_SCHEMA  # noqa: E402
 from shorts_maker.schemas.scenes import SCENES_SCHEMA  # noqa: E402
 from shorts_maker.shorts_types import DEFAULT_TYPE, get_type  # noqa: E402
+from shorts_maker.tts import SpeechSynthesizer, create_synthesizer  # noqa: E402
 
 QUESTIONS = [
     {
@@ -191,6 +195,82 @@ def build_run(out: Path, name: str, scenes: dict[str, Any]) -> Path:
     return run_dir
 
 
+class ToneTTS:
+    """FFmpeg로 무음 mp3를 만드는 합성기 — **픽스처 전용이다.**
+
+    앱이 부르는 재생성은 백엔드 프로세스 안에서 진짜 provider를 만들므로 여기서 무엇을
+    바꿔도 그쪽에 닿지 않는다. 그래서 이 픽스처가 하는 일은 **재합성이 일어나지 않을 상태를
+    만들어 두는 것**이다 — 세그먼트 파일과 `audio/segments.json`이 있고 그 텍스트가 지금
+    콘텐츠와 같으면, 재생성은 파일을 다시 재서 쓰고 네트워크로 나가지 않는다 (#15).
+
+    **이름과 목소리를 설정이 가리키는 provider에서 가져온다.** 기록이 그 둘로 대조되므로
+    (`narration._Manifest.load`) 여기 문자열을 적으면 provider 기본값이 바뀌는 순간 스모크가
+    조용히 재합성 경로로 넘어간다 — 그때 실패는 네트워크 오류로 보인다.
+    """
+
+    supports_word_timings = False
+
+    def __init__(self, *, name: str, voice: str) -> None:
+        self.name = name
+        self.voice = voice
+
+    def synthesize(self, text: str, destination: Path) -> None:
+        # 길이는 문장에 비례한다. 실제 낭독처럼 장면마다 다른 값이라야 확정된 `duration`도
+        # 장면마다 갈리고, 재생성 전후 비교가 한 값에 몰리지 않는다.
+        seconds = max(0.8, round(len(text) * 0.12, 2))
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-v", "error",
+                "-f", "lavfi", "-t", f"{seconds:.2f}",
+                "-i", "anullsrc=r=24000:cl=mono",
+                str(destination),
+            ],
+            check=True,
+            stdin=subprocess.DEVNULL,
+        )
+
+
+def build_regen_run(out: Path) -> Path:
+    """재생성이 돌 수 있는 run 디렉터리 (#77).
+
+    **파이프라인의 같은 함수들로 만든다.** 장면은 타입의 장면 템플릿이 내고, 오디오 필드와
+    확정 길이는 `narration`·`timeline`이 채운다 — 손으로 쓴 값을 두면 앱이 부르는 재생성이
+    만드는 것과 미묘하게 달라지고, 그 차이가 "재생성이 무엇을 바꿨는가"로 보인다.
+
+    **FFmpeg가 필요하다.** 세그먼트가 진짜 오디오여야 재생성이 `ffprobe`로 다시 잴 수 있다.
+    """
+    run_dir = out / "run-regen"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    config = load_config(search_from=run_dir)
+    write_text_artifact(run_dir, RUN_CONFIG_FILENAME, serialize_config(config))
+
+    content = content_for()
+    write_artifact(run_dir, get_type(DEFAULT_TYPE).content_artifact, content)
+
+    real = create_synthesizer(config).provider
+    scenes = get_type(DEFAULT_TYPE).scene_template(content, config=config)
+    scenes = narration.synthesize_segments(
+        scenes,
+        run_dir=run_dir,
+        synthesizer=SpeechSynthesizer(
+            provider=ToneTTS(name=real.name, voice=real.voice), cache=None
+        ),
+    )
+    scenes = timeline.finalize(scenes, run_dir=run_dir, config=config)
+    write_artifact(run_dir, SCENES_SCHEMA.name, scenes)
+    write_text_artifact(
+        run_dir,
+        captions.CAPTIONS_NAME,
+        captions.render(captions.build(scenes, config=config)),
+    )
+    write_artifact(
+        run_dir,
+        PROJECT_SCHEMA.name,
+        project.build(scenes, config=config, run_dir=run_dir),
+    )
+    return run_dir
+
+
 def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
     """단색 PNG 한 장. **의존성 없이 만든다** — 스모크에 이미지 라이브러리를 들이지 않는다.
 
@@ -241,6 +321,10 @@ def build(out: Path) -> dict[str, Any]:
         "run": str(build_run(out, "run-smoke", scenes_for(answer_sec=2.5))),
         # 2.5 + (2.0 + 3.0 + 24.0) x 3 + 3.0 = 92.5초 — 상한 초과
         "long": str(build_run(out, "run-smoke-long", scenes_for(answer_sec=24.0))),
+        # 재생성 전용 (#77). **다른 시나리오가 이 디렉터리를 건드리지 않는다** — 재생성은
+        # 콘텐츠와 세그먼트 기록이 맞아떨어져야 재합성 없이 끝나고, 앞선 시나리오가 낭독
+        # 문구를 고쳐 두면 그 실행이 네트워크로 나간다.
+        "regen": str(build_regen_run(out)),
         # 번들 폰트 웨이트 (#83). **스모크가 이 목록을 적지 않게 하려고 함께 보낸다** —
         # 저장된 오버레이의 웨이트가 렌더가 열 수 있는 파일인지를 `run.mjs`가 확인하는데,
         # 그 목록을 거기 적으면 시안이 적은 400·600이 되살아나도 스모크가 통과한다

@@ -1,5 +1,5 @@
-// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81 · #83 · #30의 완료
-// 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81 · #83 · #30 · #77의
+// 완료 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
 // 같은 `open` / `edit` / `save`이고, **대화상자만 바꿔 끼운다**(모달이 뜨면 자동 실행이
@@ -31,6 +31,11 @@ const SHOT_RENDER = process.env.SHORTS_SMOKE_SHOT_RENDER
 const BG = process.env.SHORTS_SMOKE_BG
 const BG_BAD = process.env.SHORTS_SMOKE_BG_BAD
 const BG_MISSING = process.env.SHORTS_SMOKE_BG_MISSING
+// 재생성 전용 run (#77). **다른 시나리오가 건드리지 않는다** — 재생성이 재합성 없이 끝나려면
+// 콘텐츠와 `audio/segments.json`의 텍스트가 맞아떨어져야 한다.
+const REGEN = process.env.SHORTS_SMOKE_REGEN
+// 재생성한 화면 (#77). 낡음이 지워진 뒤의 상태다.
+const SHOT_REGEN = process.env.SHORTS_SMOKE_SHOT_REGEN
 
 /** 편집이 파일까지 갔는지 보는 표식. 한글이라 인코딩 회귀도 함께 걸린다. */
 const MARKERS = {
@@ -46,7 +51,17 @@ const MARKERS = {
    * 해설 (#83). **낭독으로 가지 않는 문구라** 이것만 고치면 자막만 낡는다 — 시안의 두 상태가
    * 갈리는 지점이고, 고치기 전에는 해설이 `narration`에 섞여 있어 음성까지 낡음으로 표시됐다.
    */
-  explanation: '스모크 · 고친 해설'
+  explanation: '스모크 · 고친 해설',
+  /**
+   * 재생성 전용 run에서 쓰는 표식 (#77). **다른 run의 것과 갈라 둔다** — 그쪽 값이 이 run의
+   * 파일에서 나오면 어느 시나리오가 쓴 것인지 알 수 없다.
+   *
+   * 자막 문구에는 `%`·`:`가 들어 있다 — 이스케이프 회귀가 `captions.srt`에서 함께 걸린다.
+   */
+  regenCaption: '재생성 · 고친 자막 50%',
+  /** 해설. **원문보다 길다** — 자막 읽기 하한이 그 장면의 길이를 늘리는 것이 확인 대상이다. */
+  regenExplanation:
+    '재생성 · 고친 해설이다. 원문보다 길게 적어 자막 읽기 하한이 정답 장면의 길이를 늘리도록 한다.'
 }
 
 const TIMEOUT_MS = 120000
@@ -124,6 +139,12 @@ async function runSmoke ({
     }
     if (scenario === 'questions-verify') {
       return await questionsVerify({ evaluate, quote, record, finish, network })
+    }
+    if (scenario === 'regenerate') {
+      return await regenerate({ window, evaluate, quote, text, record, finish, network })
+    }
+    if (scenario === 'regenerate-verify') {
+      return await regenerateVerify({ evaluate, quote, record, finish, network })
     }
     if (scenario === 'render') {
       return await render({
@@ -1187,6 +1208,184 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
 }
 
 /**
+ * 재생성 — 편집을 반영해 장면·오디오·자막을 다시 만든다 (#77, 확정 스펙 7.3).
+ *
+ * **전용 run을 쓴다.** 앞선 시나리오가 고친 `run-smoke`에는 낭독 문구가 바뀐 문제가 있어
+ * 재생성이 실제 합성으로 나가고, 그 provider는 네트워크 엔드포인트다. `run-regen`은 콘텐츠와
+ * `audio/segments.json`이 맞아떨어지는 상태로 만들어져 있어 **재합성이 한 번도 일어나지
+ * 않는다** — 합성이 실제로 도는 경로는 `tests/test_regenerate.py`가 대역으로 지킨다.
+ *
+ * **FFmpeg가 있어야 한다.** 세그먼트를 다시 재고(`ffprobe`) 합성 트랙을 만드는 것이
+ * 이 실행의 절반이다.
+ *
+ * 고르는 편집 셋은 낡음 세 갈래를 한 번에 만든다 — 장면 길이(`timeline_stale`), 자막
+ * 문구(같은 칸), 해설(`captions_stale`). **셋 다 낭독 문구를 건드리지 않는다.**
+ */
+async function regenerate (host) {
+  const { window, evaluate, quote, text, record, finish, network } = host
+  const state = () => evaluate('window.__smoke.state()')
+  const review = async () => (await state()).project.review
+  const read = (name) => fs.readFileSync(path.join(REGEN, name), 'utf8')
+
+  record('재생성 전용 run을 연다', await evaluate(`window.__smoke.open(${quote(REGEN)})`) === true)
+  record('콘텐츠가 화면에 도착한다', await until(async () => (await state()).items.length > 0))
+
+  const beforeScenes = read('scenes.json')
+  const beforeCaptions = read('captions.srt')
+  const beforeAnswer = (await state()).scenes.scenes[3].duration
+  record('처음에는 낡음이 없다', (await state()).stale === false,
+    JSON.stringify((await state()).renderNotes))
+
+  // **확인 기록은 재생성이 지우지 않는다** (확정 스펙 1.4). 3번을 고르는 이유는 아래에서
+  // 고치는 것이 1번이고, 콘텐츠를 고치면 그 문제의 확인은 풀리기 때문이다.
+  await evaluate('window.__smoke.acknowledge(3)')
+  record('확인 기록을 하나 남긴다',
+    await until(async () => (await review()).acknowledged.includes(3)))
+
+  // 1. 세 갈래 낡음을 한 번에 만든다 — **셋 다 낭독 문구가 아니다**
+  await evaluate('window.__smoke.editDuration(0, 6)')
+  await evaluate(`window.__smoke.editCaption(3, ${quote(MARKERS.regenCaption)})`)
+  await evaluate(
+    `(() => { const c = window.__smoke.state().content;
+       const next = { ...c, questions: c.questions.map((q) => (q.id === 1 ? { ...q, explanation: ${quote(MARKERS.regenExplanation)} } : q)) };
+       window.__smoke.editContent(next) })()`
+  )
+  const staled = await until(async () => {
+    const now = await review()
+    return now.timeline_stale === true && (now.captions_stale ?? []).includes(1)
+  })
+  record('세 편집이 낡음을 만든다', staled, JSON.stringify(await review()))
+  record('자막 문구를 고친 장면이 표시된다', (await state()).captionEdits.includes(3),
+    JSON.stringify((await state()).captionEdits))
+  record('낡음이 렌더 전 경고에 뜬다', (await state()).stale === true,
+    JSON.stringify((await state()).renderNotes.map((note) => [note.kind, note.title])))
+
+  // **프레임 하나를 세워 둔다.** 재생성이 `scenes.json`의 해설을 갈아 끼우므로 그 장면의
+  // 번인 자막이 달라지고, 그것이 프리뷰까지 도달하는지가 완료 조건 하나다. 얹은 문구는 이미
+  // 반영돼 있으므로(오버라이드는 왕복 없이 그려진다) 여기서 갈리는 것은 해설뿐이다.
+  await evaluate('window.__smoke.select(3)')
+  const settledFrame = await until(async () => {
+    const now = await state()
+    return now.pending === null && now.frame !== null && now.frame.index === 3
+  }, 120, 100)
+  const frameBefore = settledFrame ? (await state()).frame.bytes : null
+  record('정답 장면의 프레임이 선다', settledFrame, JSON.stringify((await state()).frame))
+
+  // 2. 취소 — **다음 단계 경계에서 멈추고 산출물은 이전 상태 그대로다**
+  await evaluate('void window.__smoke.regenerate()')
+  record('재생성이 시작된다',
+    await until(async () => (await state()).regen.kind === 'running', 400, 25))
+  await evaluate('window.__smoke.cancelRegenerate()')
+  const cancelled = await until(async () => (await state()).regen.kind === 'cancelled', 900, 100)
+  record('취소가 상태로 온다', cancelled, JSON.stringify((await state()).regen))
+  record('취소하면 산출물이 그대로다',
+    read('scenes.json') === beforeScenes && read('captions.srt') === beforeCaptions)
+  record('취소해도 낡음 표시는 남는다', (await review()).timeline_stale === true,
+    JSON.stringify(await review()))
+
+  // 3. 다시 실행 — 진행이 단계 이름으로 뜨고 그동안 편집이 잠긴다
+  await evaluate('void window.__smoke.regenerate()')
+  const running = await until(async () => (await state()).regen.kind === 'running', 400, 25)
+  record('진행 알림이 단계 이름으로 뜬다',
+    running && await until(async () => Boolean(await text('[data-testid="regenerate-step"]')), 200, 25),
+    await text('[data-testid="regenerate-step"]'))
+
+  const beforeEdit = JSON.stringify((await state()).project)
+  await evaluate('window.__smoke.editVolume(\'voice_volume\', 0.11)')
+  if ((await state()).regen.kind === 'running') {
+    record('재생성 중에는 편집이 잠긴다',
+      JSON.stringify((await state()).project) === beforeEdit,
+      (await state()).project.audio.voice_volume)
+  }
+
+  const done = await until(async () => (await state()).regen.kind === 'done', 900, 100)
+  const result = done ? (await state()).regen.result : null
+  record('재생성이 끝난다', done, JSON.stringify((await state()).regen))
+  // **낭독 문구를 건드리지 않은 편집이라 합성이 한 번도 일어나지 않는다** — 그 판단은
+  // `audio/segments.json`이 하고, 그래서 "자막만 낡음"에 별도 실행 경로가 없다.
+  record('낭독을 다시 합성하지 않는다', result !== null && result.synthesized === 0,
+    JSON.stringify(result))
+
+  // 4. 낡음이 전부 지워지고 사람이 얹은 편집은 남는다
+  const after = await state()
+  const cleared = after.project.review
+  record('세 낡음 표시가 전부 지워진다',
+    cleared.stale.length === 0 && (cleared.captions_stale ?? []).length === 0
+    && cleared.timeline_stale === false, JSON.stringify(cleared))
+  // **이것이 이 이슈의 완료 조건이다** — 자막 문구를 고친 장면이 있어도 낡음이 남지 않는다.
+  record('렌더 전 경고에 낡음이 하나도 없다',
+    after.stale === false && after.renderNotes.every((note) => note.kind !== 'todo'),
+    JSON.stringify(after.renderNotes.map((note) => [note.kind, note.title])))
+  record('확인 기록은 지워지지 않는다', cleared.acknowledged.includes(3),
+    JSON.stringify(cleared.acknowledged))
+  record('자막 문구를 고쳤다는 표시는 남는다', after.captionEdits.includes(3),
+    JSON.stringify(after.captionEdits))
+
+  const override = (after.project.render.scene_overrides ?? [])
+    .find((item) => item.role === 'answer' && item.question_id === 1) ?? null
+  record('사람이 얹은 길이와 문구는 그대로다',
+    override !== null && override.text === MARKERS.regenCaption
+    && (after.project.render.scene_overrides ?? []).some((item) => item.duration === 6),
+    JSON.stringify(after.project.render.scene_overrides))
+
+  // 5. 파일이 실제로 갈렸다 — 해설이 길어져 자막 읽기 하한이 그 장면을 늘린다
+  record('해설이 길어져 정답 장면이 길어진다', after.scenes.scenes[3].duration > beforeAnswer,
+    `${beforeAnswer} → ${after.scenes.scenes[3].duration}`)
+  record('scenes.json이 다시 만들어진다', read('scenes.json') !== beforeScenes)
+  record('자막도 다시 만들어진다', read('captions.srt') !== beforeCaptions)
+
+  // **새 장면이 프리뷰에 도달한다** — 지문이 갈려 캐시가 비켜난다 (`api._signature`가
+  // `scenes.json`을 통째로 해싱한다). 프로젝트만 보면 화면이 옛 그림에 머문다.
+  const redrawn = await until(async () => {
+    const now = await state()
+    return now.pending === null && now.frame !== null
+      && now.frame.index === 3 && now.frame.bytes !== frameBefore
+  }, 200, 100)
+  record('재생성한 장면이 프리뷰에 그려진다', redrawn,
+    `${frameBefore} → ${JSON.stringify((await state()).frame)}`)
+  record('다시 읽은 뒤에는 저장되지 않은 변경이 없다', after.unsaved === false)
+  await capture(window, record, SHOT_REGEN)
+
+  network()
+  finish(0)
+}
+
+/** 앱을 다시 띄운 쪽. 재생성이 지운 표시가 파일에서도 지워졌는지 본다 (#77). */
+async function regenerateVerify ({ evaluate, quote, record, finish, network }) {
+  record('재시작한 앱이 재생성한 run을 연다',
+    await evaluate(`window.__smoke.open(${quote(REGEN)})`) === true)
+  const settled = await until(async () => Boolean((await evaluate('window.__smoke.state()')).content))
+  const state = await evaluate('window.__smoke.state()')
+
+  record('낡음 표시가 재시작 뒤에도 비어 있다',
+    settled && state.project.review.stale.length === 0
+    && (state.project.review.captions_stale ?? []).length === 0
+    && state.project.review.timeline_stale === false,
+    JSON.stringify(state.project.review))
+  // **계산되는 판정도 다시 뜨지 않는다** — 장면 순서·개수는 콘텐츠와 `scenes.json`을 비교해
+  // 나오는 값이라, 재생성이 장면을 다시 만들었으면 그 비교가 맞아떨어진다.
+  record('장면 구성도 낡지 않은 상태로 열린다', state.orderStale === false)
+  record('렌더 전 경고에 낡음이 없다', state.renderNotes.every((note) => note.kind !== 'todo'),
+    JSON.stringify(state.renderNotes.map((note) => [note.kind, note.title])))
+  record('확인 기록이 유지된다', state.project.review.acknowledged.includes(3),
+    JSON.stringify(state.project.review.acknowledged))
+
+  // 사람이 얹은 편집은 재생성이 지우지 않는다 — 문구는 여전히 `scenes.json`과 다르고,
+  // 그 차이가 이제 "낡았다"가 아니라 "고쳤다"를 뜻한다 (#77).
+  const overrides = state.project.render.scene_overrides ?? []
+  record('사람이 얹은 편집이 재시작 뒤에도 유지된다',
+    overrides.some((item) => item.text === MARKERS.regenCaption)
+    && overrides.some((item) => item.duration === 6), JSON.stringify(overrides))
+  record('고쳤다는 표시는 남고 낡음은 아니다',
+    state.captionEdits.length > 0 && state.renderNotes.every((note) => note.kind !== 'todo'),
+    JSON.stringify(state.captionEdits))
+  record('다시 연 직후에는 변경이 없다', state.unsaved === false)
+
+  network()
+  finish(0)
+}
+
+/**
  * 최종 렌더 — 경고 게이트 · 진행 · 완료 · 실패 (#30, D2 확정 스펙 3.3).
  *
  * **FFmpeg가 있어야 한다.** 이 시나리오의 절반이 실제 mp4다 — 규격 확인은 파일이 남은 뒤
@@ -1316,6 +1515,10 @@ async function render (host) {
   await evaluate(`window.__smoke.edit('audio','voice',${quote('audio/사라진낭독.mp3')})`)
   record('없는 낭독 경로가 화면에 반영된다', await voiceIs('audio/사라진낭독.mp3'))
   record('실패가 실패 카드로 온다', await evaluate('window.__smoke.render()') === false)
+  // **응답이 돌아온 것과 화면이 그것을 반영한 것은 다르다** (#27·#30의 같은 함정). 실패 상태를
+  // 세우는 것은 `startRender`의 마지막 줄이고, `window.__smoke`는 그 커밋 뒤에 다시 달린다 —
+  // 곧바로 읽으면 직전 렌더의 `state()`가 잡혀 "아직 돌고 있다"가 온다.
+  await until(async () => (await state()).render.kind === 'failed')
   const failed = (await state()).render
   record('실패 카드가 원인을 말한다',
     failed.kind === 'failed' && failed.message.includes('사라진낭독.mp3'), JSON.stringify(failed))
