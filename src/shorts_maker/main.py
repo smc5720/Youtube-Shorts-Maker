@@ -1,6 +1,7 @@
 """CLI 진입점.
 
-이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **타입의 콘텐츠 생성기를
+이번 단계에서 하는 일은 입력을 검증하고, run 디렉터리를 만들고, **해석된 설정을 그 안에
+기록하고**(#92 — 재생성이 cwd를 다시 보지 않게 하는 것이 목적이다), **타입의 콘텐츠 생성기를
 불러 그 산출물을 쓰고, 검수가 필요한 항목을 경고한 뒤, 타입의 장면 템플릿으로 `scenes.json`
 초안을 쓰고, 그 초안에서 `metadata.json`을 만들고, 낭독 장면의 세그먼트 오디오를 합성한 뒤
 그 실측 길이로 타임라인을 확정해 `voice.mp3`와 `captions.srt`를 만들고, `project.json`을
@@ -40,7 +41,14 @@ from . import (
     video_renderer,
 )
 from .captions import CaptionError
-from .config import DEFAULT_CONFIG_FILENAME, Config, ConfigError, load_config
+from .config import (
+    DEFAULT_CONFIG_FILENAME,
+    RUN_CONFIG_FILENAME,
+    Config,
+    ConfigError,
+    load_config,
+    serialize_config,
+)
 from .llm import LLMError, validate_providers
 from .run_context import (
     RunContext,
@@ -180,6 +188,15 @@ def run(
             logger.debug("설정 %s = %s", key, value)
         logger.debug("python %s", sys.version.split()[0])
         logger.debug("출력 상위 경로 %s", args.output_root.resolve())
+
+        # 해석된 설정을 기계가 읽을 수 있는 모양으로도 남긴다 (#92). **산출물 중 가장
+        # 먼저 쓴다** — 어느 단계에서 실패하든 그 run이 어떤 값으로 돌았는지가 남아야 하고,
+        # 재생성(#77)·실패 재실행(#36)이 읽는 것이 이 파일이다. 위 DEBUG 줄과 같은 값이지만
+        # 로그는 사람이 읽는 기록이라 되읽을 수 없다.
+        recorded = write_text_artifact(
+            context.run_dir, RUN_CONFIG_FILENAME, serialize_config(config)
+        )
+        logger.info("%s 생성 완료", recorded.name)
 
         logger.info("콘텐츠 생성 중 — 모델 호출은 수십 초가 걸린다")
         try:

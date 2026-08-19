@@ -18,6 +18,7 @@ import pytest
 from conftest import STUB_SEGMENT_SEC, StubFFmpeg, StubLLM, StubTTS
 
 from shorts_maker.captions import CAPTIONS_NAME, timecode
+from shorts_maker.config import RUN_CONFIG_FILENAME, defaults, load_run_config
 from shorts_maker.llm import LLMError
 from shorts_maker.main import (
     EXIT_CONFIG_ERROR,
@@ -218,6 +219,48 @@ def test_run_log_records_config_source_and_applied_value(tmp_path: Path) -> None
 
     assert str(config_path) in log_text
     assert "설정 tts.voice = ko-KR-InJoonNeural" in log_text
+
+
+# --- run 설정 기록 (#92) -----------------------------------------------------
+
+
+def test_run_records_the_resolved_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run 디렉터리가 자기 실행 설정을 들고 있다 — 재생성(#77)의 전제다."""
+    monkeypatch.chdir(tmp_path)  # 실행 디렉터리에 config.yaml이 없는 상태
+    output_root = tmp_path / "out"
+
+    main(["--topic", "주제", "--out", str(output_root)])
+
+    run_dir = run_dirs(output_root)[0]
+    assert (run_dir / RUN_CONFIG_FILENAME).is_file()
+    assert load_run_config(run_dir).data == defaults()
+
+
+def test_run_record_holds_the_applied_value_not_the_config_path(tmp_path: Path) -> None:
+    """`--config` 경로가 아니라 **적용된 값**이 남는다. 그 파일은 나중에 바뀔 수 있다."""
+    config_path = tmp_path / "my.yaml"
+    config_path.write_text("tts:\n  voice: ko-KR-InJoonNeural\n", encoding="utf-8")
+    output_root = tmp_path / "out"
+
+    main(["--topic", "주제", "--out", str(output_root), "--config", str(config_path)])
+
+    run_dir = run_dirs(output_root)[0]
+    config_path.write_text("tts:\n  voice: 나중에바뀐값\n", encoding="utf-8")
+
+    assert load_run_config(run_dir).get("tts.voice") == "ko-KR-InJoonNeural"
+
+
+def test_failed_run_still_records_the_config(tmp_path: Path, stub_llm: StubLLM) -> None:
+    """산출물 중 가장 먼저 쓴다 — 어느 단계에서 멈춰도 그 실행의 값이 남아야 한다 (#36)."""
+    stub_llm.reply(*[LLMError("실패")] * 3)
+    output_root = tmp_path / "out"
+
+    exit_code = main(["--topic", "주제", "--out", str(output_root)])
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    run_dir = run_dirs(output_root)[0]
+    assert not (run_dir / get_type(DEFAULT_TYPE).content_artifact).exists()
+    assert load_run_config(run_dir).data == defaults()
 
 
 def test_unreadable_output_root_exits_nonzero(

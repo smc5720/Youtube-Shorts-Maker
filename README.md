@@ -34,8 +34,12 @@ pip install -e ".[dev]"
 shorts-maker --topic "세계 지리 상식 퀴즈"
 ```
 
-`outputs/run-{timestamp}/` 디렉터리가 생기고 실행 로그가 `run.log`로 남습니다. 같은 명령을
-다시 실행하면 새 run 디렉터리가 생기고 이전 결과는 그대로 보존됩니다.
+`outputs/run-{timestamp}/` 디렉터리가 생기고 실행 로그가 `run.log`로, 그 실행이 실제로 쓴 설정
+전체가 `config.used.yaml`로 남습니다. 같은 명령을 다시 실행하면 새 run 디렉터리가 생기고 이전
+결과는 그대로 보존됩니다.
+
+`config.used.yaml`은 기록이지 입력이 아닙니다 — 고쳐도 그 run이 다시 돌지 않습니다. 대신
+그대로 복사해 `--config`로 넘기면 같은 설정으로 새 run을 만들 수 있습니다.
 
 | 인자 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -106,7 +110,7 @@ shorts-maker --topic "세계 지리 상식" --verbose
 
 | 대상 | 확인할 것 |
 | --- | --- |
-| 산출물 | `quiz.json`·`scenes.json`·`metadata.json`·`audio/seg-*.mp3`·`audio/segments.json`·`voice.mp3`·`captions.srt`·`project.json`·`final_short.mp4`가 모두 있는가. `script.txt`·`summary.json`·`source.json`은 이 경로에서 **생기지 않아야** 합니다 |
+| 산출물 | `config.used.yaml`·`quiz.json`·`scenes.json`·`metadata.json`·`audio/seg-*.mp3`·`audio/segments.json`·`voice.mp3`·`captions.srt`·`project.json`·`final_short.mp4`가 모두 있는가. `script.txt`·`summary.json`·`source.json`은 이 경로에서 **생기지 않아야** 합니다 |
 | 규격 | `ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate,pix_fmt -of default=nw=1 outputs/run-*/final_short.mp4` → 1080×1920 / `h264` / `yuv420p` / `30/1`, 오디오는 `aac` 한 스트림 |
 | 화면 | 후킹 → 질문(`Q1/N`) → 카운트다운 숫자와 진행 바 → 정답 확대·색 전환 → 해설 자막 → CTA 두 줄이 순서대로 나오는가. 글자가 안전 영역을 벗어나거나 줄바꿈이 어색하지 않은가 |
 | 소리 | 낭독이 질문·정답 장면 시작과 맞는가, 카운트다운 비프가 초마다 들리는가, 정답 효과음이 정답 장면 앞머리에 오는가, 음량이 튀지 않는가 |

@@ -96,10 +96,13 @@ def write_artifact(run_dir: Path, name: str, data: Any) -> Path:
 
 
 def write_text_artifact(run_dir: Path, name: str, content: str) -> Path:
-    """텍스트 산출물을 run 디렉터리에 쓴다 (`captions.srt`).
+    """텍스트 산출물을 run 디렉터리에 쓴다 (`captions.srt`, `config.used.yaml`).
 
     JSON이 아닌 산출물이라 직렬화가 없을 뿐, 위와 같은 자리다. **줄 끝은 손대지 않는다** —
     호출자가 만든 문자열이 그대로 파일이 되어야 SRT 블록 구분(빈 줄)이 흔들리지 않는다.
+
+    직렬화는 호출자가 소유한다 — 설정 기록(#92)의 형식은 `config.serialize_config`가 정하고,
+    그 계약이 `config.SPEC`이라 여기 JSON 산출물과 같은 표현을 쓸 수 없다.
     """
     path = run_dir / name
     path.write_text(content, encoding="utf-8", newline="\n")

@@ -26,6 +26,18 @@ from .assets import AssetError, background_preset_names, caption_style_names
 
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 
+RUN_CONFIG_FILENAME = "config.used.yaml"
+"""run 디렉터리에 남기는 그 실행의 설정 (#92, PRD 14.1).
+
+**이름이 `config.yaml`이 아닌 이유는 이것이 입력이 아니라 기록이기 때문이다.** 같은 이름을
+쓰면 run 디렉터리에서 CLI를 돌린 사람이 그것을 설정 파일로 집어 들게 되고, 그때 값은 맞지만
+"이 파일을 고치면 그 run이 다시 그 값으로 돈다"는 오해가 따라온다 — 다시 도는 것은 재생성
+(#77)이고 그쪽은 이 파일을 **읽기만** 한다.
+
+파일명이 여기 있는 것은 형식과 계약을 이 모듈이 소유하기 때문이다 (`SPEC`). `schemas/`에
+스키마를 하나 더 두면 같은 표가 두 곳에 생긴다.
+"""
+
 
 class ConfigError(Exception):
     """설정을 읽거나 검증하는 데 실패했다.
@@ -245,6 +257,62 @@ def load_config(
 
     data = _merge(_merge(defaults(), from_file), nested_overrides)
     return Config(data=data, source=source)
+
+
+_RECORD_HEADER = f"""\
+# 이 run이 실제로 쓴 설정 전체다. 기록이지 입력이 아니다 — 여기를 고쳐도 이 run이 다시
+# 돌지 않는다. 앱의 재생성은 이 값으로 돌고, 그래서 실행 디렉터리의
+# {DEFAULT_CONFIG_FILENAME}을 다시 찾지 않는다. 그대로 복사해 --config로 넘길 수 있다.
+"""
+
+
+def serialize_config(config: Config) -> str:
+    """설정 기록의 파일 표현 (#92).
+
+    **`config.yaml`과 같은 모양의 YAML이다.** 그래야 `load_config`의 검증(`SPEC`)을 그대로
+    지나고, 사람이 복사해 `--config`로 다시 돌릴 수 있다.
+
+    세 인자가 모두 함정을 막는다.
+
+    - `allow_unicode`가 없으면 한국어 값(`cta_punch`)이 `\\uXXXX`로 나간다. 값은 살아 있지만
+      diff로 읽을 수 없으므로 기록의 목적이 사라진다.
+    - `sort_keys`를 두면 `SPEC`의 정의 순서가 알파벳 순으로 흐트러진다. 이 파일을
+      `config.example.yaml`과 나란히 놓고 읽는 것이 사용 방식이다.
+    - `width`를 넓히지 않으면 긴 문자열이 여러 줄로 접힌다. 접힌 스칼라도 같은 값으로 다시
+      읽히지만, 값 하나가 길어질 때마다 diff에 관계없는 줄이 생긴다.
+    """
+    body = yaml.safe_dump(
+        config.data,
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+        width=4096,
+    )
+    return _RECORD_HEADER + body
+
+
+def load_run_config(run_dir: Path) -> Config:
+    """run 디렉터리에 기록된 그 실행의 설정을 읽는다 (#92).
+
+    **현재 작업 디렉터리를 보지 않는다.** `load_config()`를 인자 없이 부르면 cwd의
+    `config.yaml`을 찾는데, 그 파일은 생성 이후에 바뀌었을 수도 있고 앱 백엔드에서는 cwd를
+    앱이 정한다 — 재생성이 생성 때와 다른 값으로 도는 경로가 그것이다 (PRD 14.1).
+
+    Raises:
+        ConfigError: 기록이 없거나(이 파일이 생기기 전에 만들어진 run 디렉터리다) 계약을
+            어겼을 때.
+    """
+    path = run_dir / RUN_CONFIG_FILENAME
+    if not path.is_file():
+        raise ConfigError(
+            [
+                f"{run_dir}에 {RUN_CONFIG_FILENAME}이 없다 — 그 실행이 어떤 설정으로 "
+                f"돌았는지 알 수 없다.",
+                f"{RUN_CONFIG_FILENAME}이 생기기 전에 만들어진 run 디렉터리라면 "
+                f"CLI로 다시 생성해야 한다.",
+            ]
+        )
+    return load_config(path)
 
 
 def _resolve_source(explicit_path: Path | None, search_from: Path | None) -> Path | None:

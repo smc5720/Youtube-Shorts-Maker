@@ -10,12 +10,15 @@ import pytest
 from shorts_maker.assets import AssetError
 from shorts_maker.config import (
     DEFAULT_CONFIG_FILENAME,
+    RUN_CONFIG_FILENAME,
     SPEC,
     Config,
     ConfigError,
     Setting,
     defaults,
     load_config,
+    load_run_config,
+    serialize_config,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -268,6 +271,97 @@ def test_all_errors_are_reported_at_once(tmp_path: Path) -> None:
         load_config(search_from=tmp_path)
 
     assert len(error_info.value.messages) == 3
+
+
+# --- run 설정 기록 (#92) ---------------------------------------------------
+
+
+def write_record(run_dir: Path, config: Config) -> Path:
+    """`main.run`이 하는 것과 같은 자리에 기록을 남긴다."""
+    return write_config(run_dir, serialize_config(config), name=RUN_CONFIG_FILENAME)
+
+
+def test_record_covers_every_key(tmp_path: Path) -> None:
+    """부분 집합을 남기면 두 번째 타입에서 빠진 키가 생긴다 — 답은 '전부'다 (PRD 14.1)."""
+    original = load_config(search_from=tmp_path)
+    write_record(tmp_path, original)
+
+    restored = load_run_config(tmp_path)
+
+    assert flat_keys(restored) == flat_keys(original)
+    assert restored.data == original.data
+
+
+def test_record_round_trips_values_that_are_not_defaults(tmp_path: Path) -> None:
+    source = tmp_path / "쓴설정"
+    source.mkdir()
+    write_config(source, 'tts:\n  voice: 다른목소리\nrender:\n  cta_punch: "구독 · 좋아요"\n')
+    original = load_config(search_from=source, overrides={"quiz.question_count": 5})
+
+    write_record(tmp_path, original)
+    restored = load_run_config(tmp_path)
+
+    assert restored.get("tts.voice") == "다른목소리"
+    assert restored.get("quiz.question_count") == 5
+    assert restored.get("render.cta_punch") == "구독 · 좋아요"
+    # nullable 값이 문자열 "None"이 되지 않는다.
+    assert restored.get("render.font_path") is None
+
+
+def test_record_is_read_without_looking_at_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**이 이슈의 핵심이다.** `load_config()`를 인자 없이 부르면 cwd의 `config.yaml`을
+    찾는데, 그 파일은 생성 이후에 바뀌었을 수 있고 앱 백엔드에서는 cwd를 앱이 정한다."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    write_record(run_dir, load_config(overrides={"tts.voice": "기록된목소리"}))
+
+    elsewhere = tmp_path / "작업디렉터리"
+    elsewhere.mkdir()
+    write_config(elsewhere, "tts:\n  voice: cwd목소리\n")
+    monkeypatch.chdir(elsewhere)
+
+    assert load_run_config(run_dir).get("tts.voice") == "기록된목소리"
+
+
+def test_record_is_validated_like_any_config(tmp_path: Path) -> None:
+    """손으로 고친 기록도 `SPEC`을 지난다 — 계약이 하나라는 것이 YAML을 고른 이유다."""
+    write_config(tmp_path, "tts:\n  voise: 오타\n", name=RUN_CONFIG_FILENAME)
+
+    with pytest.raises(ConfigError) as error_info:
+        load_run_config(tmp_path)
+
+    assert "tts.voise" in str(error_info.value)
+
+
+def test_missing_record_names_the_directory_and_the_file(tmp_path: Path) -> None:
+    """이 파일이 생기기 전에 만들어진 run 디렉터리가 실제 실패 경로다."""
+    with pytest.raises(ConfigError) as error_info:
+        load_run_config(tmp_path)
+
+    message = str(error_info.value)
+    assert str(tmp_path) in message
+    assert RUN_CONFIG_FILENAME in message
+
+
+def test_record_keeps_definition_order_and_korean(tmp_path: Path) -> None:
+    """사람이 `config.example.yaml`과 나란히 놓고 읽는 파일이다.
+
+    알파벳 순으로 흐트러지거나 한국어가 `\\uXXXX`로 나가면 값은 살아 있어도 기록의 목적이
+    사라진다.
+    """
+    config = load_config(search_from=tmp_path)
+    text = serialize_config(config)
+
+    leaves = [key.rsplit(".", 1)[-1] for key, _ in config.flatten()]
+    found = [
+        match.group(1)
+        for match in re.finditer(r"^\s*([\w.]+):", text, re.MULTILINE)
+        if match.group(1) in leaves
+    ]
+    assert found == leaves
+    assert "구독 · 좋아요" in text
 
 
 # --- 기본값과 접근 ---------------------------------------------------------
