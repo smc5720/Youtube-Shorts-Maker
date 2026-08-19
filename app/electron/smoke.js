@@ -1,9 +1,11 @@
-// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81 · #83의 완료 조건을 밟는다.
+// 스모크 시나리오 — 사람 없이 #26 · #27 · #28 · #82 · #79 · #80 · #81 · #83 · #30의 완료
+// 조건을 밟는다.
 //
 // **UI가 쓰는 경로를 그대로 부른다.** 렌더러에 붙은 `window.__smoke`는 버튼이 부르는 것과
 // 같은 `open` / `edit` / `save`이고, **대화상자만 바꿔 끼운다**(모달이 뜨면 자동 실행이
-// 거기서 멈춘다) — 확인 대화상자(`setAsk`)와 파일 선택(`setPick`) 둘이다. 그래서 이 파일이
-// 확인하는 것은 스모크용 코드가 아니라 제품 동작이다.
+// 거기서 멈춘다) — 확인 대화상자(`setAsk`)와 파일 선택(`setPick`), 그리고 파일 위치 열기
+// (`setReveal`, #30) 셋이다. 그래서 이 파일이 확인하는 것은 스모크용 코드가 아니라 제품
+// 동작이다.
 //
 // 시나리오는 `--smoke=<이름>`으로 고르고 나머지는 환경 변수로 받는다. 묶어서 도는 것은
 // `app/smoke/run.mjs`이고, **재시작 왕복이 필요해서 프로세스가 나뉜다** — 한 프로세스 안에서
@@ -23,6 +25,8 @@ const SHOT = process.env.SHORTS_SMOKE_SHOT
 const SHOT_BG = process.env.SHORTS_SMOKE_SHOT_BG
 // 자막 문구·오버레이 편집 화면 (#83). 오버레이 카드는 프리셋 목록보다 아래에 있다.
 const SHOT_OVERLAY = process.env.SHORTS_SMOKE_SHOT_OVERLAY
+// 렌더 완료 화면 (#30). 네 카드 중 완료가 선 상태다.
+const SHOT_RENDER = process.env.SHORTS_SMOKE_SHOT_RENDER
 // 배경 사용자 파일 셋 (#80) — 받는 것 / 받지 않는 것 / 고른 뒤 사라진 것.
 const BG = process.env.SHORTS_SMOKE_BG
 const BG_BAD = process.env.SHORTS_SMOKE_BG_BAD
@@ -62,7 +66,7 @@ async function until (predicate, attempts = 50, gap = 100) {
 }
 
 async function runSmoke ({
-  scenario, window, log, app, backendInfo, externalRequests, setAsk, setPick
+  scenario, window, log, app, backendInfo, externalRequests, setAsk, setPick, setReveal
 }) {
   const checks = []
   const record = (name, ok, detail) => {
@@ -120,6 +124,14 @@ async function runSmoke ({
     }
     if (scenario === 'questions-verify') {
       return await questionsVerify({ evaluate, quote, record, finish, network })
+    }
+    if (scenario === 'render') {
+      return await render({
+        window, evaluate, quote, attribute, record, finish, network, setReveal
+      })
+    }
+    if (scenario === 'render-kill') {
+      return await renderKill({ evaluate, quote, record, backendInfo, finish })
     }
     await roundTrip({ window, evaluate, quote, text, attribute, saveState, record, finish, setAsk, network })
   } catch (failure) {
@@ -1172,6 +1184,181 @@ async function questionsVerify ({ evaluate, quote, record, finish, network }) {
 
   network()
   finish(0)
+}
+
+/**
+ * 최종 렌더 — 경고 게이트 · 진행 · 완료 · 실패 (#30, D2 확정 스펙 3.3).
+ *
+ * **FFmpeg가 있어야 한다.** 이 시나리오의 절반이 실제 mp4다 — 규격 확인은 파일이 남은 뒤
+ * `app/smoke/run.mjs`가 `ffprobe`로 한다.
+ *
+ * **앞선 시나리오가 고친 run을 그대로 쓴다.** 사람이 얹은 길이·자막 문구(`%`·`:`가 들어 있다)·
+ * 오버레이가 실제 렌더를 지나야 하고, `flagged`·`unverified`가 남아 있어 게이트도 함께 밟힌다.
+ */
+async function render (host) {
+  const { window, evaluate, quote, attribute, record, finish, network, setReveal } = host
+
+  const revealed = []
+  setReveal((target) => { revealed.push(target); return true })
+
+  const state = () => evaluate('window.__smoke.state()')
+  const disabled = () => evaluate(
+    '(() => { const n = document.querySelector(\'[data-testid="render-start"]\');'
+    + ' return n === null ? null : n.disabled })()'
+  )
+
+  record('편집이 끝난 run을 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
+  // **문제를 하나 더한다.** 앞선 시나리오가 `unverified` 문제를 지웠고, 새 문제는 `verify`가
+  // 없으므로 그 상태가 다시 생긴다 — 확인 대상이 `flagged` 하나뿐인지 둘 다인지가 이 화면의
+  // 계약이다 (퀴즈 스펙 5.2). 저장하지 않으므로 파일은 그대로다.
+  //
+  // **콘텐츠가 화면에 도착한 뒤에 부른다.** `window.__smoke`는 렌더마다 다시 달리므로 커밋
+  // 전에 부르면 `content`가 아직 `null`인 콜백이 잡히고, 그 호출은 조용히 아무것도 하지 않는다.
+  record('콘텐츠가 화면에 도착한다',
+    await until(async () => (await state()).items.length > 0))
+  await evaluate('window.__smoke.addItem()')
+  record('새 문제가 unverified로 붙는다',
+    await until(async () => (await state()).items.some((item) => item.status === 'unverified')))
+  await evaluate("window.__smoke.view('render')")
+  record('렌더 화면이 열린다', await until(async () => await attribute('[data-testid="render-screen"]', 'data-state') === 'idle'))
+
+  // 1. 경고 게이트 — **확인 전에는 시작이 비활성이다** (확정 동작)
+  const warnings = (await state()).renderWarnings
+  record('확인이 필요한 문제가 목록에 뜬다', warnings.length > 0,
+    JSON.stringify(warnings.map((item) => [item.position, item.status])))
+  record('`unverified`도 확인 대상이다', warnings.some((item) => item.status === 'unverified'),
+    JSON.stringify(warnings.map((item) => item.status)))
+  const gateText = await evaluate(
+    '(() => { const n = document.querySelector(\'[data-testid="render-gate"]\'); return n && n.textContent })()'
+  )
+  record('체크박스 문구에 문제 수가 들어간다',
+    Boolean(gateText) && gateText.includes(String(warnings.length)), gateText)
+  record('확인 전에는 시작이 비활성이다', await disabled() === true)
+
+  // 2. 막지 않는 경고는 함께 서지만 게이트가 아니다 (확정 스펙 4장)
+  const notes = (await state()).renderNotes
+  record('낡음이 경고 목록에 함께 뜬다', notes.some((note) => note.kind === 'todo'),
+    JSON.stringify(notes.map((note) => [note.kind, note.title])))
+  record('낡음은 렌더를 막지 않는다', notes.some((note) => note.kind === 'todo'))
+
+  await evaluate('window.__smoke.renderGate(true)')
+  record('확인하면 시작할 수 있다', await until(async () => await disabled() === false))
+
+  // 3. 렌더 — **두 요청을 같은 틱에 보낸다.** 백엔드가 둘째를 거절해야 한다 (같은 출력 파일에
+  //    두 ffmpeg가 쓰면 결과가 어느 쪽인지 알 수 없다). 화면의 버튼 잠금으로는 이것이 확인되지
+  //    않는다 — 그쪽은 눌릴 수 없게 만드는 층이다.
+  const both = evaluate(
+    'Promise.all([window.__smoke.render(), window.__smoke.render()])'
+  )
+  const started = await until(async () => (await state()).render.kind === 'running', 100, 50)
+  record('진행 카드가 선다', started, JSON.stringify((await state()).render.kind))
+
+  // 진행 알림이 실제로 오는지 — `-progress`가 붙지 않으면 영원히 `null`이다
+  const progressed = await until(async () => {
+    const current = (await state()).render
+    return current.kind === 'running' && current.progress !== null
+  }, 300, 100)
+  const progress = (await state()).render.progress
+  record('진행률이 알림으로 온다', progressed, JSON.stringify(progress))
+
+  // 거절은 실패 카드가 아니라 공용 알림으로 온다 — 돌고 있는 렌더의 상태를 덮으면 화면이
+  // "실패"를 말하면서 실제로는 인코딩이 계속 돈다. **성공하면 이 알림은 지워지므로 지금 본다.**
+  const refused = (await state()).error
+  record('두 번째 요청은 busy로 거절된다', refused !== null && refused.code === 'busy',
+    JSON.stringify(refused))
+  if (progress) {
+    record('진행 알림에 총 프레임과 장면이 함께 온다',
+      progress.total_frames > 0 && progress.scene_index >= 0 && progress.elapsed_ms >= 0,
+      JSON.stringify(progress))
+    record('퍼센트는 화면이 계산한다', !('percent' in progress))
+  }
+
+  // 4. 렌더 중에는 편집이 잠기고 화면 이동은 열려 있다 (확정 스펙 3.3)
+  const beforeEdit = JSON.stringify((await state()).project)
+  await evaluate('window.__smoke.editVolume(\'voice_volume\', 0.11)')
+  await delay(200)
+  record('렌더 중에는 편집이 잠긴다', JSON.stringify((await state()).project) === beforeEdit,
+    (await state()).project.audio.voice_volume)
+  await evaluate("window.__smoke.view('scenes')")
+  record('렌더 중에도 다른 화면을 볼 수 있다', await until(async () =>
+    Boolean(await attribute('[data-testid="properties"]', 'data-locked'))))
+  record('그 화면의 편집 컨트롤은 잠긴 것으로 그려진다',
+    await attribute('[data-testid="properties"]', 'data-locked') === 'true')
+  await evaluate("window.__smoke.view('render')")
+
+  const outcome = await both
+  record('두 요청 중 하나만 렌더한다', outcome.filter(Boolean).length === 1, JSON.stringify(outcome))
+
+  const done = await until(async () => (await state()).render.kind === 'done', 600, 200)
+  const result = (await state()).render
+  record('완료 카드가 선다', done, JSON.stringify(result))
+  record('출력 경로가 run 디렉터리 루트를 가리킨다',
+    done && result.result.output_path === path.join(RUN, 'final_short.mp4'),
+    done && result.result.output_path)
+  record('완료 카드가 그 경로를 그대로 그린다',
+    (await evaluate('(() => { const n = document.querySelector(\'[data-testid="render-output"]\');'
+      + ' return n && n.textContent })()')) === result.result.output_path)
+  await capture(window, record, SHOT_RENDER)
+
+  // 5. 파일 위치 열기 — **탐색기를 실제로 띄우지 않는다** (`setReveal`)
+  await evaluate('document.querySelector(\'[data-testid="render-reveal"]\').click()')
+  record('완료한 파일의 위치를 열 수 있다',
+    await until(() => revealed.length === 1 && revealed[0] === result.result.output_path),
+    JSON.stringify(revealed))
+
+  // 6. 실패와 다시 시도 — **없는 낭독 파일을 가리키게 한다.** 명령을 만들기 전에 걸리므로
+  //    FFmpeg가 도는 시간이 들지 않는다 (`video_renderer._source_file`).
+  //
+  // **고친 값이 화면에 반영된 뒤에 렌더를 부른다.** `window.__smoke`는 렌더마다 다시 달리므로
+  // 커밋 전에 부르면 직전 프로젝트가 백엔드로 가고, 그때 렌더는 그냥 성공한다 (#27에서 밟은
+  // "open이 끝난 것과 화면이 반영한 것은 다르다"와 같은 함정이다).
+  const voiceIs = (value) => until(async () => (await state()).project.audio.voice === value)
+  await evaluate(`window.__smoke.edit('audio','voice',${quote('audio/사라진낭독.mp3')})`)
+  record('없는 낭독 경로가 화면에 반영된다', await voiceIs('audio/사라진낭독.mp3'))
+  record('실패가 실패 카드로 온다', await evaluate('window.__smoke.render()') === false)
+  const failed = (await state()).render
+  record('실패 카드가 원인을 말한다',
+    failed.kind === 'failed' && failed.message.includes('사라진낭독.mp3'), JSON.stringify(failed))
+  record('원문이 없으면 빈 상자를 그리지 않는다',
+    failed.raw === '' && await evaluate(
+      'document.querySelector(\'[data-testid="render-raw"]\') === null'
+    ) === true)
+  record('실패 뒤 버튼이 다시 시도가 된다', (await evaluate(
+    '(() => { const n = document.querySelector(\'[data-testid="render-start"]\'); return n && n.textContent })()'
+  )).includes('다시 시도'))
+
+  // 되돌리고 다시 시도하면 성공한다 — 재시도가 같은 경로를 지난다
+  await evaluate("window.__smoke.edit('audio','voice',null)")
+  await voiceIs(null)
+  record('다시 시도가 성공한다', await evaluate('window.__smoke.render()') === true)
+  record('완료 카드로 돌아온다', (await state()).render.kind === 'done')
+
+  network()
+  finish(0)
+}
+
+/**
+ * 렌더 도중 앱을 강제 종료한다 (#30).
+ *
+ * **렌더 스레드는 daemon이라 백엔드가 끝날 때 그냥 사라진다** — 자식 ffmpeg는 남아 사용자가
+ * 앱을 닫은 뒤에 `final_short.mp4`를 완성한다. 죽는지 확인하는 것은 이쪽(`run.mjs`)이고
+ * 여기서는 렌더가 실제로 돌고 있는 상태를 만들어 pid를 넘긴다.
+ */
+async function renderKill ({ evaluate, quote, record, backendInfo, finish }) {
+  record('run을 연다', await evaluate(`window.__smoke.open(${quote(RUN)})`) === true)
+  await evaluate('window.__smoke.renderGate(true)')
+  // 응답을 기다리지 않는다 — 이 렌더는 끝나지 않고 강제 종료를 맞는다.
+  await evaluate('void window.__smoke.render()')
+  const running = await until(async () => {
+    const current = (await evaluate('window.__smoke.state()')).render
+    return current.kind === 'running' && current.progress !== null
+  }, 300, 100)
+  record('렌더가 실제로 돌고 있다', running)
+  fs.writeFileSync(READY, JSON.stringify({
+    electron: process.pid,
+    backend: backendInfo().pid
+  }) + '\n')
+  finish(running ? 0 : 1, { exit: false })
 }
 
 /** 아무 일도 하지 않고 떠 있는다. 강제 종료 뒤 백엔드가 남는지 보는 쪽이 쓴다. */

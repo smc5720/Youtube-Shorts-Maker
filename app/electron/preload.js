@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('api', {
   pickRunDir: () => ipcRenderer.invoke('pick-run-dir'),
   // 배경 파일 (#80). 받는 확장자는 백엔드가 정하므로 렌더러가 실어 보낸다.
   pickBackgroundFile: (extensions) => ipcRenderer.invoke('pick-background-file', extensions),
+  // 렌더 결과를 파일 탐색기에서 보여준다 (#30). 네트워크가 아니라 파일 관리자다.
+  reveal: (target) => ipcRenderer.invoke('reveal', target),
   // 저장하지 않은 변경이 있는지. 창을 닫을 때 물어볼지가 이 값으로 갈린다.
   // **여기만 동기다** — 비동기로 보내면 화면이 먼저 바뀌고 main이 나중에 알아서, 그 틈에
   // 닫으면 확인 없이 닫힌다.

@@ -22,10 +22,13 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
-from collections.abc import Mapping, Sequence
+import tempfile
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import IO, Any, NamedTuple
 
 from . import PACKAGE_LOGGER, audio_mix, overlay
 from .assets import AssetError, background_presets
@@ -96,7 +99,17 @@ BACKGROUND_FILE_KINDS: dict[str, str] = {
 
 
 class RenderError(Exception):
-    """최종 영상을 만들 수 없다."""
+    """최종 영상을 만들 수 없다.
+
+    **사람이 읽는 문구와 기계가 낸 원문을 갈라 둔다** (#30). 앱의 실패 카드가 둘을 다르게
+    그리므로(원인은 본문, 원문은 `mono`) 한 문자열에 섞으면 화면에서 다시 갈라야 하고,
+    그 분리는 문구를 다듬는 순간 깨진다 (D2 확정 스펙 3.3).
+    """
+
+    def __init__(self, message: str, *, raw: str = "") -> None:
+        super().__init__(message)
+        self.raw = raw
+        """ffmpeg stderr처럼 그대로 복사해야 쓸모가 있는 값. 없으면 빈 문자열이다."""
 
 
 def background_kind(value: str) -> str:
@@ -278,8 +291,58 @@ def align(scenes: Mapping[str, Any], *, fps: int = FPS) -> Timeline:
     return Timeline(fps=fps, frames=tuple(frames))
 
 
+class RenderProgress(NamedTuple):
+    """렌더가 어디까지 왔는가 (#30).
+
+    **퍼센트도 남은 시간도 여기 없다.** 그 둘은 화면의 표현이고(D2 확정 스펙 3.3), 이 모듈이
+    아는 것은 프레임 수와 그것이 어느 장면인지다 — 총 프레임은 `align()`의 지식이다.
+    """
+
+    frame: int
+    """인코딩된 프레임 수. FFmpeg의 `-progress` 출력에서 온다."""
+
+    total_frames: int
+    """프레임 정렬 총 프레임 수 (`Timeline.total_frames`)."""
+
+    scene_index: int
+    """`frame`이 속한 장면. 마지막 프레임을 넘어선 보고는 마지막 장면으로 잡는다."""
+
+
+ProgressHook = Callable[[RenderProgress], None]
+
+_ACTIVE: set[subprocess.Popen[str]] = set()
+_ACTIVE_LOCK = threading.Lock()
+"""돌고 있는 렌더 프로세스. `kill_active()`가 이 집합을 본다."""
+
+_READER_JOIN_SEC = 2.0
+"""ffmpeg가 끝난 뒤 마지막 진행 묶음을 기다리는 시간. 파이프에 남은 몇 줄이므로 짧다."""
+
+
+def kill_active() -> int:
+    """돌고 있는 ffmpeg를 죽이고 그 개수를 돌려준다 (#30).
+
+    **앱 백엔드가 종료될 때 필요하다.** 렌더는 daemon 스레드에서 돌아 stdin EOF로 백엔드가
+    끝날 때 그 스레드는 그냥 사라지는데, **자식 ffmpeg는 남아 `final_short.mp4`를 계속 쓴다** —
+    사용자가 앱을 닫은 뒤에 완성되는 파일이고, 그것을 앱이 만들었다고 말할 방법도 없다.
+    호출부는 `api.serve`의 `atexit`이다.
+
+    CLI에는 필요 없다 — 그쪽은 `render()`를 부른 스레드가 곧 프로세스이고, 죽으면 파이프가
+    닫혀 ffmpeg도 끝난다.
+    """
+    with _ACTIVE_LOCK:
+        running = list(_ACTIVE)
+    for process in running:
+        if process.poll() is None:
+            process.kill()
+    return len(running)
+
+
 def render(
-    project: Mapping[str, Any], scenes: Mapping[str, Any], *, run_dir: Path
+    project: Mapping[str, Any],
+    scenes: Mapping[str, Any],
+    *,
+    run_dir: Path,
+    on_progress: ProgressHook | None = None,
 ) -> Path:
     """`final_short.mp4`를 만들고 그 경로를 돌려준다.
 
@@ -288,6 +351,9 @@ def render(
         scenes: `scenes.json` 내용. **확정 상태여야 한다** — 초안의 목표치로 렌더하면
             영상 길이가 `voice.mp3`와 어긋난다.
         run_dir: 이번 run의 출력 디렉터리. 상대 경로의 기준이다.
+        on_progress: 진행 상황을 받는 훅 (#30). 주지 않으면 진행 줄을 읽어 버린다 —
+            **명령은 어느 쪽이든 같다.** 앱과 CLI가 다른 명령으로 돌면 인코딩 설정이 갈릴 수
+            있고, 갈려도 되는 것은 "누가 보고 있는가"뿐이다.
 
     Raises:
         RenderError: 배경을 해석할 수 없거나 FFmpeg가 없거나 실패했을 때.
@@ -314,6 +380,11 @@ def render(
         overlays=overlays,
         audio=audio,
     )
+    # **`-progress`는 `build_command`가 붙이지 않는다** (#30). 그 함수가 소유하는 것은 출력
+    # 규격이고 프리뷰 명령과 갈리는 지점도 거기 하나여야 하는데, 이 옵션이 바꾸는 것은
+    # 결과물이 아니라 진행 상황을 어디로 흘리는지다. 훅이 없어도 붙이는 이유는 CLI와 앱이
+    # 같은 명령으로 돌아야 하기 때문이다 — 갈려도 되는 것은 누가 읽는가뿐이다.
+    command = [command[0], "-progress", "pipe:1", *command[1:]]
     output = run_dir / str(project["render"]["output"])
 
     # 명령 전문을 남긴다. run.log는 --verbose와 무관하게 DEBUG까지 남으므로(run_context)
@@ -326,37 +397,150 @@ def render(
         timeline.total_sec,
     )
 
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=FFMPEG_TIMEOUT_SEC,
-            # **stdin을 막는다.** ffmpeg는 stdin을 조작 입력으로 읽으므로, 앱이 띄운
-            # 백엔드에서 그대로 두면 프로토콜 줄을 가져가고 이 호출이 끝나지 않는다
-            # (스파이크 #25 7장, #27에서 실제로 밟았다).
-            stdin=subprocess.DEVNULL,
-        )
-    except FileNotFoundError as error:
-        raise RenderError(
-            "ffmpeg를 찾을 수 없다. FFmpeg를 설치하고 PATH에 넣는다"
-        ) from error
-    except subprocess.TimeoutExpired as error:
-        raise RenderError(
-            f"ffmpeg가 {FFMPEG_TIMEOUT_SEC}초 안에 끝나지 않았다: {output}"
-        ) from error
-
-    if completed.returncode != 0:
+    code, stderr = _run_with_progress(
+        command, timeline=timeline, on_progress=on_progress, output=output
+    )
+    if code != 0:
         # stderr도 run.log에 남긴다 — 위 명령 전문과 짝이어야 원인이 드러난다.
-        LOGGER.error("ffmpeg stderr %s", completed.stderr.strip())
+        LOGGER.error("ffmpeg stderr %s", stderr)
         raise RenderError(
-            f"{output.name}을 만들지 못했다 — ffmpeg 종료 코드 "
-            f"{completed.returncode}, stderr {completed.stderr.strip()!r}"
+            f"{output.name}을 만들지 못했다 — ffmpeg 종료 코드 {code}", raw=stderr
         )
 
     return output
+
+
+def _run_with_progress(
+    command: Sequence[str],
+    *,
+    timeline: Timeline,
+    on_progress: ProgressHook | None,
+    output: Path,
+) -> tuple[int, str]:
+    """렌더 명령을 돌리며 진행 상황을 읽는다. `(종료 코드, stderr)`를 돌려준다.
+
+    **`subprocess.run` 대신 `Popen`인 이유는 진행률뿐이다** (#30). `-progress pipe:1`이 몇 줄
+    단위로 상태를 stdout에 흘리므로 프로세스가 끝나기 전에 읽어야 하고, `run`은 끝난 뒤에
+    돌아온다. 그 대가로 `run`이 해 주던 넷을 손으로 지킨다.
+
+    - **`stdin=DEVNULL`.** ffmpeg는 stdin을 조작 입력으로 읽으므로, 앱이 띄운 백엔드에서
+      그대로 두면 프로토콜 줄을 가져가고 이 호출이 끝나지 않는다 — 실패도 로그도 없다
+      (스파이크 #25 7장, #27에서 실제로 밟았다).
+    - **stderr는 파이프가 아니라 임시 파일이다.** stdout만 읽는 동안 stderr 파이프가 차면
+      ffmpeg가 그 쓰기에서 막혀 진행 줄도 멈춘다 — 실패한 렌더는 stderr를 길게 낸다.
+    - **타임아웃은 진행 줄이 아니라 `wait`가 잰다.** 진행 줄을 읽는 루프에서 재면 아무것도
+      내보내지 않고 멈춘 ffmpeg에는 상한이 없다 — 그래서 읽기는 스레드로 내보내고 이쪽은
+      `wait(timeout=…)`에 선다.
+    - **끝나면 집합에서 뺀다.** 남겨 두면 종료 뒤의 `kill_active()`가 이미 끝난 프로세스를
+      본다 (죽이지는 않지만 "몇 개를 죽였다"가 거짓이 된다).
+
+    죽인 뒤의 잘린 mp4를 치우지 않는다 — 부분 산출물을 최종 결과로 오인하지 않게 하는 것은
+    #36의 몫이다.
+    """
+    try:
+        process = subprocess.Popen(
+            list(command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=(errors := tempfile.TemporaryFile("w+", encoding="utf-8")),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError as error:
+        errors.close()
+        raise RenderError(
+            "ffmpeg를 찾을 수 없다. FFmpeg를 설치하고 PATH에 넣는다"
+        ) from error
+
+    with _ACTIVE_LOCK:
+        _ACTIVE.add(process)
+    reader = threading.Thread(
+        target=_watch,
+        args=(process,),
+        kwargs={"timeline": timeline, "on_progress": on_progress},
+        daemon=True,
+    )
+    reader.start()
+    try:
+        try:
+            process.wait(timeout=FFMPEG_TIMEOUT_SEC)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            raise RenderError(_timeout_message(output)) from None
+        # 마지막 묶음(`progress=end`)이 아직 읽히는 중일 수 있다. 끝을 기다리는 이유는
+        # 100%가 화면에 서야 완료 카드로 넘어가는 것이 갑작스럽지 않기 때문이다.
+        reader.join(timeout=_READER_JOIN_SEC)
+        return process.returncode, _read_all(errors)
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE.discard(process)
+        if process.stdout is not None:
+            process.stdout.close()
+        errors.close()
+
+
+def _watch(
+    process: subprocess.Popen[str],
+    *,
+    timeline: Timeline,
+    on_progress: ProgressHook | None,
+) -> None:
+    """`-progress` 줄을 끝까지 읽으며 훅을 부른다. **스레드에서 돈다.**
+
+    출력은 `key=value` 줄의 묶음이고 묶음마다 `progress=continue|end`로 끝난다. **`frame`
+    하나만 읽는다** — `out_time_us`도 오지만 두 값을 함께 쓰면 어느 쪽이 진행의 기준인지가
+    둘로 갈리고, 프레임 정렬을 소유한 이 모듈의 단위는 프레임이다 (#19).
+
+    **예외를 밖으로 내지 않는다.** 이 스레드가 죽어서 잃는 것은 진행 표시뿐이고, 렌더 자체는
+    `wait`에 서 있는 쪽이 끝까지 본다 — 읽다가 깨졌다고 렌더를 실패로 만들 이유가 없다.
+    """
+    stream = process.stdout
+    if stream is None:  # pragma: no cover - Popen(stdout=PIPE)이므로 항상 있다
+        return
+
+    try:
+        for line in stream:
+            key, _, value = line.strip().partition("=")
+            if key != "frame" or on_progress is None:
+                continue
+            try:
+                frame = int(value)
+            except ValueError:  # pragma: no cover - ffmpeg가 수를 준다
+                continue
+            on_progress(
+                RenderProgress(
+                    frame=frame,
+                    total_frames=timeline.total_frames,
+                    scene_index=_scene_at(frame, timeline),
+                )
+            )
+    except Exception:  # noqa: BLE001 - 진행 표시가 렌더를 실패시키지 않는다
+        LOGGER.debug("진행 줄을 더 읽지 못했다", exc_info=True)
+
+
+def _timeout_message(output: Path) -> str:
+    return f"ffmpeg가 {FFMPEG_TIMEOUT_SEC}초 안에 끝나지 않았다: {output}"
+
+
+def _scene_at(frame: int, timeline: Timeline) -> int:
+    """프레임 번호 → 장면 인덱스. 마지막을 넘어선 값은 마지막 장면이다.
+
+    **`frame`은 "지금까지 인코딩한 개수"라 1부터 센다.** 그대로 구간에 대면 장면 경계에서
+    다음 장면이 한 프레임 일찍 보고되므로 1을 뺀다.
+    """
+    position = max(0, frame - 1)
+    for index, (start, end) in enumerate(timeline.frame_spans):
+        if start <= position < end:
+            return index
+    return max(0, len(timeline.frames) - 1)
+
+
+def _read_all(stream: IO[str]) -> str:
+    """임시 파일에 쌓인 stderr 전문. 읽기 전에 처음으로 되감는다."""
+    stream.seek(0)
+    return stream.read().strip()
 
 
 def build_overlays(

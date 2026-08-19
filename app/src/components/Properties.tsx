@@ -31,7 +31,7 @@ export interface OverlayEdits {
 }
 
 export function Properties ({
-  project, scene, index, runDir, presets, captionEdited, audioStale,
+  project, scene, index, runDir, presets, captionEdited, audioStale, locked,
   onDuration, onCaption, onRevertCaption, overlays,
   onVolume, onStyle, onBackground, onPickBackground, backgroundReject
 }: {
@@ -60,6 +60,11 @@ export function Properties ({
   onPickBackground: () => void
   /** 받지 않는 형식을 골랐을 때만 값이 있다 (#80). */
   backgroundReject: BackgroundReject | null
+  /**
+   * 렌더가 도는 중인가 (#30). **표시일 뿐이고 판정은 `App.patchProject`에 있다** — 화면에서만
+   * 막으면 스모크와 메뉴가 그 잠금을 지나간다 (확정 스펙 3.3).
+   */
+  locked: boolean
 }) {
   // 오버레이 색 견본이 쓰는 값 — **지금 고른 자막 스타일의 색이다.** `color: preset`이 값을
   // 복사하지 않으므로(확정 스펙 7.2) 스타일을 바꾸면 견본도 함께 바뀐다.
@@ -67,7 +72,11 @@ export function Properties ({
     .find((style) => style.name === project.render.caption_style)?.colors ?? {}
 
   return (
-    <aside className="panel panel--properties" data-testid="properties">
+    <aside
+      className={`panel panel--properties${locked ? ' panel--locked' : ''}`}
+      data-testid="properties"
+      data-locked={locked}
+    >
       <div className="panel__head">
         <span className="t-heading">속성</span>
       </div>

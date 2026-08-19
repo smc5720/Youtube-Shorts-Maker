@@ -389,6 +389,11 @@ def main(argv: list[str] | None = None) -> int:
         # 설정이 들어 있다. 콘솔 문구가 단계를 특정하지 않는 이유가 그것이다 — 콘텐츠
         # 생성과 장면 구성이 같은 예외를 던지고, 구분은 run.log에 이미 있다.
         print(f"생성 실패:\n{error}", file=sys.stderr)
+        # **원문을 함께 낸다** (#30). `RenderError`가 ffmpeg stderr를 사람이 읽는 문구와
+        # 갈라 들고 있으므로(앱의 실패 카드가 둘을 다르게 그린다), 여기서 붙이지 않으면
+        # 콘솔만 보는 CLI 사용자가 원인을 잃는다 — run.log에는 여전히 남는다.
+        if raw := getattr(error, "raw", ""):
+            print(raw, file=sys.stderr)
         return EXIT_RUNTIME_ERROR
 
     if issues and args.fail_on_flagged:
