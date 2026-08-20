@@ -26,6 +26,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, NamedTuple
@@ -34,6 +35,7 @@ from . import PACKAGE_LOGGER, audio_mix, overlay
 from .assets import AssetError, background_presets
 from .audio_mix import AudioChain, AudioMixError
 from .overlay import OverlayError
+from .run_context import commit_staged, staging_path
 from .schemas.project import BACKGROUND_KINDS, DEFAULT_VOICE_VOLUME
 from .schemas.scenes import validate_scenes_final
 
@@ -318,12 +320,21 @@ class RenderProgress(NamedTuple):
 
 ProgressHook = Callable[[RenderProgress], None]
 
-_ACTIVE: set[subprocess.Popen[str]] = set()
+_ACTIVE: dict[subprocess.Popen[str], Path] = {}
 _ACTIVE_LOCK = threading.Lock()
-"""돌고 있는 렌더 프로세스. `kill_active()`가 이 집합을 본다."""
+"""돌고 있는 렌더 프로세스 → 그것이 쓰고 있는 임시 파일. `kill_active()`가 이 표를 본다.
+
+**값이 최종 경로가 아니라 임시 경로인 이유는 죽인 뒤에 치울 것이 그것이기 때문이다** (#36).
+최종 파일은 렌더가 성공했을 때만 그 자리에 놓이므로, 죽은 렌더가 남기는 것은 항상 임시
+파일 하나다.
+"""
 
 _READER_JOIN_SEC = 2.0
 """ffmpeg가 끝난 뒤 마지막 진행 묶음을 기다리는 시간. 파이프에 남은 몇 줄이므로 짧다."""
+
+_KILL_WAIT_SEC = 5.0
+"""죽인 ffmpeg가 실제로 끝나기를 기다리는 시간. **Windows는 열려 있는 파일을 지우지 못하므로**
+이것을 기다리지 않으면 임시 파일이 run 디렉터리에 남는다 (#36)."""
 
 
 def kill_active() -> int:
@@ -336,13 +347,30 @@ def kill_active() -> int:
 
     CLI에는 필요 없다 — 그쪽은 `render()`를 부른 스레드가 곧 프로세스이고, 죽으면 파이프가
     닫혀 ffmpeg도 끝난다.
+
+    **죽인 렌더의 임시 파일도 치운다** (#36). 최종 파일은 성공했을 때만 놓이므로 여기서
+    잘린 `final_short.mp4`가 생기지는 않지만, 앱을 렌더 중에 닫는 것은 정상 사용이라
+    치우지 않으면 run 디렉터리에 임시 파일이 쌓인다.
     """
     with _ACTIVE_LOCK:
-        running = list(_ACTIVE)
-    for process in running:
+        running = list(_ACTIVE.items())
+    for process, staged in running:
         if process.poll() is None:
             process.kill()
+            with suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=_KILL_WAIT_SEC)
+        _discard(staged)
     return len(running)
+
+
+def _discard(staged: Path) -> None:
+    """임시 파일을 치운다. **지우지 못해도 렌더 결과를 바꾸지 않는다.**
+
+    지우지 못하는 경우는 하나다 — 죽인 ffmpeg가 아직 파일을 열고 있는 Windows. 그때 남는
+    것은 최종 산출물과 이름이 다른 임시 파일이라 성공한 결과물로 오인되지 않는다 (#36).
+    """
+    with suppress(OSError):
+        staged.unlink(missing_ok=True)
 
 
 def render(
@@ -353,6 +381,10 @@ def render(
     on_progress: ProgressHook | None = None,
 ) -> Path:
     """`final_short.mp4`를 만들고 그 경로를 돌려준다.
+
+    **제자리에 쓰지 않는다** (#36). 임시 파일에 인코딩하고 성공했을 때만 바꿔 끼우므로,
+    실패하거나 도중에 죽어도 잘린 `final_short.mp4`가 남지 않는다 — 이전 성공본이 있으면
+    그것이 그대로 남는다. 잘린 파일은 성공한 결과물과 구분되지 않아서 이 규칙이 필요하다.
 
     Args:
         project: `project.json` 내용. 배경·오디오·출력 규격을 여기서 읽는다.
@@ -381,19 +413,23 @@ def render(
     # 효과음도 인코딩 전에 만든다 (#23). 번들에 없는 `sfx` 이름은 여기서 걸리고, 그때 인코딩은
     # 아직 시작되지 않았다 — 오버레이의 폰트 검증과 같은 자리다.
     audio = build_audio(project, scenes, timeline=timeline)
+    output = run_dir / str(project["render"]["output"])
+    # 임시 파일에 인코딩한다 (#36). `staging_path`가 확장자를 유지하므로 FFmpeg가 출력 형식을
+    # 그대로 정한다 — 뒤에 붙이면 "Unable to find a suitable output format"으로 실패한다.
+    staged = staging_path(output)
     command = build_command(
         project,
         run_dir=run_dir,
         total_sec=timeline.total_sec,
         overlays=overlays,
         audio=audio,
+        destination=staged,
     )
     # **`-progress`는 `build_command`가 붙이지 않는다** (#30). 그 함수가 소유하는 것은 출력
     # 규격이고 프리뷰 명령과 갈리는 지점도 거기 하나여야 하는데, 이 옵션이 바꾸는 것은
     # 결과물이 아니라 진행 상황을 어디로 흘리는지다. 훅이 없어도 붙이는 이유는 CLI와 앱이
     # 같은 명령으로 돌아야 하기 때문이다 — 갈려도 되는 것은 누가 읽는가뿐이다.
     command = [command[0], "-progress", "pipe:1", *command[1:]]
-    output = run_dir / str(project["render"]["output"])
 
     # 명령 전문을 남긴다. run.log는 --verbose와 무관하게 DEBUG까지 남으므로(run_context)
     # 실패한 렌더를 손으로 재현할 수 있다.
@@ -405,16 +441,29 @@ def render(
         timeline.total_sec,
     )
 
-    code, stderr = _run_with_progress(
-        command, timeline=timeline, on_progress=on_progress, output=output
-    )
+    try:
+        code, stderr = _run_with_progress(
+            command,
+            timeline=timeline,
+            on_progress=on_progress,
+            output=output,
+            staged=staged,
+        )
+    except BaseException:
+        # 타임아웃과 Ctrl-C도 여기를 지난다. **`BaseException`인 이유가 그것이다** — 사람이
+        # 끊은 렌더가 임시 파일을 남기면 다음 실행이 그것을 지우지 않는다.
+        _discard(staged)
+        raise
     if code != 0:
         # stderr도 run.log에 남긴다 — 위 명령 전문과 짝이어야 원인이 드러난다.
         LOGGER.error("ffmpeg stderr %s", stderr)
+        _discard(staged)
         raise RenderError(
             f"{output.name}을 만들지 못했다 — ffmpeg 종료 코드 {code}", raw=stderr
         )
 
+    # 여기까지 왔으면 실패할 것이 남아 있지 않다 (`run_context.commit_staged`와 같은 규칙).
+    commit_staged([(staged, output)])
     return output
 
 
@@ -424,6 +473,7 @@ def _run_with_progress(
     timeline: Timeline,
     on_progress: ProgressHook | None,
     output: Path,
+    staged: Path,
 ) -> tuple[int, str]:
     """렌더 명령을 돌리며 진행 상황을 읽는다. `(종료 코드, stderr)`를 돌려준다.
 
@@ -439,11 +489,12 @@ def _run_with_progress(
     - **타임아웃은 진행 줄이 아니라 `wait`가 잰다.** 진행 줄을 읽는 루프에서 재면 아무것도
       내보내지 않고 멈춘 ffmpeg에는 상한이 없다 — 그래서 읽기는 스레드로 내보내고 이쪽은
       `wait(timeout=…)`에 선다.
-    - **끝나면 집합에서 뺀다.** 남겨 두면 종료 뒤의 `kill_active()`가 이미 끝난 프로세스를
+    - **끝나면 표에서 뺀다.** 남겨 두면 종료 뒤의 `kill_active()`가 이미 끝난 프로세스를
       본다 (죽이지는 않지만 "몇 개를 죽였다"가 거짓이 된다).
 
-    죽인 뒤의 잘린 mp4를 치우지 않는다 — 부분 산출물을 최종 결과로 오인하지 않게 하는 것은
-    #36의 몫이다.
+    `staged`를 표에 함께 싣는다 (#36). 죽인 렌더의 임시 파일을 치우는 것은 `kill_active`이고,
+    그쪽은 프로세스만 들고 있어서는 무엇을 지워야 할지 알 수 없다 — `output`은 아직 놓이지
+    않은 최종 경로라 지울 대상이 아니다.
     """
     try:
         process = subprocess.Popen(
@@ -462,7 +513,7 @@ def _run_with_progress(
         ) from error
 
     with _ACTIVE_LOCK:
-        _ACTIVE.add(process)
+        _ACTIVE[process] = staged
     reader = threading.Thread(
         target=_watch,
         args=(process,),
@@ -483,7 +534,7 @@ def _run_with_progress(
         return process.returncode, _read_all(errors)
     finally:
         with _ACTIVE_LOCK:
-            _ACTIVE.discard(process)
+            _ACTIVE.pop(process, None)
         if process.stdout is not None:
             process.stdout.close()
         errors.close()
@@ -615,6 +666,7 @@ def build_command(
     total_sec: float,
     overlays: Sequence[str] = (),
     audio: AudioChain | None = None,
+    destination: Path | None = None,
 ) -> list[str]:
     """렌더 명령을 만든다. **FFmpeg를 부르지 않으므로 어디서나 검증할 수 있다.**
 
@@ -623,13 +675,16 @@ def build_command(
             배경만 그린다 — #19까지의 상태다.
         audio: 오디오 필터 체인 (`build_audio`). `None`이면 낭독만 담는다 — 효과음이 없는
             장면 목록과 같은 결과이고, #22까지의 명령과 같은 모양이다.
+        destination: 쓸 자리. `None`이면 `project.json`의 `render.output`이다. `render`가
+            임시 파일을 주는 자리이고(#36), **그 파일도 확장자가 같아야 한다** — FFmpeg는
+            출력 형식을 확장자로 정한다.
 
     Raises:
         RenderError: `project.json`의 배경·규격 값을 명령으로 옮길 수 없을 때.
     """
     chain = audio if audio is not None else audio_mix.voice_only()
     fps = _int_field(project, "fps")
-    output = run_dir / str(project["render"]["output"])
+    output = destination or run_dir / str(project["render"]["output"])
     length = f"{total_sec:.3f}"
 
     video_input, video_chain = _video_stage(

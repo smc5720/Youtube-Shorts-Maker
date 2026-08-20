@@ -54,6 +54,15 @@ SegmentHook = Callable[[int, int, bool], None]
 """
 
 
+def manifest_path(run_dir: Path) -> Path:
+    """세그먼트 기록의 자리.
+
+    **지우면 다음 실행이 전부 다시 합성한다.** 강제 재합성(#36)이 그 경로이고, 경로를 여기
+    두는 이유는 `_Manifest.load`와 두 곳에서 갈리지 않게 하는 것이다.
+    """
+    return run_dir / SEGMENT_DIR / MANIFEST_NAME
+
+
 def synthesize_segments(
     scenes: Mapping[str, Any],
     *,
@@ -171,7 +180,7 @@ class _Manifest:
 
     @classmethod
     def load(cls, run_dir: Path, *, provider: str, voice: str) -> _Manifest:
-        path = run_dir / SEGMENT_DIR / MANIFEST_NAME
+        path = manifest_path(run_dir)
         manifest = cls(path=path, provider=provider, voice=voice)
 
         raw = _read_manifest(path)

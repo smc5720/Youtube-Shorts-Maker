@@ -135,15 +135,19 @@ def test_help_lists_arguments_and_defaults(capsys: pytest.CaptureFixture[str]) -
         "--topic",
         "--text-file",
         "--url",
+        "--resume",
         "--type",
         "--out",
         "--config",
         "--fail-on-flagged",
+        "--force",
         "--verbose",
     ):
         assert flag in help_text
-    assert f"default: {DEFAULT_TYPE}" in help_text
-    assert "default: outputs" in help_text
+    # 기본값이 문구에 있다. **`ArgumentDefaultsHelpFormatter`가 아니라 손으로 적는다** —
+    # 생성 전용 인자는 `--resume`과 함께 왔는지 알아야 해서 기본값이 파서에 없다 (#36).
+    assert f"기본 {DEFAULT_TYPE}" in help_text
+    assert "기본 outputs" in help_text
     # required 인자에 무의미한 "(default: None)"이 붙지 않는다.
     assert "default: None" not in help_text
 

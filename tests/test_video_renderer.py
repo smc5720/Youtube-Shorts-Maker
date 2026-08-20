@@ -614,10 +614,21 @@ class FakeProcess:
         def spawn(command: list[str], **kwargs: Any) -> FakeProcess:
             # stderr 파일에 쓰는 것은 진짜 ffmpeg의 몫이므로 여기서 대신 쓴다.
             kwargs["stderr"].write(self._stderr)
+            self.spawn(command)
             return self
 
         monkeypatch.setattr(video_renderer.subprocess, "Popen", spawn)
         return self
+
+    def spawn(self, command: list[str]) -> None:
+        """목적지 파일을 만든다. **성공한 ffmpeg는 파일을 남긴다** (#36).
+
+        `render`가 그 파일을 최종 이름으로 바꿔 끼우므로, 만들지 않는 대역은 "성공했는데
+        결과물이 없다"는 실제로 있을 수 없는 상태를 흉내 내게 된다. 목적지는 명령의 마지막
+        인자다 (`build_command`) — **최종 경로가 아니라 임시 경로다.**
+        """
+        if self.returncode == 0 and not self._hang:
+            Path(command[-1]).write_bytes(b"fake-video")
 
 
 def test_a_missing_ffmpeg_says_what_to_install(
@@ -650,6 +661,57 @@ def test_a_failing_ffmpeg_carries_the_exit_code_and_stderr(
     assert OUTPUT_NAME in str(failure.value)
     assert "렌더 명령 ffmpeg" in caplog.text
     assert "Invalid argument" in caplog.text
+
+
+def test_the_render_writes_to_a_staging_file_and_swaps_it_in(tmp_path: Path) -> None:
+    """**제자리에 쓰지 않는다** (#36).
+
+    명령이 받는 목적지는 임시 파일이고 확장자가 같아야 한다 — FFmpeg는 출력 형식을 확장자로
+    정하므로 뒤에 붙이면 "Unable to find a suitable output format"으로 실패한다.
+    """
+    seen: list[list[str]] = []
+
+    class Recorder(FakeProcess):
+        def install_recording(self, monkeypatch: pytest.MonkeyPatch) -> None:
+            def spawn(command: list[str], **kwargs: Any) -> FakeProcess:
+                seen.append(command)
+                self.spawn(command)
+                return self
+
+            monkeypatch.setattr(video_renderer.subprocess, "Popen", spawn)
+
+    with pytest.MonkeyPatch.context() as patch:
+        Recorder().install_recording(patch)
+        output = render(project_with(), scenes_with(1.0), run_dir=tmp_path)
+
+    destination = Path(seen[0][-1])
+    assert destination != output and destination.suffix == ".mp4"
+    assert destination.parent == tmp_path  # `os.replace`는 볼륨을 넘지 못한다
+    # 바꿔 끼운 뒤에는 임시 파일이 남지 않는다.
+    assert output.is_file() and list(tmp_path.glob("*.mp4")) == [output]
+
+
+@pytest.mark.parametrize("failure", ["exit_code", "timeout"])
+def test_a_failed_render_leaves_the_previous_output_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    """#36 완료 조건 — 잘린 `final_short.mp4`가 남지 않고, 이전 성공본은 그대로다.
+
+    **부분 산출물은 성공한 결과물과 구분되지 않는다.** 이어 돌리기가 "산출물이 있으니
+    건너뛴다"로 판단하므로, 잘린 파일이 남으면 그 판단 자체가 틀린 답을 낸다.
+    """
+    previous = tmp_path / OUTPUT_NAME
+    previous.write_bytes(b"previous-success")
+    if failure == "timeout":
+        FakeProcess(hang=True).install(monkeypatch)
+    else:
+        FakeProcess(code=1, stderr="Invalid argument").install(monkeypatch)
+
+    with pytest.raises(RenderError):
+        render(project_with(), scenes_with(1.0), run_dir=tmp_path)
+
+    assert previous.read_bytes() == b"previous-success"
+    assert list(tmp_path.glob("*.mp4")) == [previous]
 
 
 def test_a_timeout_names_the_output_and_kills_ffmpeg(
@@ -709,15 +771,27 @@ def test_a_running_render_is_registered_so_it_can_be_killed(
     assert len(video_renderer._ACTIVE) == 0
 
 
-def test_kill_active_kills_what_is_still_running(monkeypatch: pytest.MonkeyPatch) -> None:
-    running = FakeProcess(hang=True)
-    finished = FakeProcess(code=0)
-    monkeypatch.setattr(video_renderer, "_ACTIVE", {running, finished})
+def test_kill_active_kills_what_is_still_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**임시 파일도 함께 치운다** (#36). 렌더 중에 앱을 닫는 것은 정상 사용이라, 치우지
+    않으면 run 디렉터리에 임시 파일이 쌓인다 — 최종 파일은 성공했을 때만 놓이므로 잘린
+    `final_short.mp4`가 생기지는 않는다.
+    """
+    running, finished = FakeProcess(hang=True), FakeProcess(code=0)
+    staged = {
+        running: tmp_path / "final_short.tmp-1.mp4",
+        finished: tmp_path / "final_short.tmp-2.mp4",
+    }
+    for path in staged.values():
+        path.write_bytes(b"partial-mp4")
+    monkeypatch.setattr(video_renderer, "_ACTIVE", staged)
 
     assert video_renderer.kill_active() == 2
     assert running.killed
     # 이미 끝난 프로세스에는 `kill`을 보내지 않는다 — 그 pid가 재사용됐을 수 있다.
     assert not finished.killed
+    assert not list(tmp_path.glob("*.mp4"))
 
 
 def test_the_render_command_asks_ffmpeg_for_progress(tmp_path: Path) -> None:
@@ -728,6 +802,7 @@ def test_the_render_command_asks_ffmpeg_for_progress(tmp_path: Path) -> None:
         def install_recording(self, monkeypatch: pytest.MonkeyPatch) -> None:
             def spawn(command: list[str], **kwargs: Any) -> FakeProcess:
                 seen.append(command)
+                self.spawn(command)
                 return self
 
             monkeypatch.setattr(video_renderer.subprocess, "Popen", spawn)
