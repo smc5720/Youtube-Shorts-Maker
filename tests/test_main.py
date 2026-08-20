@@ -301,6 +301,9 @@ ARTICLE_TITLE = "폭염 속 전력 수요 사상 최고"
 ARTICLE_BODY = "20일 전력거래소는 최대 전력 수요가 사상 최고치를 기록했다고 밝혔다."
 ARTICLE = f"{ARTICLE_TITLE}\n\n{ARTICLE_BODY}\n"
 
+SHORTENED_URL = "https://ex.am/aB3d"
+"""사용자가 치는 단축 링크. 도착하는 곳은 `ARTICLE_URL`이고, 출처는 도착한 쪽이다 (#95)."""
+
 
 def write_article(directory: Path, text: str = ARTICLE) -> Path:
     path = directory / "기사.txt"
@@ -672,6 +675,37 @@ def test_run_writes_the_metadata(tmp_path: Path) -> None:
     assert metadata["type"] == DEFAULT_TYPE
     # `--topic` 경로에는 출처가 없다. 없는 것이 실패가 아니다 (PRD 6.2 표).
     assert metadata["source"] is None
+
+
+@needs_extractor
+def test_the_url_run_records_the_arrival_url_as_the_source(
+    tmp_path: Path, stub_http: StubHTTP
+) -> None:
+    """링크 입력은 `metadata.json`의 `source`를 채운다 — 값은 `source.json`의 `url`과
+    같으므로 **사용자가 친 주소가 아니라 리다이렉트가 도착한 곳**이다 (#100, #95)."""
+    stub_http.body = article_page()
+    stub_http.final_url = ARTICLE_URL
+    output_root = tmp_path / "out"
+
+    exit_code = main(["--url", SHORTENED_URL, "--out", str(output_root)])
+
+    assert exit_code == 0
+    run_dir = run_dirs(output_root)[0]
+    metadata = load_metadata(run_dir / METADATA_SCHEMA.name)
+    assert metadata["source"] == load_source(run_dir / SOURCE_SCHEMA.name)["url"]
+    assert metadata["source"] == ARTICLE_URL != SHORTENED_URL
+
+
+def test_the_text_file_run_leaves_the_metadata_source_null(tmp_path: Path) -> None:
+    """로컬 파일 경로는 업로드 설명에 붙일 출처가 아니다 (PRD 14.1). 그 칸을 채우는 것은
+    링크 입력이고, `source.json`에는 경로가 남아 있다 (#100)."""
+    output_root = tmp_path / "out"
+
+    main(["--text-file", str(write_article(tmp_path)), "--out", str(output_root)])
+
+    run_dir = run_dirs(output_root)[0]
+    assert load_metadata(run_dir / METADATA_SCHEMA.name)["source"] is None
+    assert load_source(run_dir / SOURCE_SCHEMA.name)["path"]
 
 
 def test_run_log_records_the_metadata_artifact(tmp_path: Path) -> None:

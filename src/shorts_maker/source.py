@@ -112,6 +112,21 @@ class SourceInput:
     문자열을 필드 둘에 두면 어느 쪽이 원본인지 모호해진다 — 지금 본문을 읽는 코드는 없다.
     """
 
+    @property
+    def attribution(self) -> str | None:
+        """`metadata.json`의 `source`에 남길 출처. 링크 입력만 값을 가진다 (#100).
+
+        **파일 경로가 아니라 URL이다.** 로컬 경로는 업로드 설명에 붙일 출처가 아니므로
+        `--text-file`도 `--topic`과 같이 `None`이다 (PRD 14.1). 값은 기록의 `url` 그대로라
+        **사용자가 친 주소가 아니라 리다이렉트가 도착한 곳**이고, 그래서 두 산출물의 칸이
+        같은 값을 든다 (#95).
+
+        **규칙이 여기 있는 이유는 경계다.** 받는 쪽(`metadata_generator`)이 기록에서 골라
+        쓰면 그 모듈이 `source.json`의 필드 이름을 알게 되는데, 그 모듈의 입력은 장면 목록
+        하나이고 run 디렉터리 없이도 불린다 (PRD 7.8).
+        """
+        return self.record["url"] if self.record is not None else None
+
 
 def from_topic(topic: str) -> SourceInput:
     """`--topic` 입력. 기록도 본문도 없다."""

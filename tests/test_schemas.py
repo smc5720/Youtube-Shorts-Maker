@@ -596,7 +596,7 @@ def test_metadata_rejects_more_than_three_titles() -> None:
 
 
 def test_metadata_keeps_source_as_a_nullable_required_field() -> None:
-    """필드를 빼면 "출처 없음"과 "생성기가 빠뜨림"이 구분되지 않는다 (#13, #31)."""
+    """필드를 빼면 "출처 없음"과 "생성기가 빠뜨림"이 구분되지 않는다 (#13, #100)."""
     validate_metadata(metadata(source=None))
     validate_metadata(metadata(source="https://example.com/article"))
 
