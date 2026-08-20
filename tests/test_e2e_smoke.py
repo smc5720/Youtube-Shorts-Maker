@@ -455,3 +455,37 @@ def test_fail_on_flagged_changes_the_exit_code_and_nothing_else(smoke: Smoke) ->
     # 산출물은 게이트 없이 돈 run과 같은 집합이다 — 영상까지 포함해서다.
     assert set(fingerprint(smoke.gated)) == set(smoke.snapshot)
     assert (smoke.gated / OUTPUT_NAME).is_file()
+
+
+# --- 이어 돌리기 (#36) --------------------------------------------------------
+
+
+def test_a_run_missing_only_its_video_is_resumed(smoke: Smoke) -> None:
+    """#36 완료 조건 — 렌더 단계만 실패한 run을 이어 돌리면 성공하고 모델을 부르지 않는다.
+
+    **모듈 스코프 파이프라인 실행 수를 늘리지 않는다.** 새로 돌리는 것이 아니라 이미 있는
+    run 디렉터리의 mp4 하나를 다시 만들고, 세 번째 run을 쓰므로 앞의 둘을 건드리지 않는다.
+
+    **대역은 이미 걷혔다** (`smoke` 픽스처의 `patch.undo()`). 그래서 "LLM·TTS를 부르지
+    않는다"가 여기서는 계약이 아니라 실측이다 — 불렀다면 네트워크로 나간다. `--fail-on-flagged`
+    로 멈춘 run이라는 것도 함께 확인된다: 검수 판정이 이어 돌리기를 막지 않는다.
+    """
+    run_dir = smoke.gated
+    before = fingerprint(run_dir)
+    (run_dir / OUTPUT_NAME).unlink()
+
+    assert main(["--resume", str(run_dir)]) == 0
+
+    after = fingerprint(run_dir)
+    # 다시 만든 것이 mp4 하나다. `run.log`는 이어 돌리기 기록이 붙어 달라진다.
+    assert set(after) == set(before)
+    assert {name for name in before if before[name] != after[name]} <= {
+        LOG_FILENAME,
+        OUTPUT_NAME,
+    }
+    # 이어 돌린 렌더도 확정된 타임라인으로 돈다 — 프레임 정렬 총 길이와 맞아야 한다.
+    scenes = load_scenes(run_dir / SCENES_SCHEMA.name, finalized=True)
+    duration = float(
+        probe(run_dir / OUTPUT_NAME, "format=duration")["format"]["duration"]
+    )
+    assert duration == pytest.approx(align(scenes).total_sec, abs=1 / FPS)

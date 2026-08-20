@@ -17,8 +17,8 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 `metadata.json` · `audio/seg-*.mp3` · `voice.mp3` · `captions.srt` · `project.json` ·
 `final_short.mp4`가 나오고(`--text-file`·`--url` 경로는 `source.json`도), 앱은 열기·저장·장면
 목록·프리뷰·문제 편집·속성 편집·최종 렌더·재생성까지 한다. **지금은 Phase 5다** — 범용 입력
-경로(#94·#95)가 붙어 세 갈래가 모두 산다. #36이 `ready`, 나머지(#32~#35, #37)는
-`needs-refinement`.
+경로(#94·#95)가 붙어 세 갈래가 모두 살고, `--resume`으로 실패한 run을 이어 돌린다(#36).
+`ready`는 없고 나머지(#32~#35, #37)는 `needs-refinement`.
 
 | Phase | 이슈 | 내용 |
 | --- | --- | --- |
@@ -93,6 +93,24 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
   735자, 스파이크 #31 3장). 임계값의 목적은 안내문 걸러내기가 아니라 **빈 본문 걸러내기**다.
 - **`source.json`의 `url`은 사용자가 친 주소가 아니라 리다이렉트가 도착한 곳이다.** 단축
   링크를 넣고 값이 다르다고 버그로 고치면 그 칸이 출처를 가리키지 않게 된다. (#95)
+- **최종 mp4는 임시 파일에 렌더하고 바꿔 끼운다** (`video_renderer.render` → `build_command`의
+  `destination`). **이어 돌리기(#36)의 판단이 이것에 의존한다** — 잘린 mp4가 남으면 "산출물이
+  있으니 건너뛴다"가 그 파일을 최종 결과로 넘긴다. 함정은 테스트 대역이다: **목적지 파일을
+  만들지 않는 가짜 ffmpeg는 이제 성공 경로에서 `commit_staged`가 `FileNotFoundError`로 터진다**
+  (원인이 렌더처럼 보이지만 대역이다).
+- **이어 돌리기는 타입을 모른다.** 장면이 `scenes.json`에서 오므로 콘텐츠 파일명도 타입 선언도
+  필요하지 않다 — 재생성(#77)과 갈리는 지점이 그것이다. 요구 산출물 셋(`config.used.yaml`·
+  `scenes.json`·`metadata.json`)은 **모델이 만드는 것**이라 없으면 멈춘다.
+- **`resume`은 `project.json`이 있으면 다시 만들지 않는다.** 사람이 앱에서 얹은
+  `render.scene_overrides`·`review`가 거기 살아서다. 자막은 반대로 타임라인을 다시 확정하면
+  파일이 있어도 다시 만든다(타임코드가 낡는다) — 두 규칙이 갈리는 것이 의도다.
+- **`--force segments`가 provider 호출을 늘리지 않는다.** TTS 캐시가 run 디렉터리 밖이라
+  같은 문장은 복사된다 — `Report.synthesized`(그대로 쓰지 않은 세그먼트 수)와 provider 호출
+  수를 같은 값으로 보는 테스트는 거짓으로 실패한다.
+- **생성 전용 CLI 인자의 기본값은 파서에 없다** (`--type`·`--out`·`--fail-on-flagged`가
+  `argparse.SUPPRESS`, 채우는 자리는 `main._fill_generation_defaults`). 기본값을 파서로 되돌리면
+  "주지 않았다"와 "기본값을 줬다"가 갈리지 않아 **`--resume`과 함께 온 인자를 거부하는 규칙이
+  조용히 죽는다.** `--help`의 기본값 문구도 그래서 손으로 적혀 있다.
 - **전 구간 스모크(`tests/test_e2e_smoke.py`)는 `conftest`의 `stub_tts`·`stub_ffmpeg`를 쓰지
   않는다.** `b"stub-audio"`는 진짜 FFmpeg가 디코드하지 못하고, `stub_ffmpeg`는 `ffprobe`까지
   가짜 길이로 답해 duration 확정이 실측 경로를 지나지 않는다. **파이프라인 실행은 모듈 스코프

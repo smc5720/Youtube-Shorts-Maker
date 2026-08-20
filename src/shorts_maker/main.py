@@ -18,6 +18,9 @@
 - 입력 세 갈래는 **배타 그룹**이고 정확히 하나가 필수다. 무엇이 들어왔는지를 하나의 값으로
   합치는 것은 `source.py`이며, 파이프라인이 받는 것은 `SourceInput` 하나다 (#94, #95).
   가져오기·추출·거부도 그쪽에 있다 — 여기는 어느 갈래였는지만 본다.
+- **`--resume`은 그 배타 그룹의 네 번째다** (#36). 새 run 디렉터리를 만들지 않고 기존 것을
+  이어 돌리므로 위 검증도 `run()`도 지나지 않는다 — 그쪽의 진입점은 `_resume`이고 판단은
+  전부 `resume.py`에 있다.
 - 산출물 파일명은 타입 선언(`content_artifact`)에서 나온다. 여기 `quiz.json`을 적으면
   공통 파이프라인이 타입을 알게 되고 `tests/test_type_boundary.py`가 깨진다.
 - 산출물 검증은 생성기가 한다. 파이프라인은 타입 전용 스키마를 열 수 없다 (퀴즈 스펙 1.1).
@@ -39,6 +42,7 @@ from . import (
     metadata_generator,
     narration,
     project,
+    resume,
     timeline,
     video_renderer,
 )
@@ -52,7 +56,9 @@ from .config import (
     serialize_config,
 )
 from .llm import LLMError, validate_providers
+from .resume import FORCE_TARGETS, ResumeError
 from .run_context import (
+    LOG_FILENAME,
     RunContext,
     run_logging,
     start_run,
@@ -111,7 +117,10 @@ def _force_utf8_console() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="shorts-maker",
-        description="주제 한 줄·원문 파일·링크 중 하나를 입력받아 세로형 쇼츠를 생성한다.",
+        description=(
+            "주제 한 줄·원문 파일·링크 중 하나를 입력받아 세로형 쇼츠를 생성한다. "
+            "실패한 실행은 --resume으로 이어 돌린다."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     # 입력 세 갈래 (PRD 6.1). **정확히 하나가 필수다** — 둘을 함께 주면 어느 것이 콘텐츠의
@@ -142,21 +151,34 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="링크",
         help="본문을 추출할 링크. trafilatura가 필요하다 (pip install 'youtube-shorts-maker[source]')",
     )
+    # **네 번째 입력이다** (#36). 앞의 셋과 배타인 이유는 이쪽이 만들 것을 이미 가진 run
+    # 디렉터리를 가리키기 때문이다 — 함께 주면 새로 만들 것인지 이어 돌릴 것인지 말할 수 없다.
+    inputs.add_argument(
+        "--resume",
+        dest="resume_dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        metavar="경로",
+        help="이어서 돌릴 기존 run 디렉터리. 없는 산출물만 만들고 모델은 부르지 않는다",
+    )
     parser.add_argument(
         "--type",
         dest="shorts_type",
         # 선택지도 --help 출력도 레지스트리에서 나온다. 타입을 등록하면 따라온다.
         choices=available_types(),
-        default=DEFAULT_TYPE,
-        help="쇼츠 타입",
+        # 아래 넷은 **생성 전용 인자다.** SUPPRESS를 쓰는 이유가 기본값 표시가 아니라
+        # `--resume`과 함께 왔는지 알아야 하기 때문이다 — 기본값을 여기 두면 "주지 않았다"와
+        # "기본값을 줬다"가 갈리지 않아 조용히 무시하게 된다 (`_fill_generation_defaults`).
+        default=argparse.SUPPRESS,
+        help=f"쇼츠 타입 (기본 {DEFAULT_TYPE})",
     )
     parser.add_argument(
         "--out",
         dest="output_root",
         type=Path,
-        default=DEFAULT_OUTPUT_ROOT,
+        default=argparse.SUPPRESS,
         metavar="경로",
-        help="run 디렉터리를 만들 상위 경로",
+        help=f"run 디렉터리를 만들 상위 경로 (기본 {DEFAULT_OUTPUT_ROOT})",
     )
     parser.add_argument(
         "--config",
@@ -172,7 +194,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--fail-on-flagged",
         dest="fail_on_flagged",
         action="store_true",
+        default=argparse.SUPPRESS,
         help="검수 필요 항목이 하나라도 있으면 0이 아닌 종료 코드로 멈춘다 (기본은 경고 후 진행)",
+    )
+    parser.add_argument(
+        "--force",
+        dest="force",
+        action="append",
+        choices=FORCE_TARGETS,
+        default=argparse.SUPPRESS,
+        help="`--resume`에서 산출물이 있어도 다시 실행할 단계 (여러 번 지정 가능)",
     )
     parser.add_argument(
         "-v",
@@ -417,10 +448,114 @@ def _resolve_input(args: argparse.Namespace, config: Config) -> SourceInput:
     return from_url(args.url, config=config, now=datetime.now())
 
 
+GENERATION_ONLY = {
+    "shorts_type": "--type",
+    "output_root": "--out",
+    "config_path": "--config",
+    "fail_on_flagged": "--fail-on-flagged",
+}
+"""생성 실행에서만 뜻이 있는 인자 (dest → 플래그 이름).
+
+`--resume`과 함께 오면 **거부한다.** 조용히 무시하면 사용자가 일어나지 않은 일을 일어났다고
+믿는다 — 특히 `--config`가 그렇다: 이어 돌리기는 설정을 `config.used.yaml`에서 읽으므로
+(#92) 다른 설정 파일을 준 사람은 그 값으로 돌았다고 생각하게 된다.
+"""
+
+
+def _fill_generation_defaults(args: argparse.Namespace) -> None:
+    """SUPPRESS로 비워 둔 생성 전용 인자의 기본값을 채운다.
+
+    기본값이 파서에 있으면 `--resume`과 함께 왔는지 알 수 없다 (`GENERATION_ONLY`). 그래서
+    **기본값의 자리가 여기 하나다** — 값을 읽는 쪽마다 `getattr` 기본값을 적으면 같은 기본값이
+    여러 곳에 생긴다.
+    """
+    args.shorts_type = getattr(args, "shorts_type", DEFAULT_TYPE)
+    args.output_root = getattr(args, "output_root", DEFAULT_OUTPUT_ROOT)
+    args.fail_on_flagged = getattr(args, "fail_on_flagged", False)
+
+
+def _resume(args: argparse.Namespace) -> int:
+    """기존 run 디렉터리를 이어서 돌린다 (#36).
+
+    **로그는 그 run의 `run.log`에 이어 붙인다.** 이어 돌리기는 같은 run의 계속이므로 어느
+    단계를 건너뛰고 무엇을 다시 만들었는지가 원래 실패 기록 바로 아래에 있어야 한다.
+
+    **거부는 로그를 열기 전에 한다** (`resume.check`). run 디렉터리가 아닌 곳을 가리킨
+    사람에게 남는 것이 로그 파일 하나여서는 안 되고, `FileHandler`는 없는 디렉터리에서
+    실패한다.
+    """
+    run_dir = args.resume_dir
+    try:
+        resume.check(run_dir)
+    except ResumeError as error:
+        print(f"이어 돌릴 수 없다:\n{error}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    force = getattr(args, "force", [])
+    with run_logging(run_dir / LOG_FILENAME, verbose=args.verbose) as logger:
+        logger.info("이어 돌리기 시작 %s", datetime.now().isoformat(timespec="seconds"))
+        logger.info("run 디렉터리 %s", run_dir)
+        if force:
+            logger.info("강제 재실행 %s", ", ".join(force))
+        try:
+            report = resume.resume(run_dir, force=force)
+        except (ResumeError, ConfigError) as error:
+            # 여기 오는 `ResumeError`는 강제 재실행 대상 오류뿐이다 — 산출물 확인은 위에서
+            # 이미 지났다. `ConfigError`는 설정 기록이 계약을 어긴 경우다.
+            logger.error("이어 돌리기 실패 — %s", error)
+            print(f"이어 돌릴 수 없다:\n{error}", file=sys.stderr)
+            return EXIT_CONFIG_ERROR
+        except OSError as error:
+            logger.error("이어 돌리기 실패 — %s", error)
+            print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)
+            return EXIT_RUNTIME_ERROR
+        except (
+            LLMError,
+            SchemaError,
+            TTSError,
+            TimelineError,
+            CaptionError,
+            RenderError,
+        ) as error:
+            # 생성 실행과 같은 예외 집합이다 — 이어 돌리기가 부르는 단계가 그쪽의 부분집합
+            # 이므로, 여기서 좁히면 새 단계가 붙을 때 스택트레이스가 새어 나간다.
+            logger.error("이어 돌리기 실패 — %s", error)
+            print(f"이어 돌리기 실패:\n{error}", file=sys.stderr)
+            if raw := getattr(error, "raw", ""):
+                print(raw, file=sys.stderr)
+            return EXIT_RUNTIME_ERROR
+
+        logger.info(
+            "이어 돌리기 완료 — 다시 만든 것 %s / 그대로 쓴 것 %s (세그먼트 합성 %d개)",
+            ", ".join(report.remade) or "없음",
+            ", ".join(report.reused) or "없음",
+            report.synthesized,
+        )
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_console()
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if hasattr(args, "resume_dir"):
+        if rejected := [
+            flag for dest, flag in GENERATION_ONLY.items() if hasattr(args, dest)
+        ]:
+            print(
+                f"--resume과 함께 쓸 수 없는 인자다: {', '.join(rejected)}\n"
+                "이어 돌리기는 그 run의 설정 기록(config.used.yaml)과 산출물로 돈다.",
+                file=sys.stderr,
+            )
+            return EXIT_CONFIG_ERROR
+        return _resume(args)
+
+    if hasattr(args, "force"):
+        print("--force는 --resume과 함께 쓴다.", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    _fill_generation_defaults(args)
 
     # 설정 검증을 run 디렉터리 생성보다 먼저 한다. 오타 하나 때문에 빈 run 디렉터리가
     # 쌓이면 검수할 산출물과 구분되지 않는다.
