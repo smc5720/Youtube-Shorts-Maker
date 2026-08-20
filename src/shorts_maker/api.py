@@ -52,7 +52,7 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, TextIO
 
-from . import overlay, video_renderer
+from . import audio_mix, overlay, video_renderer
 from . import regenerate as regenerate_module
 from .assets import AssetError, background_presets, caption_styles
 from .captions import CaptionError
@@ -242,6 +242,10 @@ def method_presets(params: dict[str, Any]) -> Any:
             {"extension": extension, "kind": kind}
             for extension, kind in video_renderer.BACKGROUND_FILE_KINDS.items()
         ],
+        # 배경음악으로 받는 사용자 파일 (#35). **`kind`가 없는 것이 배경 파일과 갈리는
+        # 지점이다** — 음악에는 확장자가 정하는 종류가 없어서 표가 목록 하나로 끝난다.
+        # 번들 음악이 없으므로(PRD 8장) 프리셋 목록도 없다.
+        "music_files": list(audio_mix.MUSIC_FILE_EXTENSIONS),
         # 텍스트 오버레이가 고를 수 있는 것들 (#83). **배경 형식 목록과 같은 이유로 여기를
         # 지난다** — 소유자는 `assets/`가 아니라 스키마(`schemas/project.py`)와 렌더러지만,
         # 앱이 적어 두면 안 되는 목록이라는 점이 같다. 특히 웨이트는 앱이 시안대로 400·600을

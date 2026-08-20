@@ -126,7 +126,12 @@ def test_without_a_voice_track_the_audio_is_null(tmp_path: Path) -> None:
 
     assert content["audio"] == {
         "voice": None,
+        # 배경음악도 기본은 없음이다 (PRD 8장) — 번들 음악이 없으므로 config 기본값이 `null`이고
+        # 값 셋은 경로가 생길 때를 위해 항상 적힌다 (#35).
         "music": None,
+        "music_volume": 0.30,
+        "music_duck": 0.35,
+        "music_duck_fade_sec": 0.25,
         "sfx_volume": 1.0,
         "voice_volume": 1.0,
     }
@@ -146,6 +151,33 @@ def test_the_track_gains_come_from_the_config(tmp_path: Path) -> None:
 
     assert content["audio"]["sfx_volume"] == 0.0
     assert content["audio"]["voice_volume"] == 0.4
+
+
+def test_the_music_settings_come_from_the_config(tmp_path: Path) -> None:
+    """음악도 같은 한 방향을 지난다 (#35, PRD 7.10).
+
+    **`project.build`가 옮겨 담지 않으면 렌더에 도달하지 않는다** — 렌더러는 config를 다시
+    열지 않으므로, 경로만 config에 적고 여기를 지나지 않으면 음악이 조용히 빠진다.
+    """
+    content = project.build(
+        FINAL_SCENES,
+        config=config_of(
+            tmp_path,
+            **{
+                "audio.music": "bgm/bed.mp3",
+                "audio.music_volume": 0.5,
+                "audio.music_duck": 0.2,
+                "audio.music_duck_fade_sec": 0.4,
+            },
+        ),
+        run_dir=tmp_path,
+    )
+
+    assert content["audio"]["music"] == "bgm/bed.mp3"
+    assert content["audio"]["music_volume"] == 0.5
+    assert content["audio"]["music_duck"] == 0.2
+    assert content["audio"]["music_duck_fade_sec"] == 0.4
+    validate_project(content)
 
 
 def test_a_new_project_always_writes_the_voice_gain(tmp_path: Path) -> None:
