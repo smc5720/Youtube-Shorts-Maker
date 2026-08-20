@@ -20,10 +20,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 링크 본문 추출 (#95, PRD 14.1). **필수 의존성이 아니다** — 패키지 12개에 약 55MB이고
+# `import trafilatura`가 810ms인데, `--url`은 두 번째 쇼츠 타입에서야 쓰인다. 없는데
+# `--url`을 주면 run 디렉터리를 만들기 전에 이 설치 방법을 말하며 멈춘다 (`source.py`).
+# 하한은 실측에 쓴 버전이다 (스파이크 #31). **앱이 생성까지 하게 되면 동결 배포가 이 트리를
+# 함께 지므로 그때 필수로 승격한다.**
+source = ["trafilatura>=2.2"]
 # fonttools는 번들 폰트 검사 전용이다 (#38) — 웨이트·임베딩 허용 비트·한글 커버리지를
 # 커밋된 파일에서 다시 재는 데 쓴다. 파이프라인은 폰트를 파싱하지 않으므로 런타임 의존이
 # 아니고, 손으로 cmap을 파싱하는 코드를 테스트에 두지 않기 위한 선택이다.
-dev = ["pytest>=8.0", "fonttools>=4.50"]
+#
+# trafilatura가 여기 함께 있는 것은 **추출 품질이 테스트 대상이기 때문이다** — 저장된 HTML
+# 바이트에서 무엇이 나오는지(특히 MS949 응답)를 대역으로 흉내 내면 검증이 아니라 동어반복이
+# 된다. 없는 환경에서는 그 테스트만 skip된다.
+dev = ["pytest>=8.0", "fonttools>=4.50", "trafilatura>=2.2"]
 
 [project.scripts]
 shorts-maker = "shorts_maker.main:main"

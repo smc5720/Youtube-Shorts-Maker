@@ -33,6 +33,13 @@ tts:
 source:
   max_chars: 200000               # 원문 글자 수 상한. 넘으면 실행 시작 시점에 오류
   title_max_len: 80               # 첫 줄에서 제목을 딸 때의 상한. 넘는 줄은 잘라 쓴다
+  # 링크 입력(--url)만 읽는다. 거부는 HTTP 상태·Content-Type·본문 길이 셋으로만 걸고
+  # 페이지 유형을 판별하지 않는다 (PRD 14.1).
+  url:
+    timeout_sec: 20               # 페이지 하나를 가져오는 타임아웃(초)
+    max_bytes: 5000000            # 응답 본문 상한(바이트). 넘으면 읽다가 멈춘다
+    max_redirects: 5              # 따라갈 리다이렉트 수 상한
+    min_chars: 300                # 추출된 본문의 하한. 미만이면 --text-file로 안내한다
 
 # 낭독 장면의 길이 확정 공식 (PRD 7.5.1)
 #   duration = max(lead_in_sec + 실측_오디오_길이 + tail_sec,
