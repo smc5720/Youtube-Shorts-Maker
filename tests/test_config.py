@@ -384,6 +384,8 @@ def test_every_documented_key_has_a_default() -> None:
         "tts.timeout_sec",
         "tts.max_retries",
         "tts.cache_dir",
+        "source.max_chars",
+        "source.title_max_len",
         "timing.lead_in_sec",
         "timing.tail_sec",
         "timing.min_duration_sec",

@@ -15,9 +15,10 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 **Phase 0~4 완료.** CLI 한 번에 `config.used.yaml` · `quiz.json` · `scenes.json` ·
 `metadata.json` · `audio/seg-*.mp3` · `voice.mp3` · `captions.srt` · `project.json` ·
-`final_short.mp4`가 나오고, 앱은 열기·저장·장면 목록·프리뷰·문제 편집·속성 편집·최종 렌더·
-재생성까지 한다. **지금은 Phase 5다** — #94·#95·#36이 `ready`, 나머지(#32~#35, #37)는
-`needs-refinement`.
+`final_short.mp4`가 나오고(`--text-file` 경로는 `source.json`도), 앱은 열기·저장·장면 목록·
+프리뷰·문제 편집·속성 편집·최종 렌더·재생성까지 한다. **지금은 Phase 5다** — 원문 파일
+입력(#94)이 붙었고 `--url`은 배타 그룹의 자리만 있다. #95·#36이 `ready`, 나머지(#32~#35,
+#37)는 `needs-refinement`.
 
 | Phase | 이슈 | 내용 |
 | --- | --- | --- |
