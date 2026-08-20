@@ -69,6 +69,13 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
         "background": {
             "kind": BACKGROUND_PRESET,
             "value": str(config.get("render.background")),
+            # 배경 모션 (#34). **여기 옮겨 담지 않으면 렌더에 도달하지 않는다** — 렌더러는
+            # config를 다시 열지 않는다 (PRD 7.10). CLI 경로가 만드는 배경은 `preset`
+            # 하나이므로 이 값은 앱이 배경을 파일로 바꾼 뒤에 그림을 바꾼다.
+            "motion": {
+                "kind": str(config.get("render.motion.kind")),
+                "strength": float(config.get("render.motion.strength")),
+            },
         },
         "audio": {
             # **파일이 있는지로 정한다.** "낭독 장면이 없으면 null"이라는 조건을 여기 다시

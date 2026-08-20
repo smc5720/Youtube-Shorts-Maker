@@ -477,6 +477,193 @@ def test_an_unknown_background_kind_lists_the_supported_ones(tmp_path: Path) -> 
         build_command(project, run_dir=tmp_path, total_sec=5.0)
 
 
+# --- 배경 모션 (#34) ---------------------------------------------------------
+
+
+def with_background(tmp_path: Path, kind: str, motion: Any = ..., **spec: Any) -> dict[str, Any]:
+    """배경 하나를 갈아 끼운 프로젝트. 파일 배경이면 그 파일도 만든다.
+
+    `motion`을 주지 않으면 `background`에 그 키가 아예 없다 — 이 필드가 생기기 전에 만들어진
+    run 디렉터리의 모양이다.
+    """
+    value = {
+        "image": "bg.png",
+        "video": "bg.mp4",
+        "preset": "deep_navy",
+        "color": "#123abc",
+    }[kind]
+    if kind in ("image", "video"):
+        (tmp_path / value).write_text("명령을 만들 때는 파일 내용을 보지 않는다", encoding="utf-8")
+    background: dict[str, Any] = {"kind": kind, "value": value}
+    if motion is not ...:
+        background["motion"] = motion
+    project = project_with(background=background)
+    if spec:
+        project["render"] = project["render"] | spec
+    return project
+
+
+def video_chain(command: list[str]) -> str:
+    """`[0:v]`에 걸린 필터 체인. 오디오 쪽은 보지 않는다."""
+    graph = command[command.index("-filter_complex") + 1]
+    return next(step for step in graph.split(";") if step.startswith("[0:v]"))
+
+
+@pytest.mark.parametrize("kind", ["image", "video"])
+def test_motion_rides_on_the_background_chain_before_the_overlays(
+    tmp_path: Path, kind: str
+) -> None:
+    """오버레이는 모션 **뒤**에 붙는다 — 그래서 자막이 배경과 함께 움직이지 않는다."""
+    project = with_background(tmp_path, kind, {"kind": "zoom_in", "strength": 0.08})
+
+    command = build_command(
+        project, run_dir=tmp_path, total_sec=5.0, overlays=["drawtext=text='문구'"]
+    )
+
+    chain = video_chain(command)
+    assert chain.index("crop=1080:1920") < chain.index("zoompan=") < chain.index("drawtext")
+
+
+def test_motion_names_the_canvas_the_fps_and_the_duration(tmp_path: Path) -> None:
+    """**세 기본값이 함정이다.** `s`가 없으면 배경이 1280x720으로 나와 오버레이 좌표가 전부
+    어긋나고, `fps` 기본값은 25(우리는 30), `d` 기본값 90은 입력 프레임 하나를 90프레임으로
+    늘려 `-loop 1` 이미지에서 3초 주기로 같은 줌이 반복된다.
+
+    셋 다 `project.json`의 값을 따른다 — 규격을 앱이 바꾸면 모션도 따라와야 한다.
+    """
+    project = with_background(
+        tmp_path, "image", {"kind": "zoom_in", "strength": 0.08},
+        width=720, height=1280, fps=24,
+    )
+
+    chain = video_chain(build_command(project, run_dir=tmp_path, total_sec=5.0))
+
+    assert "s=720x1280" in chain
+    assert ":fps=24" in chain
+    assert ":d=1:" in chain
+
+
+def test_the_motion_progress_ends_on_the_last_frame(tmp_path: Path) -> None:
+    """**`on`은 출력 프레임 번호이고 0부터 센다**(실측). 프레임 수로 나누면 마지막 프레임이
+    목표 배율에 닿지 못하므로 프레임 수 - 1로 나눈다.
+
+    쉼표는 필터 인자 구분자라 이스케이프한다 (`build_preview_command`의 `select`와 같다).
+    """
+    project = with_background(tmp_path, "image", {"kind": "zoom_in", "strength": 0.08})
+
+    chain = video_chain(build_command(project, run_dir=tmp_path, total_sec=5.0))
+
+    # 5.000초 × 30fps = 150프레임, 마지막 프레임 번호는 149다.
+    assert r"min(on/149\,1)" in chain
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("zoom_in", r"z='1+0.5*min(on/149\,1)'"),
+        ("zoom_out", r"z='1+0.5*(1-min(on/149\,1))'"),
+        # 팬은 배율을 고정하고 확대로 생긴 여백 안에서 움직인다.
+        ("pan_left", r"z='1.5':x='(iw-iw/zoom)*(1-min(on/149\,1))'"),
+        ("pan_right", r"z='1.5':x='(iw-iw/zoom)*min(on/149\,1)'"),
+        ("pan_up", r"y='(ih-ih/zoom)*(1-min(on/149\,1))'"),
+        ("pan_down", r"y='(ih-ih/zoom)*min(on/149\,1)'"),
+    ],
+)
+def test_each_motion_keeps_the_zoom_at_or_above_one(
+    tmp_path: Path, kind: str, expected: str
+) -> None:
+    """**1 아래로 내려가면 크롭 창이 캔버스보다 커져 배경 경계가 프레임에 들어온다.**
+
+    이름 하나가 방향까지 정하므로 표현식도 이름마다 하나다 (`_motion_expressions`).
+    """
+    project = with_background(tmp_path, "image", {"kind": kind, "strength": 0.5})
+
+    assert expected in video_chain(build_command(project, run_dir=tmp_path, total_sec=5.0))
+
+
+@pytest.mark.parametrize("kind", ["preset", "color"])
+def test_a_preset_or_color_background_gets_no_motion_filter(
+    tmp_path: Path, kind: str
+) -> None:
+    """**값을 무시하는 것이 아니라 결과가 같다.** zoom/pan은 공간 변화를 옮기는 것이라 단색에서
+    프레임이 완전히 동일하고, 필터를 하나 더 지나며 렌더 시간만 늘 자리다.
+
+    명령이 모션 필드가 없을 때와 **정확히 같다** — 기본 배경으로 도는 CLI 경로가 이쪽이다.
+    """
+    moving = with_background(tmp_path, kind, {"kind": "pan_right", "strength": 0.5})
+    still = with_background(tmp_path, kind)
+
+    assert build_command(moving, run_dir=tmp_path, total_sec=5.0) == build_command(
+        still, run_dir=tmp_path, total_sec=5.0
+    )
+
+
+@pytest.mark.parametrize("kind", ["image", "video"])
+@pytest.mark.parametrize(
+    "motion",
+    [
+        ...,
+        None,
+        {"kind": "none", "strength": 0.08},
+        {"kind": "zoom_in", "strength": 0.0},
+    ],
+)
+def test_motion_off_leaves_the_command_as_it_was(
+    tmp_path: Path, kind: str, motion: Any
+) -> None:
+    """모션이 없는 네 모양 — 필드 없음(옛 run 디렉터리) · null · `none` · 강도 0.
+
+    필터 단계가 하나도 붙지 않아야 한다. 빈 단계를 이어 붙이면 `,,`가 생겨 그래프가 깨진다.
+    """
+    project = with_background(tmp_path, kind, motion)
+
+    chain = video_chain(build_command(project, run_dir=tmp_path, total_sec=5.0))
+
+    assert "zoompan" not in chain
+    assert ",," not in chain
+
+
+def test_an_unknown_motion_kind_lists_the_supported_ones(tmp_path: Path) -> None:
+    project = with_background(tmp_path, "image", {"kind": "ken_burns", "strength": 0.08})
+
+    with pytest.raises(RenderError, match="zoom_in"):
+        build_command(project, run_dir=tmp_path, total_sec=5.0)
+
+
+@pytest.mark.parametrize("strength", [-0.1, 1.5, "0.08", True, None])
+def test_a_motion_strength_outside_the_contract_stops_before_ffmpeg(
+    tmp_path: Path, strength: Any
+) -> None:
+    """상한이 있는 것이 다른 게인 값과 갈리는 점이다 — `zoompan`은 배율을 10에서 조용히
+    자르므로, 넘긴 값을 통과시키면 파일의 값과 그림이 갈린다."""
+    project = with_background(tmp_path, "image", {"kind": "zoom_in", "strength": strength})
+
+    with pytest.raises(RenderError, match="strength"):
+        build_command(project, run_dir=tmp_path, total_sec=5.0)
+
+
+def test_a_bad_motion_value_is_rejected_even_where_it_would_not_apply(
+    tmp_path: Path,
+) -> None:
+    """**배경 종류가 판정을 미루지 않는다.** 프리셋 배경에서 통과시키면 그 값은 앱에서 배경을
+    파일로 바꾸는 순간에야 터지고, 그때 원인은 배경 교체처럼 보인다."""
+    project = with_background(tmp_path, "preset", {"kind": "ken_burns", "strength": 0.08})
+
+    with pytest.raises(RenderError, match="ken_burns"):
+        build_command(project, run_dir=tmp_path, total_sec=5.0)
+
+
+def test_the_preview_command_carries_the_motion(tmp_path: Path) -> None:
+    """프리뷰도 `_video_stage`를 지난다 (#27). 여기 없으면 정지 프레임이 렌더와 다른 그림이다."""
+    project = with_background(tmp_path, "image", {"kind": "zoom_in", "strength": 0.08})
+
+    command = video_renderer.build_preview_command(
+        project, run_dir=tmp_path, total_sec=5.0, frames=[10], out_dir=tmp_path
+    )
+
+    assert "zoompan=" in video_chain(command)
+
+
 def test_the_voice_track_is_the_audio_input_when_it_exists(tmp_path: Path) -> None:
     (tmp_path / "voice.mp3").write_bytes(b"audio")
     project = project_with(audio={"voice": "voice.mp3", "music": None, "sfx_volume": 1.0})
@@ -964,6 +1151,170 @@ def test_an_image_background_leaves_no_empty_area(tmp_path: Path) -> None:
         red, green, blue = frame[offset : offset + 3]
         # `color=green`은 #008000이다. yuv420p 왕복 오차를 감안해 넉넉히 본다.
         assert green > 100 and red < 60 and blue < 60, f"({x},{y})가 배경 가운데가 아니다"
+
+
+def frame_stats(command: list[str], key: str) -> list[float]:
+    """`signalstats` 값을 프레임 순서대로. 필터가 `metadata=print`로 내보낸 줄을 읽는다."""
+    reported = subprocess.run(
+        [*command, "-f", "null", "-"], capture_output=True, text=True, check=True
+    ).stderr
+    values = [
+        float(line.split("=")[1])
+        for line in reported.splitlines()
+        if f"signalstats.{key}" in line
+    ]
+    assert values, f"{key} 통계가 나오지 않았다"
+    return values
+
+
+def frame_gap(path: Path, first: int, second: int) -> float:
+    """떨어진 두 프레임의 평균 휘도 차 — 0에 가까우면 같은 그림이다.
+
+    **바이트 비교를 쓰지 않는다.** H.264는 손실 압축이라 같은 그림도 프레임 위치에 따라 몇
+    단위씩 다르게 디코드된다 — 정지 배경에서도 바이트가 갈린다 (실측 차이 0.005).
+    """
+    return frame_stats(
+        ["ffmpeg", "-hide_banner", "-i", str(path), "-vf",
+         rf"select=eq(n\,{first})+eq(n\,{second}),tblend=all_mode=difference,"
+         "signalstats,metadata=print:key=lavfi.signalstats.YAVG"],
+        "YAVG",
+    )[-1]
+
+
+def frame_mismatch(first: Path, second: Path, index: int) -> float:
+    """두 영상의 같은 번호 프레임에서 가장 크게 어긋난 픽셀의 휘도 차.
+
+    **평균이 아니라 최대다.** 그림 하나가 몇 픽셀 밀린 것은 넓이가 작아 평균에 묻히지만
+    경계에서는 값이 크게 벌어진다 — 실측에서 오버레이를 24px 옮기면 216, 같은 자리면 13이었다.
+    """
+    return frame_stats(
+        ["ffmpeg", "-hide_banner", "-i", str(first), "-i", str(second), "-filter_complex",
+         rf"[0:v]select=eq(n\,{index})[a];[1:v]select=eq(n\,{index})[b];"
+         "[a][b]blend=all_mode=difference,signalstats,"
+         "metadata=print:key=lavfi.signalstats.YMAX"],
+        "YMAX",
+    )[-1]
+
+
+def luma_floor(path: Path) -> float:
+    """영상 **전 프레임**의 최소 휘도. 프레임 하나만 보면 경계가 드러나지 않는다 —
+    `zoompan`이 캔버스를 못 채우는 순간은 모션 도중이다."""
+    return min(
+        frame_stats(
+            ["ffmpeg", "-hide_banner", "-i", str(path), "-vf",
+             "signalstats,metadata=print:key=lavfi.signalstats.YMIN"],
+            "YMIN",
+        )
+    )
+
+
+def render_background_only(
+    project: dict[str, Any], *, run_dir: Path, total_sec: float
+) -> Path:
+    """오버레이 없이 배경 체인만 렌더한다.
+
+    **번인 텍스트가 화면의 가장 어두운 픽셀이다** (검은 외곽선, D1 확정 스펙 2.1). 배경이
+    캔버스를 채웠는지 휘도로 보려면 그 글자가 없어야 한다 — 여기서 확인하는 것은 배경 체인
+    하나이고, 오버레이가 모션과 무관하다는 것은 아래 별 테스트가 지킨다.
+    """
+    output = run_dir / "background-only.mp4"
+    command = build_command(
+        project, run_dir=run_dir, total_sec=total_sec, destination=output
+    )
+    subprocess.run(command, check=True, capture_output=True)
+    return output
+
+
+def canvas_image(path: Path, *, color: str, size: str) -> None:
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c={color}:s={size}",
+         "-frames:v", "1", str(path)],
+        check=True,
+        capture_output=True,
+    )
+
+
+def moving(project: dict[str, Any], kind: str, strength: float) -> dict[str, Any]:
+    return project | {"background": project["background"] | {
+        "motion": {"kind": kind, "strength": strength}
+    }}
+
+
+@needs_ffmpeg
+def test_motion_moves_the_pixels_and_no_motion_leaves_them_still(tmp_path: Path) -> None:
+    """**서로 떨어진 두 프레임을 본다.** 이웃한 두 프레임은 같을 수 있다 — `zoompan`의 크롭
+    창이 정수 픽셀이라 움직임의 실질 갱신률이 fps가 아니라 강도에서 나온다 (#34 실측).
+    """
+    background = tmp_path / "bg.png"
+    # 세부가 있는 그림이어야 공간 변화가 픽셀에 남는다. 단색에서는 모션이 붙어도 결과가 같다.
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=1080x1920",
+         "-frames:v", "1", str(background)],
+        check=True,
+        capture_output=True,
+    )
+    still = project_with(background={"kind": "image", "value": background.name})
+    scenes = scenes_with(1.0)
+    last = align(scenes).total_frames - 1
+
+    moved = render(moving(still, "zoom_in", 0.5), scenes, run_dir=tmp_path)
+    assert frame_gap(moved, 0, last) > 5
+
+    # 모션이 꺼져 있으면 같은 그림이다. 이 확인이 없으면 위 차이가 인코딩 잡음일 수 있다.
+    assert frame_gap(render(still, scenes, run_dir=tmp_path), 0, last) < 0.1
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("kind", ["zoom_in", "zoom_out", "pan_right", "pan_up"])
+def test_a_moving_background_leaves_no_empty_area_and_keeps_the_spec(
+    tmp_path: Path, kind: str
+) -> None:
+    """**최대 강도로 본다.** 배율이 1 아래로 내려가거나 팬이 여백을 넘으면 캔버스를 못 채운
+    영역이 검게 남는다 — 캔버스보다 큰 그림을 채워 넣었으므로 어느 프레임에도 있을 수 없다.
+
+    규격도 함께 본다. `zoompan`의 `s` 기본값(`hd720`)에 걸리면 여기서 드러난다.
+    """
+    background = tmp_path / "bg.png"
+    canvas_image(background, color="green", size="1600x900")
+    project = moving(
+        project_with(background={"kind": "image", "value": background.name}), kind, 1.0
+    )
+
+    output = render_background_only(project, run_dir=tmp_path, total_sec=1.0)
+
+    # `color=green`(#008000)의 휘도는 80 근처다. 검은 영역이 한 프레임에라도 있으면 내려간다.
+    assert luma_floor(output) > 40
+    video = next(
+        stream
+        for stream in probe(output, "stream=codec_type,width,height,r_frame_rate")["streams"]
+        if stream["codec_type"] == "video"
+    )
+    assert (video["width"], video["height"]) == (CANVAS_WIDTH, CANVAS_HEIGHT)
+    assert video["r_frame_rate"] == "30/1"
+
+
+@needs_ffmpeg
+def test_the_overlays_land_in_the_same_place_with_and_without_motion(
+    tmp_path: Path,
+) -> None:
+    """모션은 배경 체인 안에 있고 오버레이는 그 뒤에 붙는다 — 그림이 갈릴 자리가 없다.
+
+    **단색 배경으로 본다.** 모션이 옮기는 것은 배경의 공간 변화뿐이라 단색에서는 두 렌더의
+    프레임이 같아야 하고, 어긋난다면 그 차이는 자막이 함께 움직였다는 뜻이다.
+    """
+    background = tmp_path / "bg.png"
+    canvas_image(background, color="0x1B0B2E", size="1080x1920")
+    still = project_with(background={"kind": "image", "value": background.name})
+    scenes = scenes_with(1.0)
+    middle = align(scenes).total_frames // 2
+
+    with_motion = render(moving(still, "pan_right", 0.5), scenes, run_dir=tmp_path)
+    # 같은 이름에 쓰지 않는다 — 뒤 렌더가 앞 결과를 덮으면 비교할 것이 없다.
+    (kept := tmp_path / "moving.mp4").write_bytes(with_motion.read_bytes())
+    without = render(still, scenes, run_dir=tmp_path)
+
+    # 같은 자리면 13, 24px 밀리면 216이었다 (실측). 40은 그 사이다.
+    assert frame_mismatch(kept, without, middle) < 40
 
 
 @needs_ffmpeg

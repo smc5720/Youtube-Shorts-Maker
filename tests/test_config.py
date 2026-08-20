@@ -413,6 +413,8 @@ def test_every_documented_key_has_a_default() -> None:
         "render.caption_style",
         "render.cta_punch",
         "render.cta_tail",
+        "render.motion.kind",
+        "render.motion.strength",
     }
 
     assert set(flat_keys(config)) == expected

@@ -1206,7 +1206,13 @@ def test_run_writes_the_project_file(tmp_path: Path) -> None:
     }
     # 기본 4문제 → 낭독 장면이 있으므로 합성 트랙을 가리킨다.
     assert project["audio"]["voice"] == "voice.mp3"
-    assert project["background"] == {"kind": "preset", "value": "deep_navy"}
+    # 모션은 배경과 한 섹션에 있고 기본은 없음이다 (#34). CLI 경로의 배경은 프리셋이라
+    # 켜도 그림이 같다 — 붙는 것은 앱이 배경을 파일로 바꾼 뒤다.
+    assert project["background"] == {
+        "kind": "preset",
+        "value": "deep_navy",
+        "motion": {"kind": "none", "strength": 0.08},
+    }
 
 
 def test_the_project_file_points_at_the_finalized_scenes(tmp_path: Path) -> None:

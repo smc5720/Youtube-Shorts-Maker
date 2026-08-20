@@ -95,7 +95,29 @@ def test_the_background_comes_from_the_config(tmp_path: Path) -> None:
         run_dir=tmp_path,
     )
 
-    assert content["background"] == {"kind": "preset", "value": "purple_gradient"}
+    assert content["background"] == {
+        "kind": "preset",
+        "value": "purple_gradient",
+        # 모션은 배경과 한 섹션에 산다 (#34). 기본은 없음이고, 그 값이 여기 있어야 렌더에
+        # 도달한다 — 렌더러는 config를 다시 열지 않는다.
+        "motion": {"kind": "none", "strength": 0.08},
+    }
+
+
+def test_the_background_motion_rides_through_the_project(tmp_path: Path) -> None:
+    """**config가 아니라 이 파일이 렌더러의 입력이다** (#34, PRD 7.10). 여기 옮겨 담지 않으면
+    설정한 모션이 렌더에 도달하지 않는다."""
+    content = project.build(
+        FINAL_SCENES,
+        config=config_of(
+            tmp_path,
+            **{"render.motion.kind": "pan_left", "render.motion.strength": 0.2},
+        ),
+        run_dir=tmp_path,
+    )
+
+    assert content["background"]["motion"] == {"kind": "pan_left", "strength": 0.2}
+    validate_project(content)
 
 
 def test_without_a_voice_track_the_audio_is_null(tmp_path: Path) -> None:

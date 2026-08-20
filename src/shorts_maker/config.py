@@ -23,6 +23,7 @@ from typing import Any
 import yaml
 
 from .assets import AssetError, background_preset_names, caption_style_names
+from .schemas.project import MOTION_KINDS
 
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 
@@ -226,6 +227,18 @@ SPEC: dict[str, Any] = {
         # 하나다. 줄당 글자 수 상한(punch 9자 / tail 21자) 확인은 렌더러(#20)가 한다.
         "cta_punch": Setting("구독 · 좋아요", "str"),
         "cta_tail": Setting("매일 새 상식 퀴즈", "str"),
+        # 배경 모션 (#34). **`project.json`에서는 `background` 아래로 간다** — 적용 여부가
+        # 배경 종류에 달려 있어서다 (`project.build`, PRD 7.10). config가 값의 성격으로
+        # 나뉘고 프로젝트가 읽는 주체로 나뉘는 것이 그 차이다.
+        "motion": {
+            # 기본은 모션 없음이다. 이유는 `schemas/project.MOTION_NONE`에 있다 — 앱에
+            # 끄는 컨트롤이 없는 동안 기본으로 켜면 화면에서 되돌릴 수 없는 움직임이 된다.
+            "kind": Setting("none", "str", choices=lambda: MOTION_KINDS),
+            # 확대 배율의 증분. **`kind`가 `none`이면 읽지 않는다** — 켤 때의 값이므로
+            # 0으로 두지 않는다. 0.08에서 크롭 폭이 1080 → 1000px이고, 그 80단계가 영상
+            # 전체에 퍼진다 (움직임의 실질 갱신률이 fps가 아니라 이 값에서 나온다 — #34).
+            "strength": Setting(0.08, "float"),
+        },
     },
 }
 
