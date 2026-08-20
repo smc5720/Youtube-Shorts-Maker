@@ -538,6 +538,49 @@ def test_project_rejects_a_negative_voice_gain() -> None:
     assert_reports(failures(validate_project, data), "audio.voice_volume")
 
 
+def test_project_opens_without_the_music_settings() -> None:
+    """**셋 다 이 필드가 생기기 전의 run 디렉터리를 위해 선택이다** (#35, `voice_volume`과 같다).
+
+    그때의 뜻은 `DEFAULT_MUSIC_*`이고 렌더러가 그 값으로 읽는다.
+    """
+    data = project()
+    assert not {"music_volume", "music_duck", "music_duck_fade_sec"} & set(data["audio"])
+
+    validate_project(data)
+
+
+def test_project_takes_a_music_path_and_its_levels() -> None:
+    data = project()
+    data["audio"] |= {
+        "music": "bgm/bed.mp3",
+        "music_volume": 0.5,
+        "music_duck": 0.0,
+        "music_duck_fade_sec": 0.4,
+    }
+
+    validate_project(data)
+
+
+def test_project_rejects_a_music_duck_above_one() -> None:
+    """1 위는 "낭독 구간에서 음악을 키운다"가 되고 그것은 ducking의 반대 동작이다 (#35).
+
+    게인 계열과 갈리는 지점이다 — `voice_volume`의 상한은 리미터가 맡지만 이 값은 뜻이
+    뒤집히므로 계약이 막는다.
+    """
+    data = project()
+    data["audio"]["music_duck"] = 1.5
+
+    assert_reports(failures(validate_project, data), "audio.music_duck")
+
+
+def test_project_rejects_a_zero_duck_fade() -> None:
+    """계단 전환은 클릭으로 들린다 — 설정으로 고를 값이 아니라 결함이다 (#35)."""
+    data = project()
+    data["audio"]["music_duck_fade_sec"] = 0.0
+
+    assert_reports(failures(validate_project, data), "audio.music_duck_fade_sec")
+
+
 def test_project_rejects_unknown_background_kind() -> None:
     data = project()
     data["background"]["kind"] = "pexels"

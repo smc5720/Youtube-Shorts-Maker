@@ -81,8 +81,17 @@ def build(scenes: Mapping[str, Any], *, config: Config, run_dir: Path) -> dict[s
             # **파일이 있는지로 정한다.** "낭독 장면이 없으면 null"이라는 조건을 여기 다시
             # 적으면 트랙을 만드는 쪽(`timeline.finalize`)과 두 곳에서 갈린다.
             "voice": VOICE_TRACK if (run_dir / VOICE_TRACK).is_file() else None,
-            # 배경음악은 사용자가 라이선스를 확인한 파일만 넣는다 (PRD 8장). #35까지 없음이다.
-            "music": None,
+            # 배경음악은 사용자가 라이선스를 확인한 파일만 넣는다 (PRD 8장, #35).
+            # **번들 음악이 없으므로 기본은 `null`이고**, 값이 있으면 config에 적힌 경로가
+            # 그대로 온다 — 렌더러가 푸는 기준은 run 디렉터리다(`_source_file`).
+            "music": _optional(config.get("audio.music")),
+            # 음악 게인·감쇠 값 셋 (#35). **여기 옮겨 담지 않으면 렌더에 도달하지 않는다** —
+            # 렌더러는 config를 다시 열지 않는다 (PRD 7.10). 음악이 `null`이면 렌더가 이
+            # 값들을 읽지 않지만, 그때도 써 두는 것은 `voice_volume`과 같은 이유다 —
+            # 파일마다 있는 키가 갈리면 앱이 무엇을 보여 줄지가 파일마다 달라진다.
+            "music_volume": float(config.get("audio.music_volume")),
+            "music_duck": float(config.get("audio.music_duck")),
+            "music_duck_fade_sec": float(config.get("audio.music_duck_fade_sec")),
             # 효과음 게인 (#23). 렌더러가 읽는 값이므로 배경·자막 스타일과 같은 자리를
             # 지난다 — config를 렌더가 다시 열면 앱이 편집한 값이 무시된다 (PRD 7.10).
             "sfx_volume": float(config.get("audio.sfx_volume")),

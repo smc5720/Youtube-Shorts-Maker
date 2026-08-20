@@ -20,6 +20,17 @@ export interface Project {
      * 쓴다.
      */
     voice_volume?: number
+    /**
+     * 배경음악 값 셋 (#35). **화면에 이 값을 고치는 칸이 아직 없다** — D2 확정 스펙에 자리가
+     * 없어 경로는 config → `project.json` → 렌더로만 흐른다. 여기 적어 두는 것은 프로젝트를
+     * 통째로 주고받는 계약을 문서로 남기기 위함이고, `audio` 섹션은 프리뷰 지문에서 빠져
+     * 있으므로(#81) 이 값이 바뀌어도 프레임을 다시 만들지 않는다.
+     *
+     * 셋 다 없을 수 있다 — 이 필드가 생기기 전에 만들어진 run 디렉터리가 열린다.
+     */
+    music_volume?: number
+    music_duck?: number
+    music_duck_fade_sec?: number
   }
   render: {
     width: number
@@ -285,6 +296,12 @@ export interface PresetsResult {
   background_files?: BackgroundFileFormat[]
   /** 이 필드가 없는 백엔드 세대에서는 오버레이 편집이 열리지 않는다 (#83). */
   overlay?: OverlayContract
+  /**
+   * 배경음악으로 받는 확장자 (#35). **`kind`가 없는 것이 `background_files`와 갈리는
+   * 지점이다** — 음악에는 확장자가 정하는 종류가 없다. 번들 음악이 없으므로(PRD 8장)
+   * 프리셋 목록도 오지 않는다.
+   */
+  music_files?: string[]
 }
 
 export interface ScenesResult {

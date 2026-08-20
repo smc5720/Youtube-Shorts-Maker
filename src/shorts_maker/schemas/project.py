@@ -111,12 +111,44 @@ DEFAULT_VOICE_VOLUME = 1.0
 둘이 같은 수인 것은 게인 1.0이 원본 레벨이라는 사실(`audio_mix.UNITY_GAIN`) 하나에서 온다.
 """
 
+DEFAULT_MUSIC_VOLUME = 0.30
+DEFAULT_MUSIC_DUCK = 0.35
+DEFAULT_MUSIC_DUCK_FADE_SEC = 0.25
+"""음악 값 셋이 없는 프로젝트가 뜻하는 값 (#35).
+
+`DEFAULT_VOICE_VOLUME`과 같은 성격이다 — **`config.SPEC`의 기본값과 같은 수지만 같은 질문의
+답이 아니다.** 그쪽은 "새 프로젝트가 어떤 값으로 시작하는가"이고 이쪽은 "이 필드가 없는
+프로젝트가 무엇을 뜻하는가"다. 셋 다 `audio.music`이 `null`이면 명령에 닿지 않으므로, 여기
+값이 실제로 쓰이는 것은 **경로만 손으로 적어 넣은 `project.json`**뿐이다.
+"""
+
 _AUDIO_FIELDS = {
     # 낭독 장면이 하나도 없으면 `voice.mp3`가 생성되지 않는다 (PRD 6.2). 그래서 null을
     # 받는다. 키 자체는 필수로 둬서 앱이 존재 여부를 확인하지 않고 읽을 수 있게 한다.
     "voice": text(nullable=True),
-    # 라이선스를 확인한 파일만 사용자가 지정한다. 기본은 없음 (PRD 8장).
+    # 라이선스를 확인한 파일만 사용자가 지정한다. 기본은 없음 (PRD 8장, #35).
+    #
+    # **번들 음악이 없는 것이 이 필드가 null로 시작하는 이유다.** 받는 확장자는 스키마가 아니라
+    # 백엔드가 소유한다 (`audio_mix.MUSIC_FILE_EXTENSIONS`) — 배경 파일과 같은 이유로, 무엇을
+    # 디코드할 수 있는지는 사용자의 FFmpeg 빌드에 달려 있어 계약이 아니라 실패 시점의 문제다.
     "music": text(nullable=True),
+    # 음악 트랙의 선형 게인 (#35). **낭독 아래로 깔리는 값이라 기본값이 1이 아니다** —
+    # 효과음(`sfx_volume`)은 파일이 이미 낭독보다 낮게 정규화돼 있지만(#18) 음악은 사용자
+    # 파일이라 레벨을 알 수 없다.
+    #
+    # **셋 다 선택이다.** 이 필드들이 생기기 전에 만들어진 run 디렉터리의 `project.json`이
+    # 열려야 하고, 그때의 뜻은 위 `DEFAULT_MUSIC_*`이다 (`voice_volume`과 같은 이유, #81).
+    "music_volume": number(minimum=0, required=False),
+    # 낭독 구간에서 음악에 곱하는 배수. 0이면 완전 무음, 1이면 감쇠 없음.
+    #
+    # **상한이 1인 것이 `volume` 계열과 갈리는 지점이다** — 1 위는 "낭독 구간에서 음악을
+    # 키운다"는 뜻이고 그것은 ducking의 반대 동작이라, 리미터로 막을 수 있는 종류의 값이
+    # 아니다.
+    "music_duck": number(minimum=0, maximum=1.0, required=False),
+    # 감쇠가 걸리고 풀리는 데 쓰는 시간(초). **0을 받지 않는다** — 계단 전환은 파형의
+    # 불연속이라 클릭으로 들리고(실측에서 샘플 간 최대 변화량이 정상 구간의 8.6배),
+    # 그것은 설정으로 고를 값이 아니라 결함이다.
+    "music_duck_fade_sec": number(exclusive_minimum=0.0, required=False),
     # 효과음의 선형 게인 (#23). **편집 상태가 아니라 초기 상태다** — 렌더러가 실제로 읽는
     # 값이므로 `caption_style`과 같은 이유로 여기를 지나야 하고, config를 렌더가 다시 열면
     # 앱이 편집한 프로젝트와 CLI 렌더가 갈린다 (PRD 7.10). 앱(#81)의 볼륨 컨트롤이 이 필드를

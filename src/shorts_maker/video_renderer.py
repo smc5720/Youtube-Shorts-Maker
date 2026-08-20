@@ -38,6 +38,9 @@ from .overlay import OverlayError
 from .run_context import commit_staged, staging_path
 from .schemas.project import (
     BACKGROUND_KINDS,
+    DEFAULT_MUSIC_DUCK,
+    DEFAULT_MUSIC_DUCK_FADE_SEC,
+    DEFAULT_MUSIC_VOLUME,
     DEFAULT_VOICE_VOLUME,
     MOTION_KINDS,
     MOTION_NONE,
@@ -429,8 +432,9 @@ def render(
     # 걸리고, 그때 인코딩은 아직 시작되지 않았다 (#20의 완료 조건).
     overlays = build_overlays(project, scenes, timeline=timeline)
     # 효과음도 인코딩 전에 만든다 (#23). 번들에 없는 `sfx` 이름은 여기서 걸리고, 그때 인코딩은
-    # 아직 시작되지 않았다 — 오버레이의 폰트 검증과 같은 자리다.
-    audio = build_audio(project, scenes, timeline=timeline)
+    # 아직 시작되지 않았다 — 오버레이의 폰트 검증과 같은 자리다. 배경음악의 형식·경로도 같은
+    # 자리에서 걸린다 (#35).
+    audio = build_audio(project, scenes, timeline=timeline, run_dir=run_dir)
     output = run_dir / str(project["render"]["output"])
     # 임시 파일에 인코딩한다 (#36). `staging_path`가 확장자를 유지하므로 FFmpeg가 출력 형식을
     # 그대로 정한다 — 뒤에 붙이면 "Unable to find a suitable output format"으로 실패한다.
@@ -650,15 +654,24 @@ def build_overlays(
 
 
 def build_audio(
-    project: Mapping[str, Any], scenes: Mapping[str, Any], *, timeline: Timeline
+    project: Mapping[str, Any],
+    scenes: Mapping[str, Any],
+    *,
+    timeline: Timeline,
+    run_dir: Path,
 ) -> AudioChain:
-    """낭독 위에 효과음을 얹는 오디오 체인 (#23). 트리거 시각은 `audio_mix`가 소유한다.
+    """낭독 위에 효과음과 배경음악을 얹는 오디오 체인 (#23, #35). 시각은 `audio_mix`가 소유한다.
 
-    **게인 둘을 `project.json`에서 읽는다.** 배경·자막 스타일과 같은 이유로 config를 다시 열지
+    **게인들을 `project.json`에서 읽는다.** 배경·자막 스타일과 같은 이유로 config를 다시 열지
     않는다 — 앱(#81)이 트랙 볼륨을 편집하면 CLI 렌더가 그 값으로 돌아야 한다 (PRD 7.10).
 
+    Args:
+        run_dir: 배경음악 경로의 기준 (#35). **기본값을 두지 않는다** — 없으면 음악을 건너뛰게
+            하면 인자를 빠뜨린 호출부가 음악 없는 결과를 조용히 받는다.
+
     Raises:
-        RenderError: `sfx` 이름이 번들에 없거나 게인 값이 음수일 때.
+        RenderError: `sfx` 이름이 번들에 없거나, 게인 값이 계약 밖이거나, 음악 파일의 형식·
+            경로가 잘못됐을 때. **인코딩을 시작하기 전에 걸린다.**
     """
     try:
         return audio_mix.build(
@@ -671,10 +684,38 @@ def build_audio(
             voice_volume=_audio_number(
                 project, "voice_volume", default=DEFAULT_VOICE_VOLUME
             ),
+            music=_music(project, run_dir=run_dir),
         )
     except AudioMixError as error:
         # 오디오 체인 실패도 렌더 실패다. 부르는 쪽(main)이 잡는 예외를 하나로 유지한다.
         raise RenderError(str(error)) from error
+
+
+def _music(project: Mapping[str, Any], *, run_dir: Path) -> audio_mix.Music | None:
+    """`audio.music`을 섞을 배경음악으로 옮긴다 (#35). 없으면 `None`.
+
+    **형식을 먼저 보고 경로를 나중에 푼다.** 순서를 뒤집으면 받지 않는 형식의 없는 파일이
+    "파일을 찾을 수 없다"로 끝나, 사용자가 경로를 고쳐도 다시 거부당한다.
+
+    Raises:
+        AudioMixError: 받지 않는 확장자일 때 (`check_music_format`).
+        RenderError: 파일이 없을 때 (`_source_file` — 경로와 함께 말한다).
+    """
+    value = project.get("audio", {}).get("music")
+    if value is None:
+        return None
+
+    audio_mix.check_music_format(str(value))
+    return audio_mix.Music(
+        path=_source_file(str(value), run_dir),
+        # **셋 다 없으면 기본값이다** (`voice_volume`과 같은 이유, #81) — 이 필드들이 생기기
+        # 전에 만들어진 run 디렉터리에 사람이 음악 경로만 적어 넣는 경로가 있다.
+        volume=_audio_number(project, "music_volume", default=DEFAULT_MUSIC_VOLUME),
+        duck=_audio_number(project, "music_duck", default=DEFAULT_MUSIC_DUCK),
+        fade_sec=_audio_number(
+            project, "music_duck_fade_sec", default=DEFAULT_MUSIC_DUCK_FADE_SEC
+        ),
+    )
 
 
 def build_command(

@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from shorts_maker import api, overlay, project, video_renderer
+from shorts_maker import api, audio_mix, overlay, project, video_renderer
 from shorts_maker.assets import (
     CAPTION_COLOR_ROLES,
     AssetError,
@@ -355,6 +355,18 @@ def test_presets_carry_the_background_file_formats_the_app_may_offer() -> None:
     assert [entry["extension"] for entry in result["background_files"]] == list(
         video_renderer.BACKGROUND_FILE_KINDS
     )
+
+
+def test_presets_carry_the_music_file_formats_the_app_may_offer() -> None:
+    """**음악 형식 목록도 앱이 적어 두면 안 된다** (#35, 배경 파일과 같은 이유).
+
+    `kind`가 없는 것이 배경 파일과 갈리는 지점이다 — 음악에는 확장자가 정하는 종류가 없다.
+    번들 음악이 없으므로(PRD 8장) 프리셋 목록도 오지 않는다.
+    """
+    result = result_of(call("presets"))
+
+    assert result["music_files"] == list(audio_mix.MUSIC_FILE_EXTENSIONS)
+    assert all(entry.startswith(".") for entry in result["music_files"])
 
 
 def test_presets_carry_the_overlay_contract_the_app_offers() -> None:
