@@ -15,7 +15,9 @@
 - 무엇이 검수 대상인지는 타입이 정한다. 파이프라인은 `ContentIssue` 세 칸을 읽어 옮길 뿐
   `confidence`도 임계값도 모른다 (퀴즈 스펙 1.1).
 
-- `--url` / `--text-file` 입력은 #31에서 추가한다. 그때 `--topic`은 배타 그룹의 한 갈래가 된다.
+- 입력 세 갈래는 **배타 그룹**이고 정확히 하나가 필수다. 무엇이 들어왔는지를 하나의 값으로
+  합치는 것은 `source.py`이며, 파이프라인이 받는 것은 `SourceInput` 하나다 (#94). `--url`의
+  가져오기·추출은 #95가 붙인다 — 지금은 그룹의 자리만 있다.
 - 산출물 파일명은 타입 선언(`content_artifact`)에서 나온다. 여기 `quiz.json`을 적으면
   공통 파이프라인이 타입을 알게 되고 `tests/test_type_boundary.py`가 깨진다.
 - 산출물 검증은 생성기가 한다. 파이프라인은 타입 전용 스키마를 열 수 없다 (퀴즈 스펙 1.1).
@@ -57,7 +59,13 @@ from .run_context import (
     write_artifact,
     write_text_artifact,
 )
-from .schemas import METADATA_SCHEMA, PROJECT_SCHEMA, SCENES_SCHEMA, SchemaError
+from .schemas import (
+    METADATA_SCHEMA,
+    PROJECT_SCHEMA,
+    SCENES_SCHEMA,
+    SOURCE_SCHEMA,
+    SchemaError,
+)
 from .shorts_types import (
     DEFAULT_TYPE,
     ContentIssue,
@@ -66,6 +74,7 @@ from .shorts_types import (
     available_types,
     get_type,
 )
+from .source import SourceError, SourceInput, from_text_file, from_topic
 from .timeline import TimelineError
 from .tts import TTSError, create_synthesizer, validate_tts_provider
 from .video_renderer import RenderError
@@ -102,17 +111,36 @@ def _force_utf8_console() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="shorts-maker",
-        description="주제를 입력받아 세로형 쇼츠 초안을 생성한다.",
+        description="주제 한 줄 또는 원문 파일을 입력받아 세로형 쇼츠를 생성한다.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
+    # 입력 세 갈래 (PRD 6.1). **정확히 하나가 필수다** — 둘을 함께 주면 어느 것이 콘텐츠의
+    # 근거인지 말할 수 없고, 하나도 주지 않으면 만들 것이 없다. argparse가 종료 코드 2로
+    # 막으므로 아래 검증 어디에도 "입력이 없다" 분기가 없다.
+    #
+    # 세 인자 모두 SUPPRESS를 쓴다. 하나만 값을 가지므로 나머지는 **속성 자체가 없고**,
+    # 그것이 곧 "이 갈래가 아니다"의 표현이다 (`_resolve_input`). None을 기본값으로 두면
+    # --help에 의미 없는 "(default: None)"이 세 줄 붙는다.
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument(
         "--topic",
-        required=True,
         metavar="주제",
-        # SUPPRESS를 쓰면 --help에 의미 없는 "(default: None)"이 붙지 않는다.
-        # required=True이므로 파싱을 통과하면 항상 값이 있다.
         default=argparse.SUPPRESS,
         help="쇼츠로 만들 주제 한 줄",
+    )
+    inputs.add_argument(
+        "--text-file",
+        dest="text_file",
+        type=Path,
+        default=argparse.SUPPRESS,
+        metavar="경로",
+        help="원문 텍스트 파일. 첫 비어 있지 않은 줄이 제목이 된다",
+    )
+    inputs.add_argument(
+        "--url",
+        default=argparse.SUPPRESS,
+        metavar="링크",
+        help="본문을 추출할 링크 (아직 지원하지 않는다 — #95)",
     )
     parser.add_argument(
         "--type",
@@ -164,7 +192,10 @@ def _callable_name(target: object) -> str:
 
 
 def run(
-    args: argparse.Namespace, config: Config, shorts_type: ShortsType
+    args: argparse.Namespace,
+    config: Config,
+    shorts_type: ShortsType,
+    source: SourceInput,
 ) -> tuple[RunContext, list[ContentIssue]]:
     """run 디렉터리를 만들고 실행 정보를 로그에 남긴다. 검수 필요 항목을 함께 돌려준다."""
     context = start_run(args.output_root, datetime.now())
@@ -173,7 +204,7 @@ def run(
         logger.info("run 시작 %s", context.started_at.isoformat(timespec="seconds"))
         logger.info("run 디렉터리 %s", context.run_dir)
         logger.info("타입 %s", shorts_type.name)
-        logger.info("주제 %s", args.topic)
+        logger.info("주제 %s", source.topic)
         logger.debug("콘텐츠 생성기 %s", _callable_name(shorts_type.generator))
         logger.debug("장면 템플릿 %s", _callable_name(shorts_type.scene_template))
         # 타입 전용 산출물 목록을 남긴다. 나중에 "왜 script.txt가 없지"를 run.log로 답한다.
@@ -198,9 +229,31 @@ def run(
         )
         logger.info("%s 생성 완료", recorded.name)
 
+        # 입력 기록 (#94). **설정 기록 다음, 콘텐츠 생성보다 앞이다** — 어느 단계에서
+        # 실패하든 "무엇을 입력으로 받았는지"가 남아야 한다. `--topic` 경로에는 기록이 없고
+        # 없는 것이 실패가 아니다 (PRD 6.2 표).
+        if source.record is not None:
+            written = write_artifact(context.run_dir, SOURCE_SCHEMA.name, source.record)
+            logger.info(
+                "%s 생성 완료 — %s, 원문 %d자, 제목 %s",
+                written.name,
+                source.record["kind"],
+                source.record["char_count"],
+                source.record["title"],
+            )
+            if not shorts_type.produces_summary:
+                # 조용히 버리면 "기사를 줬는데 왜 이 문제가 나왔지"의 답이 없다 (#94).
+                # 본문을 소비하는 것은 요약·대본(#32)이고 그 경로를 쓰는 타입이 아직 없다.
+                logger.info(
+                    "%s 타입은 원문을 콘텐츠 생성에 쓰지 않는다 — 생성기에 가는 것은 제목뿐이고 "
+                    "본문은 %s에만 남는다",
+                    shorts_type.name,
+                    written.name,
+                )
+
         logger.info("콘텐츠 생성 중 — 모델 호출은 수십 초가 걸린다")
         try:
-            content = shorts_type.generator(topic=args.topic, config=config)
+            content = shorts_type.generator(topic=source.topic, config=config)
         except (LLMError, SchemaError) as error:
             # run.log에 원인을 남기고 넘긴다. 콘솔 메시지는 main이 낸다.
             logger.error("콘텐츠 생성 실패 — %s", error)
@@ -343,6 +396,27 @@ def _warn_about(
         logger.warning("  %s: %s — %s", issue.subject, issue.summary, issue.reason)
 
 
+def _resolve_input(args: argparse.Namespace, config: Config) -> SourceInput:
+    """CLI 인자를 파이프라인이 받는 입력 하나로 바꾼다 (#94).
+
+    **"입력이 없다" 갈래가 없다.** argparse의 배타 그룹이 정확히 하나를 보장하므로(종료 코드
+    2) 여기서 볼 것은 어느 갈래였는지뿐이고, 값이 없는 갈래는 속성 자체가 없다.
+
+    Raises:
+        SourceError: 원문을 읽을 수 없거나, 아직 구현되지 않은 갈래일 때.
+    """
+    if (topic := getattr(args, "topic", None)) is not None:
+        return from_topic(topic)
+    if (text_file := getattr(args, "text_file", None)) is not None:
+        # 수집 시각은 여기서 잰다. run 시작 시각과 같은 값이 아니다 — run 디렉터리는 이
+        # 검증을 통과한 뒤에 만들어지고, 기록이 말하는 것은 원문을 읽은 시각이다.
+        return from_text_file(text_file, config=config, now=datetime.now())
+    raise SourceError(
+        "--url은 아직 지원하지 않는다 — 링크 본문 추출은 #95가 붙인다.\n"
+        "지금은 페이지 본문을 파일로 저장해 --text-file로 넣는다."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_console()
     parser = build_parser()
@@ -388,8 +462,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"TTS provider 오류:\n{error}", file=sys.stderr)
         return EXIT_CONFIG_ERROR
 
+    # 입력도 같은 자리에서 본다 (#94). 없는 파일·빈 파일·상한 초과는 산출물을 하나도 만들
+    # 수 없으므로 빈 run 디렉터리를 남기지 않는다. `SchemaError`가 여기 있는 것은 방어선이다
+    # — 만든 기록이 계약을 어겼다면 `source.py`의 결함이고, 스택트레이스보다 원인 문구가 낫다.
     try:
-        context, issues = run(args, config, shorts_type)
+        source = _resolve_input(args, config)
+    except (SourceError, SchemaError) as error:
+        print(f"입력 오류:\n{error}", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
+
+    try:
+        context, issues = run(args, config, shorts_type, source)
     except OSError as error:
         # 쓰기 권한이 없거나 경로가 파일인 경우. 스택트레이스 대신 원인을 남긴다.
         print(f"run 디렉터리에 쓸 수 없다: {error}", file=sys.stderr)

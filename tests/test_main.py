@@ -31,9 +31,11 @@ from shorts_maker.schemas import (
     METADATA_SCHEMA,
     PROJECT_SCHEMA,
     SCENES_SCHEMA,
+    SOURCE_SCHEMA,
     load_metadata,
     load_project,
     load_scenes,
+    load_source,
 )
 from shorts_maker.shorts_types import DEFAULT_TYPE, available_types, get_type
 from shorts_maker.tts import TTSError
@@ -117,7 +119,16 @@ def test_help_lists_arguments_and_defaults(capsys: pytest.CaptureFixture[str]) -
 
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
-    for flag in ("--topic", "--type", "--out", "--config", "--fail-on-flagged", "--verbose"):
+    for flag in (
+        "--topic",
+        "--text-file",
+        "--url",
+        "--type",
+        "--out",
+        "--config",
+        "--fail-on-flagged",
+        "--verbose",
+    ):
         assert flag in help_text
     assert f"default: {DEFAULT_TYPE}" in help_text
     assert "default: outputs" in help_text
@@ -125,12 +136,17 @@ def test_help_lists_arguments_and_defaults(capsys: pytest.CaptureFixture[str]) -
     assert "default: None" not in help_text
 
 
-def test_missing_topic_exits_nonzero_with_reason(capsys: pytest.CaptureFixture[str]) -> None:
+def test_missing_input_exits_with_code_two_naming_the_three_paths(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """입력 세 갈래 중 정확히 하나가 필수다 (#94). 인자 오류는 argparse의 코드 2다."""
     with pytest.raises(SystemExit) as exit_info:
         main([])
 
-    assert exit_info.value.code != 0
-    assert "--topic" in capsys.readouterr().err
+    assert exit_info.value.code == 2
+    stderr = capsys.readouterr().err
+    for flag in ("--topic", "--text-file", "--url"):
+        assert flag in stderr
 
 
 def test_unsupported_type_exits_nonzero_and_lists_supported(
@@ -261,6 +277,191 @@ def test_failed_run_still_records_the_config(tmp_path: Path, stub_llm: StubLLM) 
     run_dir = run_dirs(output_root)[0]
     assert not (run_dir / get_type(DEFAULT_TYPE).content_artifact).exists()
     assert load_run_config(run_dir).data == defaults()
+
+
+# --- 원문 파일 입력과 입력 기록 (#94) ---------------------------------------
+
+ARTICLE_TITLE = "폭염 속 전력 수요 사상 최고"
+ARTICLE_BODY = "20일 전력거래소는 최대 전력 수요가 사상 최고치를 기록했다고 밝혔다."
+ARTICLE = f"{ARTICLE_TITLE}\n\n{ARTICLE_BODY}\n"
+
+
+def write_article(directory: Path, text: str = ARTICLE) -> Path:
+    path = directory / "기사.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_text_file_run_writes_the_source_record(tmp_path: Path) -> None:
+    """입력 종류·파일 경로·글자 수·제목·수집 시각이 남는다 (PRD 7.1)."""
+    article = write_article(tmp_path)
+    output_root = tmp_path / "out"
+
+    exit_code = main(["--text-file", str(article), "--out", str(output_root)])
+
+    assert exit_code == 0
+    record = load_source(run_dirs(output_root)[0] / SOURCE_SCHEMA.name)
+    assert record["kind"] == "text_file"
+    assert record["path"] == article.as_posix()
+    assert record["title"] == ARTICLE_TITLE
+    assert record["char_count"] == len(ARTICLE)
+    assert record["collected_at"]
+
+
+def test_a_topic_run_writes_no_source_record(tmp_path: Path) -> None:
+    """`--topic` 경로에는 출처가 없다. 없는 것이 실패가 아니다 (PRD 6.2 표)."""
+    main(["--topic", "주제", "--out", str(tmp_path)])
+
+    assert not (run_dirs(tmp_path)[0] / SOURCE_SCHEMA.name).exists()
+
+
+def test_the_source_record_comes_after_the_config_record(tmp_path: Path) -> None:
+    """자리는 `config.used.yaml` 다음, 콘텐츠 생성보다 앞이다 (#94)."""
+    output_root = tmp_path / "out"
+
+    main(["--text-file", str(write_article(tmp_path)), "--out", str(output_root)])
+
+    log_text = (run_dirs(output_root)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+    order = [
+        log_text.index(f"{name} 생성 완료")
+        for name in (
+            RUN_CONFIG_FILENAME,
+            SOURCE_SCHEMA.name,
+            get_type(DEFAULT_TYPE).content_artifact,
+        )
+    ]
+    assert order == sorted(order)
+
+
+def test_a_failed_run_still_keeps_the_source_record(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """어느 단계에서 멈춰도 "무엇을 입력으로 받았는지"가 남아야 한다 (#92와 같은 이유)."""
+    stub_llm.reply(*[LLMError("실패")] * 3)
+    output_root = tmp_path / "out"
+
+    exit_code = main(["--text-file", str(write_article(tmp_path)), "--out", str(output_root)])
+
+    assert exit_code == EXIT_RUNTIME_ERROR
+    run_dir = run_dirs(output_root)[0]
+    assert not (run_dir / get_type(DEFAULT_TYPE).content_artifact).exists()
+    assert load_source(run_dir / SOURCE_SCHEMA.name)["title"] == ARTICLE_TITLE
+
+
+def test_the_generator_gets_the_title_and_not_the_body(
+    tmp_path: Path, stub_llm: StubLLM
+) -> None:
+    """`ContentGenerator` 계약은 그대로다 — `topic` 자리에 제목이 간다 (PRD 14.1).
+
+    본문을 소비하는 것은 요약·대본(#32)이고 그 경로를 쓰는 타입이 아직 없다.
+    """
+    main(["--text-file", str(write_article(tmp_path)), "--out", str(tmp_path / "out")])
+
+    prompt = stub_llm.calls[0]["prompt"]
+    assert ARTICLE_TITLE in prompt
+    assert ARTICLE_BODY not in prompt
+
+
+def test_the_run_log_says_the_body_did_not_reach_the_generator(tmp_path: Path) -> None:
+    """조용히 버리면 "기사를 줬는데 왜 이 문제가 나왔지"의 답이 없다 (#94)."""
+    output_root = tmp_path / "out"
+
+    main(["--text-file", str(write_article(tmp_path)), "--out", str(output_root)])
+
+    log_text = (run_dirs(output_root)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+
+    assert f"{SOURCE_SCHEMA.name} 생성 완료" in log_text
+    assert "원문을 콘텐츠 생성에 쓰지 않는다" in log_text
+    assert f"{len(ARTICLE)}자" in log_text
+
+
+def test_two_inputs_together_exit_with_code_two(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """둘을 함께 주면 어느 것이 콘텐츠의 근거인지 말할 수 없다."""
+    output_root = tmp_path / "out"
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(
+            [
+                "--topic",
+                "주제",
+                "--text-file",
+                str(write_article(tmp_path)),
+                "--out",
+                str(output_root),
+            ]
+        )
+
+    assert exit_info.value.code == 2
+    assert "--text-file" in capsys.readouterr().err
+    assert not output_root.exists()
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("", "비어 있다"),
+        ("   \n\n", "비어 있다"),
+        ("가" * 100, "source.max_chars"),
+    ],
+    ids=("empty", "whitespace", "over-limit"),
+)
+def test_a_rejected_text_file_stops_before_the_run_dir(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stub_llm: StubLLM,
+    body: str, expected: str,
+) -> None:
+    """설정 오류와 같은 종료 코드다. 빈 run 디렉터리를 남기지 않는다."""
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("source:\n  max_chars: 20\n", encoding="utf-8")
+    output_root = tmp_path / "out"
+
+    exit_code = main(
+        [
+            "--text-file",
+            str(write_article(tmp_path, body)),
+            "--out",
+            str(output_root),
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    assert exit_code == EXIT_CONFIG_ERROR
+    assert expected in capsys.readouterr().err
+    assert not output_root.exists()
+    assert stub_llm.call_count == 0
+
+
+def test_a_missing_text_file_stops_before_the_run_dir(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output_root = tmp_path / "out"
+
+    exit_code = main(
+        ["--text-file", str(tmp_path / "없다.txt"), "--out", str(output_root)]
+    )
+
+    assert exit_code == EXIT_CONFIG_ERROR
+    assert "찾을 수 없다" in capsys.readouterr().err
+    assert not output_root.exists()
+
+
+def test_url_is_not_supported_yet_and_stops_before_the_run_dir(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """그룹의 자리만 있다 — 가져오기·추출은 #95가 붙인다."""
+    output_root = tmp_path / "out"
+
+    exit_code = main(
+        ["--url", "https://example.com/article", "--out", str(output_root)]
+    )
+
+    assert exit_code == EXIT_CONFIG_ERROR
+    stderr = capsys.readouterr().err
+    assert "--url" in stderr
+    assert "--text-file" in stderr  # 대안을 안내한다
+    assert not output_root.exists()
 
 
 def test_unreadable_output_root_exits_nonzero(

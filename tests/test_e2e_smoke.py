@@ -86,7 +86,8 @@ FOREIGN_ARTIFACTS = ("script.txt", "summary.json", "source.json")
 """`--topic` + 퀴즈 경로에서 **생성되지 않아야** 하는 파일 (PRD 6.2 표).
 
 퀴즈는 대본도 요약도 만들지 않고(`SHORTS_TYPE.produces_script`/`produces_summary`),
-`source.json`은 `--url`·`--text-file` 입력이 생기는 #31의 산출물이다. 없는 것이 실패가
+`source.json`은 **입력 경로가 결정한다** — `--text-file`·`--url` 실행의 산출물이므로 주제 한
+줄로 돌린 이 경로에는 없다 (#94). 없는 것이 실패가
 아니라 **있는 것이 실패다** — 여기 파일이 생기면 어느 단계가 자기 경로를 벗어난 것이다.
 """
 

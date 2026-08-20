@@ -190,7 +190,9 @@ PRD 쪽 서술은 [7.4.1](../PRD.md#741-scenesjson-단일-계약).
 `tts` 이후 단계는 모두 확정된 `scenes.json`을 입력으로 받는다 — 초안의 목표치를 기준으로
 계산하는 단계가 있으면 안 된다.
 
-퀴즈 타입은 `script.txt`·`summary.json`·`source.json`을 생성하지 않는다 (PRD 6.2).
+퀴즈 타입은 `script.txt`·`summary.json`을 생성하지 않는다 (PRD 6.2). **`source.json`은 타입이
+아니라 입력 경로가 결정한다** — `--text-file`·`--url` 실행에서는 퀴즈 타입에서도 남고, 그때
+콘텐츠 생성기가 받는 것은 제목뿐이며 본문은 그 파일에만 있다 (PRD 14.1).
 
 `quiz_generator`와 `quiz_verifier`는 파이프라인 단계가 아니라 **한 단계 안의 두 모듈**이다.
 `SHORTS_TYPE.generator`가 가리키는 것은 `generate()` 하나이고 그 안에서 검증기를 부른다.

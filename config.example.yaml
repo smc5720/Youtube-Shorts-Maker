@@ -28,6 +28,12 @@ tts:
   max_retries: 2                  # 재시도 횟수. 타임아웃·모듈 부재는 재시도하지 않는다
   cache_dir: .cache/tts           # 세그먼트 캐시 위치. run 디렉터리 밖이다. null이면 캐시를 끈다
 
+# 원문 입력 (PRD 7.1). --text-file / --url 실행만 읽는다. 상한을 넘기면 run 디렉터리를
+# 만들기 전에 멈추고, 통과한 원문은 전문이 source.json에 남는다.
+source:
+  max_chars: 200000               # 원문 글자 수 상한. 넘으면 실행 시작 시점에 오류
+  title_max_len: 80               # 첫 줄에서 제목을 딸 때의 상한. 넘는 줄은 잘라 쓴다
+
 # 낭독 장면의 길이 확정 공식 (PRD 7.5.1)
 #   duration = max(lead_in_sec + 실측_오디오_길이 + tail_sec,
 #                  min_duration_sec,
