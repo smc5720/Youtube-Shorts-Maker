@@ -84,11 +84,31 @@ def test_generated_metadata_passes_the_schema(stub_llm: StubLLM) -> None:
     assert len(content["titles"]) == TITLE_COUNT
 
 
-def test_source_is_null_not_missing_on_the_topic_path(stub_llm: StubLLM) -> None:
-    """`--topic`에는 출처가 없다. 필드를 빼면 "생성기가 빠뜨림"과 구분되지 않는다 (#31)."""
+def test_source_is_null_not_missing_when_there_is_no_origin(stub_llm: StubLLM) -> None:
+    """출처가 없는 입력 경로다. 필드를 빼면 "생성기가 빠뜨림"과 구분되지 않는다 (#100)."""
     content = generate(draft_scenes(), config=config_with())
 
     assert "source" in content
+    assert content["source"] is None
+
+
+def test_the_given_source_lands_in_the_artifact(stub_llm: StubLLM) -> None:
+    """값을 고르는 것은 입력 경로이고 이 모듈은 옮겨 담는다 (#100)."""
+    content = generate(
+        draft_scenes(), config=config_with(), source="https://news.example.com/article/1"
+    )
+
+    validate_metadata(content)
+    assert content["source"] == "https://news.example.com/article/1"
+
+
+def test_the_source_is_not_asked_of_the_model(stub_llm: StubLLM) -> None:
+    """`source`는 코드가 정하는 필드다 — 모델이 낸 값이 이 칸에 오면 출처가 아니라 창작이다."""
+    stub_llm.reply(model_output(source="https://모델이.만든.주소"))
+
+    content = generate(draft_scenes(), config=config_with(), source=None)
+
+    assert "source" not in stub_llm.calls[0]["schema"]["properties"]
     assert content["source"] is None
 
 

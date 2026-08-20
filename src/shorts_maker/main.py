@@ -320,7 +320,11 @@ def run(
         # 옮길 이유가 없다 — 렌더가 실패해도 남아야 하는 산출물이다 (PRD 6.2 표).
         logger.info("메타데이터 생성 중")
         try:
-            metadata = metadata_generator.generate(scenes, config=config)
+            # 출처는 입력이 정한다 — 링크 경로만 값이 있고 `source.json`의 `url`과 같은
+            # 값이다 (#100). 여기서 그 파일을 다시 읽지 않는다.
+            metadata = metadata_generator.generate(
+                scenes, config=config, source=source.attribution
+            )
         except (LLMError, SchemaError) as error:
             logger.error("메타데이터 생성 실패 — %s", error)
             raise

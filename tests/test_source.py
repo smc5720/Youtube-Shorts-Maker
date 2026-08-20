@@ -343,6 +343,40 @@ def test_the_recorded_url_is_where_the_body_came_from(
     assert source.record["url"] == landed
 
 
+# --- 출처(`metadata.json`의 `source`) ----------------------------------------
+
+
+@needs_extractor
+def test_the_attribution_is_the_arrival_url(tmp_path: Path, stub_http: StubHTTP) -> None:
+    """`metadata.json`의 `source`로 가는 값이다 — 기록의 `url`과 같은 값이어야 한다 (#100).
+
+    사용자가 친 주소가 아니라 리다이렉트가 도착한 곳이다 (#95).
+    """
+    landed = "https://news.example.com/article/1?page=all"
+    stub_http.body = article_page()
+    stub_http.final_url = landed
+
+    source = from_url("https://exam.pl/abcd", config=config_with(tmp_path), now=NOW)
+
+    assert source.attribution == source.record["url"] == landed
+
+
+def test_a_local_path_is_not_an_attribution(tmp_path: Path) -> None:
+    """로컬 파일 경로는 업로드 설명에 붙일 출처가 아니다 (PRD 14.1) — 기록에는 남지만
+    `metadata.json`의 `source`로는 가지 않는다 (#100)."""
+    source = from_text_file(
+        write_article(tmp_path), config=config_with(tmp_path), now=NOW
+    )
+
+    assert source.record["path"]
+    assert source.attribution is None
+
+
+def test_the_topic_path_has_no_attribution() -> None:
+    """기록이 없으면 출처도 없다 — 여기서 `record`를 첨자로 열면 터진다."""
+    assert from_topic("세계 지리 상식").attribution is None
+
+
 # --- 링크 갈래: 거부 신호 셋 --------------------------------------------------
 
 

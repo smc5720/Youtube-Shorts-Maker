@@ -67,11 +67,16 @@ def build_prompt(*, scene_lines: str, title_max_len: int, tag_max_count: int) ->
     )
 
 
-def generate(scenes: Mapping[str, Any], *, config: Config) -> dict[str, Any]:
+def generate(
+    scenes: Mapping[str, Any], *, config: Config, source: str | None = None
+) -> dict[str, Any]:
     """장면 목록에서 `metadata.json` 내용을 만든다.
 
     Args:
         scenes: `scenes.json` 내용. 초안 상태여도 된다.
+        source: `source` 필드에 남길 출처. 값을 고르는 것은 입력 경로
+            (`source.SourceInput.attribution`)이고 이 모듈은 그것을 옮겨 담기만 한다 —
+            여기서 `source.json`을 열지 않는다. 기본값 `None`은 "출처가 없는 입력이었다"다.
 
     Raises:
         LLMError: 모델이 요구를 만족하는 출력을 내지 못했을 때 (재시도 후에도).
@@ -97,7 +102,7 @@ def generate(scenes: Mapping[str, Any], *, config: Config) -> dict[str, Any]:
         ),
     )
 
-    content = _assemble(result.data, scenes=scenes)
+    content = _assemble(result.data, scenes=scenes, source=source)
     _check_limits(content, title_max_len=title_max_len, tag_max_count=tag_max_count)
     validate_metadata(content)
     return content
@@ -118,7 +123,9 @@ def describe_scenes(scenes: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _assemble(data: Mapping[str, Any], *, scenes: Mapping[str, Any]) -> dict[str, Any]:
+def _assemble(
+    data: Mapping[str, Any], *, scenes: Mapping[str, Any], source: str | None
+) -> dict[str, Any]:
     """모델이 낸 부분 결과에 코드가 정하는 필드를 채워 `metadata.json` 내용을 만든다."""
     return {
         "schema_version": SCHEMA_VERSION,
@@ -128,9 +135,9 @@ def _assemble(data: Mapping[str, Any], *, scenes: Mapping[str, Any]) -> dict[str
         "titles": data["titles"],
         "description": data["description"],
         "tags": data["tags"],
-        # `--topic` 경로에는 출처가 없다. `--url` / `--text-file` 경로에서 값을 채우는
-        # 것은 #31이며, 그때까지 `null`은 "빠뜨림"이 아니라 "출처 없음"이다.
-        "source": None,
+        # 링크 입력에서만 값이 있다 (#100). `--topic`·`--text-file`의 `null`은 "빠뜨림"이
+        # 아니라 "출처 없음"이며, 로컬 경로는 업로드 설명에 붙일 출처가 아니다 (PRD 14.1).
+        "source": source,
     }
 
 
