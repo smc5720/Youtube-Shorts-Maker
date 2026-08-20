@@ -36,7 +36,13 @@ from .assets import AssetError, background_presets
 from .audio_mix import AudioChain, AudioMixError
 from .overlay import OverlayError
 from .run_context import commit_staged, staging_path
-from .schemas.project import BACKGROUND_KINDS, DEFAULT_VOICE_VOLUME
+from .schemas.project import (
+    BACKGROUND_KINDS,
+    DEFAULT_VOICE_VOLUME,
+    MOTION_KINDS,
+    MOTION_NONE,
+    MOTION_STRENGTH_MAX,
+)
 from .schemas.scenes import validate_scenes_final
 
 LOGGER = logging.getLogger(f"{PACKAGE_LOGGER}.video_renderer")
@@ -97,6 +103,18 @@ BACKGROUND_FILE_KINDS: dict[str, str] = {
 무엇을 디코드하는지 알 수 없다. 넓게 열면 수십 초 걸리는 렌더 중간에 실패한다 (PRD 14.1).
 
 순서가 화면의 순서다 — 앱이 다시 정렬하면 목록 순서가 두 곳에서 정해진다.
+"""
+
+MOTION_TARGET_KINDS = ("image", "video")
+"""배경 모션이 실제로 붙는 배경 종류 (PRD 7.7, 이슈 #34).
+
+**`preset`·`color`가 빠진 것은 값을 무시하기 때문이 아니라 결과가 같기 때문이다.** zoom/pan은
+화면의 공간 변화를 옮기는 것이라 단색에서는 모든 프레임이 완전히 동일하고, 번들 그라디언트는
+세로 그라디언트를 세로로 미는 것이라 변화가 거의 보이지 않는다 (리파인먼트 실측). 필터를
+하나 더 지나며 렌더 시간만 늘 자리다 — 모션 있음이 없음보다 40초 렌더에서 0.5~0.8초 길었다.
+
+모션 자체의 어휘는 여기 없다 — `kind` 후보와 강도 상한은 계약이 소유한다
+(`schemas/project.MOTION_KINDS`).
 """
 
 
@@ -947,6 +965,11 @@ def _background(
     kind = background.get("kind")
     value = str(background.get("value", ""))
     size = f"{width}x{height}"
+    # **네 종류가 모두 지나지만 붙는 것은 둘뿐이다** (#34). 판정을 여기서 하지 않는 이유는
+    # 아래 분기마다 같은 조건을 다시 쓰게 되기 때문이다 — `_motion`이 종류를 보고 답한다.
+    motion = _motion(
+        background, kind=kind, width=width, height=height, fps=fps, length=length
+    )
 
     if kind == "preset":
         try:
@@ -982,7 +1005,7 @@ def _background(
         path = str(_background_file(value, kind, run_dir))
         return (
             ["-loop", "1", "-framerate", str(fps), "-t", length, "-i", path],
-            _fill(width, height),
+            _chain(_fill(width, height), motion),
         )
 
     if kind == "video":
@@ -990,7 +1013,7 @@ def _background(
         path = str(_background_file(value, kind, run_dir))
         return (
             ["-stream_loop", "-1", "-t", length, "-i", path],
-            f"{_fill(width, height)},fps={fps}",
+            _chain(_fill(width, height), f"fps={fps}", motion),
         )
 
     raise RenderError(
@@ -1004,6 +1027,138 @@ def _fill(width: int, height: int) -> str:
         f"scale={width}:{height}:force_original_aspect_ratio=increase,"
         f"crop={width}:{height},setsar=1"
     )
+
+
+def _chain(*steps: str) -> str:
+    """필터 단계를 이어 붙인다. **빈 단계는 지운다** — 붙일 것이 없을 때의 명령이 그 단계가
+    생기기 전과 정확히 같아야 한다 (#34의 완료 조건)."""
+    return ",".join(step for step in steps if step)
+
+
+_MOTION_CENTER_X = "iw/2-(iw/zoom/2)"
+_MOTION_CENTER_Y = "ih/2-(ih/zoom/2)"
+"""확대된 크롭 창을 가운데 두는 좌표.
+
+`zoom`은 **이 프레임에 대해 이미 계산된 배율이다** — `zoompan`이 `z`를 먼저 평가하고 그 값을
+`x`·`y` 표현식의 변수로 넘긴다. 그래서 배율이 변하는 내내 중심이 유지된다.
+"""
+
+_MOTION_SPAN_X = "(iw-iw/zoom)"
+_MOTION_SPAN_Y = "(ih-ih/zoom)"
+"""팬이 움직일 수 있는 폭 — 확대로 생긴 여백이 전부다.
+
+**이 범위를 넘기면 배경 경계가 프레임에 들어온다.** `zoompan`이 `x`를 `[0, iw-iw/zoom]`으로
+자르므로 이중 안전망이고, 표현식이 이미 그 안에 있으면 잘림이 그림을 바꾸지 않는다.
+"""
+
+
+def _motion(
+    background: Mapping[str, Any],
+    *,
+    kind: Any,
+    width: int,
+    height: int,
+    fps: int,
+    length: str,
+) -> str:
+    """배경 체인 뒤에 이을 `zoompan` 한 단계 (PRD 7.7, 이슈 #34). 없으면 빈 문자열.
+
+    **`s`·`fps`·`d`를 항상 명시한다.** 셋 다 기본값이 함정이다 — `s`의 기본값이 `hd720`이라
+    지정하지 않으면 배경이 1280x720으로 나오고 **뒤에 붙는 오버레이 좌표가 전부 어긋난다**.
+    `fps` 기본값은 25(우리는 30)이고, `d` 기본값 90은 입력 프레임 하나를 90프레임으로 늘려
+    `-loop 1` 이미지 입력에서 3초 주기로 같은 줌이 반복된다.
+
+    **구간을 켜고 끄는 방법이 없다.** 이 필터는 timeline을 지원하지 않아
+    (`ffmpeg -h filter=zoompan`에 `enable`이 없다) 오버레이처럼 `enable='gte(t,a)*lt(t,b)'`로
+    장면마다 다른 값을 줄 수 없다 — 시간에 따라 달라지는 것은 전부 `z`·`x`·`y` 표현식 안에
+    있어야 한다. 그래서 이 값은 장면 속성이 아니라 프로젝트 전역이다 (PRD 7.10).
+
+    Raises:
+        RenderError: 모르는 `kind`이거나 `strength`가 계약 밖일 때. **인코딩 전에 걸린다** —
+            오버레이의 폰트 검증과 같은 자리다.
+    """
+    motion = background.get("motion")
+    if motion is None:
+        # 이 필드가 생기기 전에 만들어진 run 디렉터리. 없는 것은 모션 없음이다.
+        return ""
+    if not isinstance(motion, Mapping):
+        raise RenderError(f"background.motion은 매핑이어야 한다. 받은 값: {motion!r}")
+
+    name = motion.get("kind", MOTION_NONE)
+    if name not in MOTION_KINDS:
+        raise RenderError(
+            f"모르는 배경 모션이다: {name!r}. 쓸 수 있는 값: {', '.join(MOTION_KINDS)}"
+        )
+    strength = _motion_strength(motion)
+
+    if name == MOTION_NONE or strength == 0:
+        return ""
+    if kind not in MOTION_TARGET_KINDS:
+        # 조용히 넘기지 않는다. 사람이 config에서 모션을 켜 두고 배경이 프리셋이면 화면에
+        # 아무 일도 일어나지 않는데, 그 이유가 어디에도 없으면 설정을 의심하게 된다.
+        LOGGER.debug(
+            "배경이 %s라 모션(%s)을 붙이지 않는다 — 결과가 같은 종류다", kind, name
+        )
+        return ""
+
+    # 진행도 0 → 1. **`on`은 출력 프레임 번호이고 0부터 센다**(실측). 마지막 프레임에서 정확히
+    # 1이 되도록 프레임 수 - 1로 나누고, 그보다 뒤에 프레임이 더 와도 넘어가지 않게 자른다.
+    # 쉼표는 필터 인자 구분자라 이스케이프한다 (`build_preview_command`의 `select`와 같다).
+    last = max(round(float(length) * fps) - 1, 1)
+    progress = rf"min(on/{last}\,1)"
+    zoom, x, y = _motion_expressions(str(name), strength, progress)
+    return f"zoompan=z='{zoom}':x='{x}':y='{y}':d=1:s={width}x{height}:fps={fps}"
+
+
+def _motion_expressions(
+    name: str, strength: float, progress: str
+) -> tuple[str, str, str]:
+    """모션 이름 → (`z`, `x`, `y`) 표현식.
+
+    **확대 배율이 1 아래로 내려가지 않는다.** 내려가면 크롭 창이 캔버스보다 커져 배경 경계가
+    프레임 안에 노출된다 — 팬이 배율을 고정하는 이유도 그것이다. 움직일 여백이 없으면 팬이
+    제자리에 서므로, 팬은 `strength`를 여백으로 쓰고 그 안에서 이동한다.
+    """
+    # 진행도를 그대로 쓰는 방향과 뒤집어 쓰는 방향뿐이다 — 이름의 뒷말이 그것을 정한다.
+    forward, backward = progress, f"(1-{progress})"
+    zoomed = f"{1 + strength:g}"
+
+    if name == "zoom_in":
+        return f"1+{strength:g}*{forward}", _MOTION_CENTER_X, _MOTION_CENTER_Y
+    if name == "zoom_out":
+        return f"1+{strength:g}*{backward}", _MOTION_CENTER_X, _MOTION_CENTER_Y
+    if name == "pan_right":
+        return zoomed, f"{_MOTION_SPAN_X}*{forward}", _MOTION_CENTER_Y
+    if name == "pan_left":
+        return zoomed, f"{_MOTION_SPAN_X}*{backward}", _MOTION_CENTER_Y
+    if name == "pan_down":
+        return zoomed, _MOTION_CENTER_X, f"{_MOTION_SPAN_Y}*{forward}"
+    if name == "pan_up":
+        return zoomed, _MOTION_CENTER_X, f"{_MOTION_SPAN_Y}*{backward}"
+
+    # `MOTION_KINDS`에 이름을 더하고 여기를 잊은 경우다. 계약을 지난 값이 그림 없이 통과하는
+    # 것보다 멈추는 쪽이 낫다.
+    raise RenderError(f"모션 {name!r}의 표현식이 없다")  # pragma: no cover
+
+
+def _motion_strength(motion: Mapping[str, Any]) -> float:
+    """`background.motion.strength`. 계약과 같은 범위를 렌더러도 확인한다.
+
+    스키마가 이미 보지만 앱이 만든 프로젝트와 사람이 고친 파일이 직접 들어온다
+    (`_audio_number`와 같은 이유). **상한이 있는 것이 다른 점이다** — `zoompan`은 배율을
+    10에서 조용히 자르므로, 넘긴 값을 통과시키면 그림과 파일이 갈린다.
+    """
+    value = motion.get("strength", 0.0)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 <= value <= MOTION_STRENGTH_MAX
+    ):
+        raise RenderError(
+            f"background.motion.strength는 0 이상 {MOTION_STRENGTH_MAX} 이하의 수여야 한다. "
+            f"받은 값: {value!r}"
+        )
+    return float(value)
 
 
 def _audio_input(

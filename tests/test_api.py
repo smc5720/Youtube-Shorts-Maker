@@ -624,6 +624,21 @@ def test_a_scene_override_reaches_the_preview_signature(run_dir: Path) -> None:
     assert api._signature(run_dir, shortened, FINAL_SCENES) != signature
 
 
+def test_the_background_motion_reaches_the_preview_signature(run_dir: Path) -> None:
+    """**목록이 "닿지 않는 것" 쪽인 덕에 아무것도 하지 않아도 들어온다** (#34, #81).
+
+    빠지면 모션을 바꿔도 화면이 옛 그림에 머문다 — 프리뷰 정지 프레임은 모션 도중의 한 장이라
+    값이 바뀌면 그림도 바뀐다.
+    """
+    body = json.loads((run_dir / PROJECT_SCHEMA.name).read_text(encoding="utf-8"))
+    signature = api._signature(run_dir, body, FINAL_SCENES)
+
+    for motion in ({"kind": "zoom_in", "strength": 0.08}, {"kind": "none", "strength": 0.2}):
+        changed = json.loads(json.dumps(body))
+        changed["background"]["motion"] = motion
+        assert api._signature(run_dir, changed, FINAL_SCENES) != signature
+
+
 def test_preview_validates_the_project_it_is_handed(run_dir: Path) -> None:
     """**앱이 들고 있는 값으로 그린다** — 저장하지 않은 편집이 프리뷰에 보이지 않으면
     프리뷰가 편집 도구가 되지 못한다. 대신 저장과 같은 검증을 지난다."""

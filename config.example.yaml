@@ -90,3 +90,8 @@ render:
   # CTA 화면의 고정 두 줄 (D1 확정 스펙 5.5). 채널 브랜딩이라 LLM이 짓지 않는다.
   cta_punch: "구독 · 좋아요"      # CTA 강조 줄. 1줄 9자까지
   cta_tail: "매일 새 상식 퀴즈"    # CTA 마지막 줄. 1줄 21자까지
+  # 배경 모션 (PRD 7.7). 이미지·영상 배경에만 붙는다 — 프리셋·단색은 어느 값을 줘도
+  # 프레임이 똑같아서 필터를 붙이지 않는다. 배경을 파일로 바꾸는 것은 앱이다.
+  motion:
+    kind: none                    # none / zoom_in / zoom_out / pan_left / pan_right / pan_up / pan_down
+    strength: 0.08                # 확대 배율의 증분(0.08 = 8% 더 확대). 0~1.0

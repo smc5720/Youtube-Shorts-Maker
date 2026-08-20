@@ -48,9 +48,59 @@ BACKGROUND_KINDS = ("preset", "color", "image", "video")
 무료 이미지 API는 MVP 범위 밖이므로 원격 소스 종류를 두지 않는다 (PRD 14.1).
 """
 
+MOTION_NONE = "none"
+"""모션을 걸지 않는다 — **기본값이다.**
+
+`audio.music`이 기본 `null`인 것과 같은 자리다 (#35). 앱에 이 값을 바꾸는 컨트롤이 없으므로
+(D2 확정 스펙에 모션 칸이 없다) 켜는 경로는 config 하나이고, 기본으로 켜 두면 앱에서 배경을
+파일로 바꾼 사람이 화면에서 끌 수 없는 움직임을 얻는다.
+"""
+
+MOTION_KINDS = (
+    MOTION_NONE,
+    "zoom_in",
+    "zoom_out",
+    "pan_left",
+    "pan_right",
+    "pan_up",
+    "pan_down",
+)
+"""배경에 걸 수 있는 움직임 (PRD 7.7의 "약한 zoom/pan", 이슈 #34).
+
+**이름 하나가 방향까지 정한다.** `kind` + `direction` 두 칸으로 나누면 `zoom`에 `left`가,
+`pan`에 `in`이 붙는 조합이 계약을 통과하고 그 뜻은 렌더러가 정해야 한다.
+
+`preset`·`color` 배경에서는 어느 값을 줘도 결과가 같다 — 공간 변화를 옮기는 것이므로 그림이
+균일한 소스에서는 옮길 것이 없다. 그래서 렌더러가 그 두 종류에는 필터를 붙이지 않는다
+(`video_renderer._motion`).
+"""
+
+MOTION_STRENGTH_MAX = 1.0
+"""`strength`의 상한 — 확대 배율 2배.
+
+**`zoompan`이 배율을 10에서 조용히 자르기 때문에 계약이 먼저 거부한다.** 상한이 없으면
+`strength: 20`이 검증을 지나 배율 10으로 렌더되고, 값과 그림이 갈린 이유가 어디에도 남지
+않는다. 2배로 잡은 것은 캔버스 크기(1080x1920)로 이미 맞춰진 배경을 그 이상 확대하면 화면의
+디테일이 업스케일로 뭉개지기 때문이다.
+"""
+
+_MOTION_FIELDS = {
+    "kind": text(choices=MOTION_KINDS),
+    # 확대 배율의 **증분**이다 — 0.08은 8% 더 확대한다는 뜻이고 배율 자체는 1 아래로 내려가지
+    # 않는다 (내려가면 캔버스보다 작아져 배경 경계가 프레임에 노출된다).
+    # 0을 받는 이유는 `kind`를 그대로 두고 움직임만 끄는 상태가 표현돼야 하기 때문이다.
+    "strength": number(minimum=0.0, maximum=MOTION_STRENGTH_MAX),
+}
+
 _BACKGROUND_FIELDS = {
     "kind": text(choices=BACKGROUND_KINDS),
     "value": text(),
+    # 배경 모션 (#34). **`render`가 아니라 여기 있다** — 적용 여부가 위 `kind`에 달려 있어서,
+    # 떨어뜨려 놓으면 "모션을 켰는데 아무 일도 없다"의 이유가 파일에서 보이지 않는다.
+    #
+    # **선택이다.** 이 필드가 생기기 전에 만들어진 run 디렉터리의 `project.json`이 열려야
+    # 하고, 없는 것은 `MOTION_NONE`과 같은 뜻이다 (`voice_volume`과 같은 이유, #81).
+    "motion": section(_MOTION_FIELDS, required=False),
 }
 
 DEFAULT_VOICE_VOLUME = 1.0
