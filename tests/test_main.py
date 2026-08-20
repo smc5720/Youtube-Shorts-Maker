@@ -11,11 +11,23 @@ import io
 import json
 import re
 import sys
+import urllib.error
+from email.message import Message
 from pathlib import Path
 
 import pytest
 
-from conftest import STUB_SEGMENT_SEC, StubFFmpeg, StubLLM, StubTTS
+from conftest import (
+    ARTICLE_HEADLINE,
+    ARTICLE_URL,
+    STUB_SEGMENT_SEC,
+    StubFFmpeg,
+    StubHTTP,
+    StubLLM,
+    StubTTS,
+    article_page,
+    needs_extractor,
+)
 
 from shorts_maker.captions import CAPTIONS_NAME, timecode
 from shorts_maker.config import RUN_CONFIG_FILENAME, defaults, load_run_config
@@ -447,21 +459,56 @@ def test_a_missing_text_file_stops_before_the_run_dir(
     assert not output_root.exists()
 
 
-def test_url_is_not_supported_yet_and_stops_before_the_run_dir(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """그룹의 자리만 있다 — 가져오기·추출은 #95가 붙인다."""
+@needs_extractor
+def test_url_run_writes_the_source_record(tmp_path: Path, stub_http: StubHTTP) -> None:
+    """제목·본문·URL·접근 시각이 남는다 (#95, PRD 7.1). 위치 필드는 `url` 쪽이다."""
+    stub_http.body = article_page()
     output_root = tmp_path / "out"
 
-    exit_code = main(
-        ["--url", "https://example.com/article", "--out", str(output_root)]
-    )
+    exit_code = main(["--url", ARTICLE_URL, "--out", str(output_root)])
+
+    assert exit_code == 0
+    record = load_source(run_dirs(output_root)[0] / SOURCE_SCHEMA.name)
+    assert record["kind"] == "url"
+    assert record["url"] == ARTICLE_URL
+    assert record["path"] is None
+    assert record["title"] == ARTICLE_HEADLINE
+    assert record["collected_at"]
+
+
+@needs_extractor
+def test_the_url_run_puts_the_page_on_the_console(
+    tmp_path: Path, stub_http: StubHTTP
+) -> None:
+    """추출 글자 수와 제목을 사람이 본다 — 통과한 페이지를 가르는 것은 사람이다 (#95)."""
+    stub_http.body = article_page()
+    output_root = tmp_path / "out"
+
+    main(["--url", ARTICLE_URL, "--out", str(output_root)])
+
+    log_text = (run_dirs(output_root)[0] / LOG_FILENAME).read_text(encoding="utf-8")
+    record = load_source(run_dirs(output_root)[0] / SOURCE_SCHEMA.name)
+    assert ARTICLE_URL in log_text
+    assert ARTICLE_HEADLINE in log_text
+    assert f"{record['char_count']}자" in log_text
+
+
+def test_a_rejected_url_stops_before_the_run_dir(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], stub_http: StubHTTP,
+    stub_llm: StubLLM,
+) -> None:
+    """거부는 설정 오류와 같은 종료 코드다. 빈 run 디렉터리도 LLM 호출도 남기지 않는다."""
+    stub_http.error = urllib.error.HTTPError(ARTICLE_URL, 403, "Forbidden", Message(), None)
+    output_root = tmp_path / "out"
+
+    exit_code = main(["--url", ARTICLE_URL, "--out", str(output_root)])
 
     assert exit_code == EXIT_CONFIG_ERROR
     stderr = capsys.readouterr().err
-    assert "--url" in stderr
+    assert "403" in stderr
     assert "--text-file" in stderr  # 대안을 안내한다
     assert not output_root.exists()
+    assert stub_llm.call_count == 0
 
 
 def test_unreadable_output_root_exits_nonzero(

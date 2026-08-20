@@ -15,10 +15,10 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 
 **Phase 0~4 완료.** CLI 한 번에 `config.used.yaml` · `quiz.json` · `scenes.json` ·
 `metadata.json` · `audio/seg-*.mp3` · `voice.mp3` · `captions.srt` · `project.json` ·
-`final_short.mp4`가 나오고(`--text-file` 경로는 `source.json`도), 앱은 열기·저장·장면 목록·
-프리뷰·문제 편집·속성 편집·최종 렌더·재생성까지 한다. **지금은 Phase 5다** — 원문 파일
-입력(#94)이 붙었고 `--url`은 배타 그룹의 자리만 있다. #95·#36이 `ready`, 나머지(#32~#35,
-#37)는 `needs-refinement`.
+`final_short.mp4`가 나오고(`--text-file`·`--url` 경로는 `source.json`도), 앱은 열기·저장·장면
+목록·프리뷰·문제 편집·속성 편집·최종 렌더·재생성까지 한다. **지금은 Phase 5다** — 범용 입력
+경로(#94·#95)가 붙어 세 갈래가 모두 산다. #36이 `ready`, 나머지(#32~#35, #37)는
+`needs-refinement`.
 
 | Phase | 이슈 | 내용 |
 | --- | --- | --- |
@@ -84,6 +84,15 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
   계약이 두 곳에 생긴다. 검증은 여전히 `Rule.check`가 한다 — 파생 결과로 검증하지 말 것. (#9)
 - **산출물은 타입·입력 경로에 따라 다르다.** `script.txt`·`summary.json`·`source.json`은
   퀴즈 + `--topic` 경로에서 생성되지 않고, 없는 것이 실패가 아니다. (PRD 6.2)
+- **본문 추출기 import는 함수 안에 있어야 한다** (`source.load_extractor`). trafilatura는
+  `source` extra라 없을 수 있고, 있어도 `import`가 810ms다 — 모듈 최상단으로 옮기면 없는
+  환경에서 `--topic`이 죽고 있는 환경에서는 모든 실행이 그 시간을 낸다. **`dev` extra에도
+  들어 있는 이유는 추출 품질이 테스트 대상이기 때문이다** — 대역으로 바꾸면 동어반복이 된다.
+- **링크 거부는 세 신호뿐이다** — HTTP 상태 · `Content-Type` · 본문 길이. "유료인가 로그인
+  벽인가"를 판별하는 코드를 더하면 정상 기사를 함께 버린다(로그인 안내문 800자 > 정상 단신
+  735자, 스파이크 #31 3장). 임계값의 목적은 안내문 걸러내기가 아니라 **빈 본문 걸러내기**다.
+- **`source.json`의 `url`은 사용자가 친 주소가 아니라 리다이렉트가 도착한 곳이다.** 단축
+  링크를 넣고 값이 다르다고 버그로 고치면 그 칸이 출처를 가리키지 않게 된다. (#95)
 - **전 구간 스모크(`tests/test_e2e_smoke.py`)는 `conftest`의 `stub_tts`·`stub_ffmpeg`를 쓰지
   않는다.** `b"stub-audio"`는 진짜 FFmpeg가 디코드하지 못하고, `stub_ffmpeg`는 `ffprobe`까지
   가짜 길이로 답해 duration 확정이 실측 경로를 지나지 않는다. **파이프라인 실행은 모듈 스코프

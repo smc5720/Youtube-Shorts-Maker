@@ -16,8 +16,8 @@
   `confidence`도 임계값도 모른다 (퀴즈 스펙 1.1).
 
 - 입력 세 갈래는 **배타 그룹**이고 정확히 하나가 필수다. 무엇이 들어왔는지를 하나의 값으로
-  합치는 것은 `source.py`이며, 파이프라인이 받는 것은 `SourceInput` 하나다 (#94). `--url`의
-  가져오기·추출은 #95가 붙인다 — 지금은 그룹의 자리만 있다.
+  합치는 것은 `source.py`이며, 파이프라인이 받는 것은 `SourceInput` 하나다 (#94, #95).
+  가져오기·추출·거부도 그쪽에 있다 — 여기는 어느 갈래였는지만 본다.
 - 산출물 파일명은 타입 선언(`content_artifact`)에서 나온다. 여기 `quiz.json`을 적으면
   공통 파이프라인이 타입을 알게 되고 `tests/test_type_boundary.py`가 깨진다.
 - 산출물 검증은 생성기가 한다. 파이프라인은 타입 전용 스키마를 열 수 없다 (퀴즈 스펙 1.1).
@@ -74,7 +74,7 @@ from .shorts_types import (
     available_types,
     get_type,
 )
-from .source import SourceError, SourceInput, from_text_file, from_topic
+from .source import SourceError, SourceInput, from_text_file, from_topic, from_url
 from .timeline import TimelineError
 from .tts import TTSError, create_synthesizer, validate_tts_provider
 from .video_renderer import RenderError
@@ -111,7 +111,7 @@ def _force_utf8_console() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="shorts-maker",
-        description="주제 한 줄 또는 원문 파일을 입력받아 세로형 쇼츠를 생성한다.",
+        description="주제 한 줄·원문 파일·링크 중 하나를 입력받아 세로형 쇼츠를 생성한다.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     # 입력 세 갈래 (PRD 6.1). **정확히 하나가 필수다** — 둘을 함께 주면 어느 것이 콘텐츠의
@@ -140,7 +140,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--url",
         default=argparse.SUPPRESS,
         metavar="링크",
-        help="본문을 추출할 링크 (아직 지원하지 않는다 — #95)",
+        help="본문을 추출할 링크. trafilatura가 필요하다 (pip install 'youtube-shorts-maker[source]')",
     )
     parser.add_argument(
         "--type",
@@ -235,9 +235,12 @@ def run(
         if source.record is not None:
             written = write_artifact(context.run_dir, SOURCE_SCHEMA.name, source.record)
             logger.info(
-                "%s 생성 완료 — %s, 원문 %d자, 제목 %s",
+                # 출처를 함께 낸다. 링크 경로에서 이 값은 **리다이렉트가 도착한 URL**이라
+                # 사용자가 친 주소와 다를 수 있고, 통과한 페이지를 보는 것은 사람이다 (#95).
+                "%s 생성 완료 — %s %s, 원문 %d자, 제목 %s",
                 written.name,
                 source.record["kind"],
+                source.record["path"] or source.record["url"],
                 source.record["char_count"],
                 source.record["title"],
             )
@@ -403,18 +406,15 @@ def _resolve_input(args: argparse.Namespace, config: Config) -> SourceInput:
     2) 여기서 볼 것은 어느 갈래였는지뿐이고, 값이 없는 갈래는 속성 자체가 없다.
 
     Raises:
-        SourceError: 원문을 읽을 수 없거나, 아직 구현되지 않은 갈래일 때.
+        SourceError: 원문을 읽을 수 없거나, 링크에서 본문을 얻지 못했을 때.
     """
     if (topic := getattr(args, "topic", None)) is not None:
         return from_topic(topic)
+    # 수집 시각은 여기서 잰다. run 시작 시각과 같은 값이 아니다 — run 디렉터리는 이
+    # 검증을 통과한 뒤에 만들어지고, 기록이 말하는 것은 원문을 읽은 시각이다.
     if (text_file := getattr(args, "text_file", None)) is not None:
-        # 수집 시각은 여기서 잰다. run 시작 시각과 같은 값이 아니다 — run 디렉터리는 이
-        # 검증을 통과한 뒤에 만들어지고, 기록이 말하는 것은 원문을 읽은 시각이다.
         return from_text_file(text_file, config=config, now=datetime.now())
-    raise SourceError(
-        "--url은 아직 지원하지 않는다 — 링크 본문 추출은 #95가 붙인다.\n"
-        "지금은 페이지 본문을 파일로 저장해 --text-file로 넣는다."
-    )
+    return from_url(args.url, config=config, now=datetime.now())
 
 
 def main(argv: list[str] | None = None) -> int:
