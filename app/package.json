@@ -3,18 +3,22 @@
   "private": true,
   "version": "0.1.0",
   "description": "YouTube Shorts Maker 편집 앱 — Electron 셸 + React 렌더러. 백엔드는 shorts_maker.api를 자식 프로세스로 띄운다 (#25, #26).",
+  "author": "Youtube-Shorts-Maker",
   "main": "electron/main.js",
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "start": "npm run build && electron .",
-    "smoke": "npm run build && node smoke/run.mjs"
+    "smoke": "npm run build && node smoke/run.mjs",
+    "build:backend": "node scripts/build-backend.mjs",
+    "dist": "npm run build && npm run build:backend && electron-builder --config electron-builder.yml"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^43.0.0",
+    "electron-builder": "^26.0.0",
     "lucide-react": "^0.550.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -34,6 +34,10 @@ source = ["trafilatura>=2.2"]
 # 바이트에서 무엇이 나오는지(특히 MS949 응답)를 대역으로 흉내 내면 검증이 아니라 동어반복이
 # 된다. 없는 환경에서는 그 테스트만 skip된다.
 dev = ["pytest>=8.0", "fonttools>=4.50", "trafilatura>=2.2"]
+# 배포본을 만드는 데만 쓴다 (#106). **`dev`에 넣지 않는 이유는 테스트가 쓰지 않기
+# 때문이다** — 동결 배포는 `app/scripts/build-backend.mjs`가 부르는 별도 단계이고, 앱을
+# 고치는 사람 전원이 이 트리를 받을 필요는 없다. 하한은 실측에 쓴 버전이다.
+dist = ["pyinstaller>=6.22"]
 
 [project.scripts]
 shorts-maker = "shorts_maker.main:main"

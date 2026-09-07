@@ -1,0 +1,37 @@
+# electron-builder 설정 — 배포본 하나로 묶는다 (이슈 #106, PRD 14.1).
+#
+# **JSON이 아니라 YAML인 이유는 아래 주석들이다.** 이 파일의 값 넷은 전부 "빼면 조용히
+# 깨지는" 쪽이라 근거가 값 옆에 있어야 한다.
+
+appId: com.github.smc5720.shorts-maker
+productName: Shorts Maker
+
+directories:
+  # `app/dist`(Vite 산출물)와 겹치지 않는 이름이어야 한다. `.gitignore`가 무시한다.
+  output: release
+
+# **명시하지 않으면 `node_modules`와 `smoke/`까지 들어간다.** 셋이 앱의 전부다 —
+# 렌더러는 `dist/`로 번들되고(번들 폰트도 Vite가 `dist/assets/`로 복사한다) 런타임
+# 의존성은 없다(`devDependencies`뿐이다).
+files:
+  - electron/**/*
+  - dist/**/*
+  - package.json
+
+# 동결 백엔드를 `resources/backend/`에 놓는다. **이 경로는 앱이 정한 것이 아니라
+# `electron/main.js`의 `backendCommand()`가 이미 찾는 자리다** — `app.isPackaged`이면
+# `resources/backend/shorts-backend.exe`를 먼저 보고, 없을 때만 저장소 `.venv`로 내려간다.
+# 여기서 어긋나면 배포본이 사용자 PATH의 파이썬을 찾아 나선다(있으면 `shorts_maker`가 없어
+# 실패하고, 없으면 백엔드가 아예 뜨지 않는다).
+#
+# **`asar`에 넣을 수 없다** — 아카이브 안의 파일은 실행할 수 없고, `assets/`도 파이썬이
+# 일반 경로로 읽어야 한다. `extraResources`가 그래서 `files`와 다른 칸이다.
+extraResources:
+  - from: ../build/backend-dist/shorts-backend
+    to: backend
+
+win:
+  # 압축을 풀어 실행하는 형태 하나만 만든다. NSIS 설치본은 코드 서명·설치 경로 결정이
+  # 함께 붙는 별개 결정이라 #106의 범위가 아니다 (이슈 "하지 않는 것").
+  target:
+    - zip

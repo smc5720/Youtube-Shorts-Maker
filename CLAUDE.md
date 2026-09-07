@@ -20,21 +20,13 @@ YouTube Shorts Maker — 세로형 쇼츠 자동 생성 엔진 + 편집 앱.
 경로(#94·#95)가 붙어 세 갈래가 모두 살고, 링크 입력의 출처가 `metadata.json`에 남고(#100),
 `--resume`으로 실패한 run을 이어 돌린다(#36). 이미지·영상 배경에 zoom/pan이 걸리고(#34, 기본은
 `none` — 앱에 끄는 칸이 없다), 배경음악과 낭독 구간 ducking이 붙었다(#35, 기본은 음악 없음 —
-**앱에 고르는 칸이 없어 경로는 config 하나다**). 남은 것은 **#32·#37·#106 셋이다.**
+**앱에 고르는 칸이 없어 경로는 config 하나다**). 배포본이 `npm run dist` 하나로 나온다(#106,
+Windows zip — **FFmpeg는 여전히 동봉하지 않는다**). 남은 것은 **#32와 #37 둘이다.**
 
 - **#32(`blocked`)는 선행이 없어 막혀 있다** — 요약·대본을 읽는 쪽이 없다. 원문을 소비하는
   쇼츠 타입 이슈가 먼저 생겨야 하고(저장소에 없다) `summary.json`·`script.txt`의 모양은 그쪽이
   정한다. 소비자 없이 두 모듈을 먼저 만드는 것은 PRD 12가 피한 배치다.
-- **#106(`ready`)은 새로 설계할 것이 없는 이슈다.** 배포 방식은 PRD 10·14.1이 이미 정했고
-  (PyInstaller onedir + FFmpeg 미동봉) 스파이크 #25 §5.1이 동결 백엔드를 실측했고
-  `main.js`의 `backendCommand()`가 동결 경로 분기를 이미 갖고 있다 — 없는 것은 그 둘을 잇는
-  빌드 스크립트뿐이다. **README 준비물 표를 그대로 읽으면 틀린다**: `claude` CLI는 생성
-  경로의 전제이고 **앱 배포본에는 필요하지 않다**(앱은 생성을 하지 않는다) — 배포본에 남는
-  전제는 FFmpeg 하나다. **FFmpeg 동봉과 CLI 단독 exe는 #106이 아니다** — 앞은 스파이크 §5.2의
-  재검토 조건(essentials 빌드 실측)이 열렸을 뿐 별도 스파이크이고, 뒤는 `claude` CLI 전제가
-  동봉으로 없어지지 않아 이득이 앱 쪽과 다르다. `trafilatura`도 넣지 않는다 — `pyproject`가
-  적어 둔 승격 조건("앱이 생성까지 하게 되면")이 아직 아니다.
-- **#37(`ready`)도 착수 가능하다.** 업로드 자동화 검토는 PRD 12의 마지막
+- **#37(`ready`)이 지금 착수할 수 있는 유일한 이슈다.** 업로드 자동화 검토는 PRD 12의 마지막
   항목이고 3장이 MVP 비목표로 둔 것이라, **스파이크 결론이 곧 구현 착수를 뜻하지 않는다** —
   #33처럼 "하지 않는다 + 다시 여는 조건"으로 끝나는 것도 정상 종료다. 산출물은
   `docs/spikes/37-youtube-upload.md` 하나이고 코드·의존성·스키마 변경이 없다. **근거가 실측이
@@ -273,11 +265,30 @@ Lines**다(HTTP 서버가 아니다). 결정문은 PRD 14.1, 실측은 `docs/spi
   `.png`로 쓰면 **경고 없이 H.264가 그 파일에 쓰인다.**
 - **임시 파일은 확장자를 유지해야 한다** (`run_context.staging_path`). FFmpeg는 출력 형식을
   확장자로 정하므로 `voice.mp3.tmp-123`은 "Unable to find a suitable output format"으로 실패한다.
-- **동결 배포(PyInstaller onedir)에서는 `assets/`가 실행 파일 옆에 있어야 하고**, 동적으로
-  import되는 타입 패키지는 `--hidden-import`가 필요하다.
+- **동결 배포(PyInstaller onedir)에서 `assets/`는 실행 파일 옆이고 `datas`로는 그 자리에
+  놓을 수 없다** — 6.x의 `datas`는 전부 `_internal/`로 가는데 `ASSETS_DIR`이 보는 자리는
+  dist 루트다(`_internal/shorts_maker/assets.py`에서 두 단계 위). 복사는
+  `app/scripts/build-backend.mjs`가 하고, **어긋나면 빌드가 아니라 프리뷰에서 드러난다.**
+  동적 import되는 타입 패키지는 hidden import가 필요한데 **그 목록을 손으로 적지 않는다** —
+  스펙이 `shorts_types.BUILTIN_TYPES`에서 읽는다(`packaging/shorts-backend.spec`). 누락은
+  동결본이 그 타입을 **읽기 전용으로** 여는 형태로 드러난다. (#106)
+- **`trafilatura`를 `excludes`에 두지 않으면 동결본에 들어온다.** `source.load_extractor`의
+  import가 함수 안에 있어도 PyInstaller는 바이트코드를 훑어 찾아낸다 — 함수 안에 둔 이유가
+  기동 시간이었으므로 동결 크기는 별개로 막아야 한다(약 55MB). (#106)
+- **백엔드는 콘솔 서브시스템으로 동결하고 창은 `spawn`의 `windowsHide`가 숨긴다.**
+  `console=False`로 만들면 `api._use_utf8`의 `sys.stdout.reconfigure`가 `None`에서 터질 수
+  있다 — 창을 없애는 자리가 빌드가 아니라 띄우는 쪽인 것이 그래서다. (#106)
+- **배포본에서 `REPO_ROOT`는 저장소가 아니라 `resources/`다.** 저장소 경로를 기본값으로 쓰는
+  자리는 존재 확인을 지나야 한다(`runDirDefault`) — 없는 경로를 대화상자에 주면 플랫폼이
+  마지막으로 쓴 폴더를 잃는다. (#106)
+- **`npm run smoke`는 배포본을 밟지 않는다** — `smoke/run.mjs`가 `node_modules`의 electron을
+  띄운다. 배포본 확인은 그 exe에 `--smoke=<시나리오>`를 직접 주는 수동 절차이고, 시나리오
+  코드는 배포본 안에 함께 들어 있다(`files`에 `electron/**/*`). (#106)
 - **Vite는 `base: './'`가 필요하다.** `loadFile`로 여는 페이지라 절대 경로는 파일 시스템 루트를
   가리킨다. 번들 폰트는 `app/` 밖의 `assets/fonts/`를 CSS 상대 경로로 참조한다 — 앱 안으로
-  복사하면 D1이 관리하는 폰트가 두 벌이 된다.
+  복사하면 D1이 관리하는 폰트가 두 벌이 된다. **배포본에 따로 넣을 것은 없다** — Vite가
+  빌드에서 `dist/assets/`로 복사하므로 렌더러는 자기 안에서 폰트를 찾는다. 백엔드가 쓰는
+  `assets/fonts/`(`font_path`)는 그것과 별개 사본이고 동결본 옆으로 간다.
 - **저장 여부를 main에 알리는 IPC만 동기다** (`sendSync` + `useLayoutEffect`). `invoke`로
   보내면 화면이 먼저 바뀌고 main이 나중에 알아, **그 틈에 창을 닫으면 확인 없이 닫힌다.**
 - **백엔드 오류는 문자열이 아니라 `code` + `message` + `details`(+ 렌더 실패의 `raw`)다.**

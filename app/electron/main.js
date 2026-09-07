@@ -85,7 +85,15 @@ function startBackend () {
   backendInfo = { command, pid: null, ready: false, failure: null }
   log('[backend] 실행', command, args.join(' '))
 
-  backend = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['pipe', 'pipe', 'pipe'] })
+  // **`windowsHide`가 없으면 배포본에서 콘솔 창이 함께 뜬다** (#106). 동결 백엔드는 콘솔
+  // 서브시스템으로 빌드한다 — `api._use_utf8`이 첫 줄 전에 `sys.stdout.reconfigure`를
+  // 부르므로 창 없는 서브시스템에서는 그 호출이 `None`에서 터질 수 있다. 창을 없애는 자리가
+  // 빌드가 아니라 띄우는 쪽인 것이 그래서다 (`packaging/shorts-backend.spec`).
+  backend = spawn(command, args, {
+    env: { ...process.env, ...env },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true
+  })
 
   readline.createInterface({ input: backend.stdout }).on('line', (line) => {
     let message
@@ -209,6 +217,14 @@ let ask = (options) => dialog.showMessageBox(mainWindow, options)
 // 무엇으로 판정하는지는 그대로 지난다.
 let pick = (options) => dialog.showOpenDialog(mainWindow, options)
 
+// run 디렉터리 선택의 시작 위치. **저장소에서 실행할 때만 답이 있다** — CLI 기본 산출
+// 위치가 `outputs/`이고(`main.DEFAULT_OUTPUT_ROOT`) 배포본은 그 자리를 알 수 없다.
+// `undefined`를 주면 플랫폼이 마지막으로 쓴 폴더를 기억한다.
+function runDirDefault () {
+  const outputs = path.join(REPO_ROOT, 'outputs')
+  return fs.existsSync(outputs) ? outputs : undefined
+}
+
 // 렌더가 만든 파일을 파일 관리자에서 보여주는 자리 (#30). 같은 이유로 바꿔 끼운다 —
 // **탐색기 창은 모달이 아니지만 스모크가 도는 동안 창을 쌓는다.** 열지 못해도 화면의
 // 경로는 그대로 남으므로 실패는 값으로 돌려준다.
@@ -315,7 +331,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('pick-run-dir', async () => {
     const { canceled, filePaths } = await pick({
       title: '프로젝트를 열 run 디렉터리를 고른다',
-      defaultPath: path.join(REPO_ROOT, 'outputs'),
+      // **배포본에서 `REPO_ROOT`는 저장소가 아니라 `resources/`다** (#106). 그 아래
+      // `outputs`는 없으므로 있을 때만 준다 — 없는 경로를 주면 플랫폼이 임의의 자리를
+      // 열어, 사용자가 매번 마지막으로 쓴 폴더를 잃는다.
+      defaultPath: runDirDefault(),
       properties: ['openDirectory']
     })
     return canceled ? null : filePaths[0]

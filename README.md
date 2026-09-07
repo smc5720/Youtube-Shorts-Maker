@@ -34,6 +34,9 @@ CLI 한 번으로 `final_short.mp4`까지 나오고, 앱은 **이미 만들어�
 | 네트워크 | 기본 TTS(Edge TTS)가 외부로 나갑니다 |
 | Node.js (앱만) | Electron 43 · Vite 8을 돌릴 수 있는 버전 |
 
+위 표는 **저장소에서 실행할 때** 필요한 것입니다. 앱만 쓴다면 [배포본](#배포본-만들기)으로
+받아 FFmpeg 하나만 있으면 됩니다 — 파이썬도 Node도 `claude` CLI도 필요하지 않습니다.
+
 ## 설치
 
 ```bash
@@ -208,7 +211,8 @@ cp config.example.yaml config.yaml
 ## 편집 앱
 
 `app/`에 Electron + React 앱이 있습니다. **이미 있는 run 디렉터리를 열어 편집하는 도구**이고,
-저장소 루트에 `.venv`와 파이썬 의존성이 있어야 백엔드가 뜹니다. FFmpeg는 없어도 앱이 뜨고,
+저장소에서 띄울 때는 루트에 `.venv`와 파이썬 의존성이 있어야 백엔드가 뜹니다(배포본은 백엔드를
+동봉하므로 필요하지 않습니다 — [배포본 만들기](#배포본-만들기)). FFmpeg는 없어도 앱이 뜨고,
 없다는 사실을 첫 화면에서 말합니다.
 
 ```bash
@@ -245,6 +249,41 @@ npm start          # 빌드하고 앱을 띄운다
 
 **Windows에서 Electron의 stdout은 부모 셸에 붙지 않습니다.** 앱이 빈 화면에서 멈췄다면
 콘솔이 아니라 로그 파일을 봅니다. 배치와 경계는 [`app/README.md`](app/README.md)에 있습니다.
+
+## 배포본 만들기
+
+앱을 **Windows zip 하나**로 묶습니다. 받는 사람은 압축을 풀고 `Shorts Maker.exe`를 실행하면
+되고, **파이썬도 Node도 `claude` CLI도 설치하지 않습니다** — 앱은 이미 만들어진 run
+디렉터리를 여는 편집 도구라 생성 경로를 지나지 않습니다. **남는 전제는 FFmpeg / ffprobe가
+PATH에 있는 것 하나이고**, 없으면 첫 화면이 그 사실을 말합니다(열리기는 합니다).
+
+만드는 쪽에는 빌드 의존성이 하나 더 필요합니다.
+
+```bash
+pip install -e ".[dist]"      # PyInstaller
+cd app && npm install
+npm run dist                  # 렌더러 빌드 → 백엔드 동결 → 패키징
+```
+
+산출물은 이렇습니다.
+
+| 경로 | 내용 |
+| --- | --- |
+| `app/release/Shorts Maker-<버전>-win.zip` | 배포할 파일 (실측 157MB) |
+| `app/release/win-unpacked/` | 압축 전 그대로의 트리 (실측 381MB) |
+| `build/backend-dist/shorts-backend/` | 동결 백엔드만 (실측 27MB). `npm run build:backend`가 여기까지 |
+
+크기의 대부분은 Electron 런타임입니다. **FFmpeg는 동봉하지 않습니다** — 전체 빌드가 462MB로
+앱을 압도하고, 배포되는 빌드마다 GPL/LGPL 조건이 달라 "재배포 조건이 없는 에셋만 담는다"는
+기준(PRD 8장)을 다시 여는 일입니다.
+
+| 환경 변수 | 쓰임 |
+| --- | --- |
+| `SHORTS_PYTHON` | 백엔드를 동결할 인터프리터. 기본은 저장소의 `.venv` (앱을 띄울 때와 같은 규칙) |
+
+배포본은 백엔드를 `resources/backend/shorts-backend.exe`에서 찾고, 없으면 개발 경로(저장소의
+`.venv`)로 내려갑니다. 배포본이 파이썬을 찾아 나선다면 그 파일이 빠진 것이고, 앱 로그의
+`[backend] 실행` 줄이 어느 쪽을 썼는지 말합니다.
 
 ## 테스트
 

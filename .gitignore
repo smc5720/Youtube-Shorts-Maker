@@ -17,6 +17,9 @@ venv/
 # 편집 앱 (#26). dist/는 위에서 이미 무시된다.
 node_modules/
 
+# 배포본 (#106). 동결 백엔드는 build/ 아래라 위에서 이미 무시된다.
+/app/release/
+
 # 스모크 산출물 — 임시 디렉터리 경로가 매번 달라 커밋하면 diff만 는다.
 /app/smoke/results.json
 /app/smoke/screenshot*.png
