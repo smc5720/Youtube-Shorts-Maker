@@ -29,7 +29,12 @@ npm install
 npm start        # 빌드하고 앱을 띄운다
 npm run smoke    # 사람 없이 완료 조건을 밟고 app/smoke/results.json을 남긴다
 npm run typecheck
+npm run dist     # 배포본 (렌더러 빌드 → 백엔드 동결 → 패키징). 루트 README 참조
 ```
+
+**`npm run smoke`는 배포본을 밟지 않는다** — `smoke/run.mjs`가 `node_modules`의 electron을
+띄우므로 저장소 실행을 전제한다. 배포본 확인은 그 exe에 `--smoke=<시나리오>`를 직접 주는
+수동 절차다 (#106).
 
 | 환경 변수 | 쓰임 |
 | --- | --- |
@@ -48,6 +53,8 @@ app/
   electron/smoke.js     --smoke 시나리오
   smoke/run.mjs         스모크 오케스트레이션 (앱을 여러 번 띄운다)
   smoke/make_run.py     스모크가 열 run 디렉터리를 만든다
+  scripts/build-backend.mjs  백엔드를 PyInstaller onedir로 동결하고 assets/를 옆에 복사
+  electron-builder.yml       배포본 설정 (동결 백엔드는 resources/backend/로)
   src/                  React 렌더러 — App.tsx, scenes.ts, components/, styles/
   src/types/            **타입 전용 편집기.** 콘텐츠 필드를 아는 유일한 앱 코드다
 ```
